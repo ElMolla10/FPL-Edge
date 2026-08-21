@@ -41,7 +41,8 @@ Generated dependencies and caches are intentionally not included: `node_modules`
 | Manager history API | `app/api/fpl/history/route.ts` | Completed-gameweek points, ranks, transfers, bench and captain history |
 | Projection model | `app/lib/fpl.ts` | Typed FPL data model, projections, best XI, and baseline optimization |
 | Optimizer | `app/lib/optimizer.ts` | Multi-gameweek squad optimizer, risk modes, evaluation, and explanations |
-| Database | `db/`, `drizzle.config.ts` | Optional Drizzle/D1 integration scaffolding |
+| Database | `db/`, `drizzle.config.ts` | Drizzle/D1: users, sessions, squad_data |
+| Auth | `app/lib/auth-core.ts`, `app/lib/auth.ts`, `app/api/auth/*` | Email/password + ChatGPT sign-in, unified by email identity |
 | Worker | `worker/index.ts` | Cloudflare Worker request and image-optimization entry point |
 | Hosting config | `.openai/hosting.json`, `vite.config.ts` | Sites identity and Cloudflare/Vinext bindings |
 
@@ -49,7 +50,15 @@ Generated dependencies and caches are intentionally not included: `node_modules`
 
 The server routes fetch the public official Fantasy Premier League API under `https://fantasy.premierleague.com/api`. No FPL API key is required. Responses are cached for five minutes where appropriate, while the client requests fresh application data without using demo rosters.
 
-The current app saves the built squad and captain/vice-captain selections in browser `localStorage`. Public FPL Team IDs are imported server-side using the official entry and picks endpoints. The optional D1 layer is not active in this snapshot because `.openai/hosting.json` has `"d1": null`.
+The app persists locally to browser `localStorage` first, and syncs to D1 in the background when signed in (`app/lib/persistence.ts`) -- localStorage stays the source of truth every component reads; the server copy exists for cross-device access and to survive a cleared browser. Public FPL Team IDs are imported server-side using the official entry and picks endpoints.
+
+D1 is active (`.openai/hosting.json` has `"d1": "DB"`). For local dev, `@cloudflare/vite-plugin` auto-provisions a local D1 sqlite file the first time `npm run dev` runs, but does **not** auto-apply migrations to it. After a fresh `npm run dev` start (or whenever `drizzle/*.sql` changes), apply the migration once:
+
+```bash
+find .wrangler/state/v3/d1/miniflare-D1DatabaseObject -name "*.sqlite" ! -name "metadata.sqlite" -exec sqlite3 {} \; < drizzle/0000_nosy_gateway.sql
+```
+
+(Re-run `npm run db:generate` first if the schema changed, and apply the newly generated file instead.)
 
 ## Requirements
 
