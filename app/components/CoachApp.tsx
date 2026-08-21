@@ -3,11 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
 import { LiveChips, LiveHistory } from "./LiveIntelligence";
-import { FplData, FplPlayer, bestXi, fetchFplData, futureEvents, isValidSquad, playerProjection, projectionMetrics, savedSquad } from "../lib/fpl";
+import { FplData, FplFixture, FplPlayer, bestXi, fetchFplData, futureEvents, isValidSquad, playerProjection, projectionMetrics, savedSquad } from "../lib/fpl";
+import { createOptimizer } from "../lib/optimizer";
+import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "../lib/anomalies";
 
 type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
 type ManagerMeta={id:number;name:string;teamName:string;overallPoints:number;overallRank:number;gameweekPoints:number;gameweekRank:number;squadValue:number|null;bank:number|null;transfersMade:number;transferCost:number;captainId:number|null;viceCaptainId:number|null;chip:string|null};
-type Transfer={out:FplPlayer;incoming:FplPlayer;gain1:number;gain3:number;gain5:number;price:number;minutes:number;risk:"Low"|"Medium"|"High"};
+export type Transfer={
+  out:FplPlayer;incoming:FplPlayer;
+  gain1:number;gain3:number;gain5:number;
+  outGw1:number;inGw1:number;outGw3:number;inGw3:number;outGw5:number;inGw5:number;
+  price:number;minutes:number;expectedMinutesOut:number;expectedMinutesIn:number;
+  startProbOut:number;startProbIn:number;
+  dcOut:number;dcIn:number;attackingOut:number;attackingIn:number;
+  fixtureAdjustmentIn:number;confidenceOut:number;confidenceIn:number;
+  gainBand:FiveGwGainBand;anomalies:AnomalyFlag[];
+  hitCost:number;netDifference:number;utilityChange:number|null;
+  risk:"Low"|"Medium"|"High";
+};
 
 const nav:[View,string,string][]=[
   ["overview","Overview","⌂"],["team","My team","◫"],["transfers","Transfers","⇄"],["draft","Draft lab","◇"],["players","Players","⌕"],["fixtures","Fixtures","▦"],["news","News","●"],["deadline","Final check","✓"],["chips","Chips","★"],["model","Points model","∑"],["history","History","↗"],
@@ -61,7 +74,57 @@ function useManager(){const[meta,setMeta]=useState<ManagerMeta|null>(null);useEf
 function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:ManagerMeta)=>void}){const[id,setId]=useState("");const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const connect=async()=>{if(!/^\d+$/.test(id)){setMsg("Enter the numeric Team ID from your official FPL URL.");return}setBusy(true);setMsg("");try{const response=await fetch(`/api/fpl/team?entry=${id}`,{cache:"no-store"});const json=await response.json();if(!response.ok)throw new Error(json.error||"Could not connect team");const ids=(json.playerIds as number[]).filter(pid=>data.players.some(p=>p.id===pid));if(ids.length!==15)throw new Error("FPL did not return a complete public squad.");localStorage.setItem("fpl-edge-squad",JSON.stringify(ids));localStorage.setItem("fpl-edge-entry",id);localStorage.setItem("fpl-edge-manager",JSON.stringify(json.manager));localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());setMsg(`${json.manager.teamName} connected. Your coach is ready.`);onConnected?.(json.manager)}catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}finally{setBusy(false)}};return <section className="connect-hero"><div><span>START HERE</span><h2>Connect your official FPL team</h2><p>Enter the number in your FPL team URL. Read-only: we never ask for your password or make changes to your official team.</p></div><div><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect my team →"}</button><small>{msg||"Current public squad becomes available after its deadline."}</small></div></section>}
 
 function analysis(data:FplData,squad:FplPlayer[]){const events=futureEvents(data,5);if(!events.length||!isValidSquad(squad,data))return null;const first=events[0].id;const xi=bestXi(squad,first,data.fixtures,first);const bench=squad.filter(p=>!xi.players.some(x=>x.id===p.id)).sort((a,b)=>playerProjection(b,first,data.fixtures,first)-playerProjection(a,first,data.fixtures,first));const vice=[...xi.players].sort((a,b)=>playerProjection(b,first,data.fixtures,first)-playerProjection(a,first,data.fixtures,first))[1];const issues=squad.filter(p=>p.status!=="a"||startPct(p,first,data)<68).sort((a,b)=>startPct(a,first,data)-startPct(b,first,data));const cost=squad.reduce((s,p)=>s+p.price,0);return{events,first,xi,bench,vice,issues,cost,bank:Math.max(0,data.rules.budget-cost)}}
-function bestTransfers(data:FplData,squad:FplPlayer[],bank:number){const events=futureEvents(data,5);if(!events.length||!isValidSquad(squad,data))return[];const first=events[0].id;const owned=new Set(squad.map(p=>p.id));const clubCount=new Map<number,number>();squad.forEach(p=>clubCount.set(p.teamId,(clubCount.get(p.teamId)||0)+1));const rows:Transfer[]=[];for(const out of squad){for(const incoming of data.players){if(owned.has(incoming.id)||incoming.positionId!==out.positionId||incoming.status==="u"||incoming.price>out.price+bank+.001)continue;if(incoming.teamId!==out.teamId&&(clubCount.get(incoming.teamId)||0)>=3)continue;const gains=events.map(e=>playerProjection(incoming,e.id,data.fixtures,first)-playerProjection(out,e.id,data.fixtures,first));const im=projectionMetrics(incoming,first,data.fixtures,first),om=projectionMetrics(out,first,data.fixtures,first);const risk=im.startProbability>.8&&im.startProbability>=om.startProbability?"Low":im.startProbability>.62?"Medium":"High";rows.push({out,incoming,gain1:gains[0]||0,gain3:gains.slice(0,3).reduce((a,b)=>a+b,0),gain5:gains.reduce((a,b)=>a+b,0),price:incoming.price-out.price,minutes:im.expectedMinutes-om.expectedMinutes,risk})}}return rows.sort((a,b)=>b.gain5-a.gain5).slice(0,12)}
+export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTransfers=1):Transfer[]{
+  const events=futureEvents(data,5);if(!events.length||!isValidSquad(squad,data))return[];
+  const first=events[0].id;const owned=new Set(squad.map(p=>p.id));
+  const clubCount=new Map<number,number>();squad.forEach(p=>clubCount.set(p.teamId,(clubCount.get(p.teamId)||0)+1));
+  const hitCost=freeTransfers>=1?0:4;
+  const rows:Transfer[]=[];
+  for(const out of squad){
+    const om=projectionMetrics(out,first,data.fixtures,first);
+    const outByEvent=events.map(e=>playerProjection(out,e.id,data.fixtures,first));
+    const outGw1=outByEvent[0]||0,outGw3=outByEvent.slice(0,3).reduce((a,b)=>a+b,0),outGw5=outByEvent.reduce((a,b)=>a+b,0);
+    for(const incoming of data.players){
+      if(owned.has(incoming.id)||incoming.positionId!==out.positionId||incoming.status==="u"||incoming.price>out.price+bank+.001)continue;
+      if(incoming.teamId!==out.teamId&&(clubCount.get(incoming.teamId)||0)>=3)continue;
+      const im=projectionMetrics(incoming,first,data.fixtures,first);
+      const inByEvent=events.map(e=>playerProjection(incoming,e.id,data.fixtures,first));
+      const inGw1=inByEvent[0]||0,inGw3=inByEvent.slice(0,3).reduce((a,b)=>a+b,0),inGw5=inByEvent.reduce((a,b)=>a+b,0);
+      const gain1=inGw1-outGw1,gain3=inGw3-outGw3,gain5=inGw5-outGw5;
+      const risk=im.startProbability>.8&&im.startProbability>=om.startProbability?"Low":im.startProbability>.62?"Medium":"High";
+      const fixtureGames=events.map(e=>data.fixtures.find(f=>f.event===e.id&&(f.teamH===incoming.teamId||f.teamA===incoming.teamId))).filter(Boolean) as FplFixture[];
+      const fixtureAdjustmentIn=fixtureGames.length?fixtureGames.reduce((s,f)=>s+(f.teamH===incoming.teamId?f.teamHDifficulty:f.teamADifficulty),0)/fixtureGames.length:3;
+      const gainBand=classifyFiveGwGain(gain5);
+      const anomalies=transferAnomalies(out,incoming,gain5,om,im);
+      rows.push({
+        out,incoming,gain1,gain3,gain5,
+        outGw1,inGw1,outGw3,inGw3,outGw5,inGw5,
+        price:incoming.price-out.price,minutes:im.expectedMinutes-om.expectedMinutes,
+        expectedMinutesOut:om.expectedMinutes,expectedMinutesIn:im.expectedMinutes,
+        startProbOut:om.startProbability,startProbIn:im.startProbability,
+        dcOut:om.defensiveContribution,dcIn:im.defensiveContribution,
+        attackingOut:om.xG+om.xA,attackingIn:im.xG+im.xA,
+        fixtureAdjustmentIn,confidenceOut:om.confidence,confidenceIn:im.confidence,
+        gainBand,anomalies,hitCost,netDifference:gain5-hitCost,utilityChange:null,
+        risk,
+      });
+    }
+  }
+  return rows.sort((a,b)=>b.gain5-a.gain5).slice(0,12);
+}
+
+// Squad-level objective delta (bench utility, flexibility, risk-adjustment, role security) for a
+// swap, kept as a distinct "Model Utility Change" metric — never merged into raw projected points.
+function withModelUtilityChange(rows:Transfer[],squad:FplPlayer[],optimizer:ReturnType<typeof createOptimizer>|null):Transfer[]{
+  if(!optimizer||!squad.length)return rows;
+  const baseline=optimizer.evaluate(squad).objective;
+  return rows.map(r=>{
+    const index=squad.findIndex(p=>p.id===r.out.id);
+    if(index<0)return r;
+    const swapped=[...squad];swapped[index]=r.incoming;
+    return{...r,utilityChange:optimizer.evaluate(swapped).objective-baseline};
+  });
+}
 
 function Overview({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const[meta,setMeta]=useManager();const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);const a=analysis(data,squad);if(!a)return <><ConnectTeam data={data} onConnected={setMeta}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually. Your recommendations, transfer centre and deadline check will activate immediately.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></>;const moves=bestTransfers(data,squad,(meta?.bank??a.bank));const move=moves[0];const roll=!move||move.gain5<2.2;const issues=a.issues;const next=a.events[0];const savedCaptainId=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));const activeCaptain=a.xi.players.find(p=>p.id===savedCaptainId)??a.xi.captain!;const projected=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0)+playerProjection(activeCaptain,a.first,data.fixtures,a.first);return <div className="coach-page"><section className="command-top"><div><span>NEXT DEADLINE</span><h2>{next.name}</h2><p>{new Date(next.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p></div><DeadlineClock data={data}/></section><section className="weekly-call"><div className="call-label"><span>THIS WEEK'S RECOMMENDATION</span><b>{roll?"LIKELY":"MODEL EDGE"}</b></div><h2>{roll?"ROLL TRANSFER":`${move.out.name} → ${move.incoming.name}`}</h2><ul>{roll?<><li>No legal single move clears the 2.2-point five-GW action threshold.</li><li>Your current XI keeps two future transfer routes open.</li><li>Recheck official flags before the deadline.</li></>:<><li>+{move.gain5.toFixed(1)} projected points across five gameweeks.</li><li>{move.minutes>=0?`${Math.round(move.minutes)} extra expected minutes this week.`:"The upside is fixture-led despite lower expected minutes."}</li><li>{move.risk} modelled minutes/availability risk.</li></>}</ul><button onClick={()=>go("transfers")}>Inspect the reasoning →</button></section><div className="command-metrics"><article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy</small></article><article><span>SQUAD VALUE</span><b>£{(meta?.squadValue??a.cost).toFixed(1)}m</b><small>official when connected</small></article><article><span>IN THE BANK</span><b>£{(meta?.bank??a.bank).toFixed(1)}m</b><small>{meta?"official public data":"builder estimate"}</small></article><article><span>FREE TRANSFERS</span><b>Set in Transfers</b><small>not exposed publicly by FPL</small></article><article><span>OVERALL RANK</span><b>{fmt(meta?.overallRank)}</b><small>{meta?meta.teamName:"connect to reveal"}</small></article><article><span>GW RANK</span><b>{fmt(meta?.gameweekRank)}</b><small>{meta?.gameweekPoints??"—"} GW points</small></article><article><span>TOTAL POINTS</span><b>{meta?.overallPoints??"—"}</b><small>official account history</small></article></div><section className="urgent-card"><header><div><span>URGENT ISSUES</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div><button onClick={()=>go("deadline")}>Open final check →</button></header>{issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}</section><WhatChanged data={data} squad={squad}/></div>}
 function WhatChanged({data,squad}:{data:FplData;squad:FplPlayer[]}){const flagged=squad.filter(p=>p.news||p.status!=="a");const market=[...data.players].filter(p=>p.transfersIn>p.transfersOut).sort((a,b)=>(b.transfersIn-b.transfersOut)-(a.transfersIn-a.transfersOut))[0];return <section className="changed-card"><div><span>SINCE YOUR LAST CHECK</span><h2>What changed?</h2></div><div>{flagged.slice(0,2).map(p=><p key={p.id}><i className="amber"/><b>{p.name}</b> {p.news||"remains flagged in the official feed"}</p>)}{market&&<p><i className="green"/><b>{market.name}</b> has the strongest net transfer-in pressure.</p>}{!flagged.length&&<p><i className="green"/>No new official flag affects your saved squad.</p>}</div><strong>Impact: {flagged.length?"Review the final-check risk flags.":"No forced transfer."}</strong></section>}
@@ -83,7 +146,71 @@ function Pitch({players,bench,captain,vice,event,data,onSelect}:{players:FplPlay
 function PlayerPanel({player,data,first,replacements,close}:{player:FplPlayer;data:FplData;first:number;replacements:Transfer[];close:()=>void}){const events=futureEvents(data,5);const m=projectionMetrics(player,first,data.fixtures,first);return <div className="player-panel-backdrop" onClick={close}><aside className="player-panel" onClick={e=>e.stopPropagation()}><button className="panel-close" onClick={close}>×</button><span>{player.teamName} · {player.position}</span><h2>{player.name}</h2><div className="panel-price">£{player.price.toFixed(1)}m <small>{player.selectedBy.toFixed(1)}% owned</small></div><div className="panel-fixtures">{events.map(e=><div key={e.id}><b>{e.name.replace("Gameweek ","GW")}</b><span>{opponent(player,e.id,data)}</span><strong>{playerProjection(player,e.id,data.fixtures,first).toFixed(1)}</strong></div>)}</div><div className="panel-stats"><p><span>Expected minutes</span><b>{Math.round(m.expectedMinutes)}</b></p><p><span>Start probability</span><b>{Math.round(m.startProbability*100)}%</b></p><p><span>Season xG / xA</span><b>{player.expectedGoals.toFixed(2)} / {player.expectedAssists.toFixed(2)}</b></p><p><span>Form</span><b>{player.form.toFixed(1)}</b></p><p><span>Penalties</span><b>{m.penaltyRole?"First choice":"Not confirmed"}</b></p><p><span>Set pieces</span><b>{m.setPieceRole?"First choice":"Not confirmed"}</b></p></div><section><span>COACH VIEW</span><p>{m.startProbability>.8?`LIKELY starter with ${Math.round(m.expectedMinutes)} expected minutes.`:`UNCERTAIN minutes profile: only ${Math.round(m.startProbability*100)}% start probability.`} {m.penaltyRole?"First-choice penalties improve the ceiling.":"No confirmed penalty role is included."}</p></section><section><span>BEST REPLACEMENTS</span>{replacements.length?replacements.map(r=><p key={r.incoming.id}><b>{r.incoming.name}</b> · +{r.gain5.toFixed(1)} five-GW xPts · {r.risk} risk</p>):<p>No clearly stronger legal one-player route was found.</p>}</section></aside></div>}
 function TeamAnalytics({data,squad,a}:{data:FplData;squad:FplPlayer[];a:NonNullable<ReturnType<typeof analysis>>}){return <div className="team-analytics"><section><span>NEXT FIVE GAMEWEEKS</span><div>{a.events.map(e=>{const xi=bestXi(squad,e.id,data.fixtures,a.first);return <article key={e.id}><b>{e.name.replace("Gameweek ","GW")}</b><strong>{xi.total.toFixed(1)}</strong><small>projected points</small></article>})}</div></section><section><span>STRUCTURAL READ</span><h2>{a.issues.length?`${a.issues.length} minutes concern${a.issues.length>1?"s":""}`:"Strong minutes security"}</h2><p>Bench value £{a.bench.reduce((s,p)=>s+p.price,0).toFixed(1)}m · Bank £{a.bank.toFixed(1)}m · Captain {a.xi.captain?.name}</p></section></div>}
 
-function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const squad=useMemo(()=>savedSquad(data),[data,revision]);const[meta]=useManager();const[tab,setTab]=useState<"moves"|"watchlist">("moves");const[fts,setFts]=useState(1);const[watchIds,setWatchIds]=useState<number[]>([]);useEffect(()=>setWatchIds(readIds("fpl-edge-watchlist")),[]);const a=analysis(data,squad);if(!a)return <><ConnectTeam data={data}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></>;const rows=bestTransfers(data,squad,meta?.bank??a.bank);const best=rows[0];const roll=!best||best.gain5-(fts?0:4)<2.2;const setWatch=(id:number)=>{const next=watchIds.includes(id)?watchIds.filter(x=>x!==id):[...watchIds,id];setWatchIds(next);localStorage.setItem("fpl-edge-watchlist",JSON.stringify(next))};return <div className="coach-page"><section className="transfer-tabs"><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Transfer centre</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>setFts(Number(e.target.value))}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select></label></section>{tab==="moves"?<><section className="recommended-move"><div className="call-label"><span>RECOMMENDED MOVE</span><b>{roll?"LIKELY":"MODEL EDGE"}</b></div><h2>{roll?"ROLL":`${best.out.name} → ${best.incoming.name}`}</h2><p>{roll?"No realistic single transfer from your actual squad clears the action threshold after costs.":`This is the highest-ranked legal route from your saved 15-player squad. ${best.risk} minutes risk.`}</p><div>{[["GW","1",roll?0:best.gain1],["NEXT","3",roll?0:best.gain3],["NEXT","5",roll?0:best.gain5]].map(([label,n,value])=><span key={String(n)}><small>{label} {n}</small><b>{Number(value)>=0?"+":""}{Number(value).toFixed(1)} pts</b></span>)}<span><small>PRICE DIFFERENCE</small><b>{roll?"£0.0m":`${best.price>=0?"+":"−"}£${Math.abs(best.price).toFixed(1)}m`}</b></span><span><small>EXPECTED MINUTES</small><b>{roll?"No change":`${best.minutes>=0?"+":""}${Math.round(best.minutes)}`}</b></span></div><strong>{roll?"Recommendation: SAVE THE TRANSFER":best.gain1-(fts?0:4)>0?"Recommendation: MOVE NOW":"Recommendation: WAIT / RECHECK"}</strong></section><section className="ranked-moves"><header><div><span>BEST TRANSFERS FOR YOUR SQUAD</span><h2>Every target has a real route.</h2></div><small>Sorted by five-GW net projected gain</small></header>{rows.slice(0,10).map((r,i)=><article key={`${r.out.id}-${r.incoming.id}`}><i>{i+1}</i><div><span>{r.out.name}</span><b>→ {r.incoming.name}</b><small>{r.incoming.teamShort} · £{r.incoming.price.toFixed(1)}m</small></div><p><b>{r.gain1>=0?"+":""}{r.gain1.toFixed(1)}</b><small>GW</small></p><p><b>{r.gain3>=0?"+":""}{r.gain3.toFixed(1)}</b><small>3 GW</small></p><p><b>{r.gain5>=0?"+":""}{r.gain5.toFixed(1)}</b><small>5 GW</small></p><em className={r.risk.toLowerCase()}>{r.risk} risk</em><button onClick={()=>setWatch(r.incoming.id)}>{watchIds.includes(r.incoming.id)?"Watching ✓":"Watch"}</button></article>)}</section><PriceIntel rows={rows}/></>:<Watchlist data={data} squad={squad} ids={watchIds} remove={setWatch}/>}</div>}
+const bandLabel:Record<FiveGwGainBand,string>={negligible:"Negligible",modest:"Modest",strong:"Strong",exceptional:"Exceptional",anomaly:"Anomaly review"};
+
+function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
+  const squad=useMemo(()=>savedSquad(data),[data,revision]);
+  const[meta]=useManager();const[tab,setTab]=useState<"moves"|"watchlist">("moves");const[fts,setFts]=useState(1);
+  const[watchIds,setWatchIds]=useState<number[]>([]);useEffect(()=>setWatchIds(readIds("fpl-edge-watchlist")),[]);
+  const[expanded,setExpanded]=useState<Set<string>>(new Set());
+  const a=analysis(data,squad);
+  const optimizer=useMemo(()=>data?createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"):null,[data]);
+  const bank=meta?.bank??a?.bank??0;
+  const baseRows=useMemo(()=>a?bestTransfers(data,squad,bank,fts):[],[data,squad,bank,fts,a]);
+  const rows=useMemo(()=>withModelUtilityChange(baseRows,squad,optimizer),[baseRows,squad,optimizer]);
+  if(!a)return <><ConnectTeam data={data}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></>;
+  const best=rows[0];const roll=!best||best.netDifference<2.2;
+  const setWatch=(id:number)=>{const next=watchIds.includes(id)?watchIds.filter(x=>x!==id):[...watchIds,id];setWatchIds(next);localStorage.setItem("fpl-edge-watchlist",JSON.stringify(next))};
+  const toggleExpand=(key:string)=>setExpanded(x=>{const next=new Set(x);next.has(key)?next.delete(key):next.add(key);return next});
+  return <div className="coach-page">
+    <section className="transfer-tabs"><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Transfer centre</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>setFts(Number(e.target.value))}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select></label></section>
+    {tab==="moves"?<>
+      <section className={`recommended-move ${best&&best.gainBand==="anomaly"?"needs-review":""}`}>
+        <div className="call-label"><span>RECOMMENDED MOVE</span><b>{roll?"LIKELY":best?.gainBand==="anomaly"?"REVIEW REQUIRED":"MODEL EDGE"}</b></div>
+        <h2>{roll?"ROLL":`${best.out.name} → ${best.incoming.name}`}</h2>
+        <p>{roll?"No realistic single transfer from your actual squad clears the action threshold after costs.":best.gainBand==="anomaly"?`This route projects a ${best.gain5.toFixed(1)}pt five-GW gain — above the +15 anomaly threshold. Inspect the breakdown below before acting on it.`:`This is the highest-ranked legal route from your saved 15-player squad. ${best.risk} minutes risk.`}</p>
+        {!roll&&<div>{[["GW","1",best.gain1],["NEXT","3",best.gain3],["NEXT","5",best.gain5]].map(([label,n,value])=><span key={String(n)}><small>{label} {n}</small><b>{Number(value)>=0?"+":""}{Number(value).toFixed(1)} pts</b></span>)}<span><small>PRICE DIFFERENCE</small><b>{`${best.price>=0?"+":"−"}£${Math.abs(best.price).toFixed(1)}m`}</b></span><span><small>EXPECTED MINUTES</small><b>{`${best.minutes>=0?"+":""}${Math.round(best.minutes)}`}</b></span><span><small>TRANSFER HIT</small><b>{best.hitCost?`−${best.hitCost}`:"None"}</b></span><span><small>NET (AFTER HIT)</small><b>{best.netDifference>=0?"+":""}{best.netDifference.toFixed(1)} pts</b></span>{best.utilityChange!==null&&<span><small>MODEL UTILITY CHANGE</small><b>{best.utilityChange>=0?"+":""}{best.utilityChange.toFixed(1)}</b></span>}</div>}
+        <strong>{roll?"Recommendation: SAVE THE TRANSFER":best.gainBand==="anomaly"?"Recommendation: REVIEW BEFORE ACTING":best.gain1-best.hitCost>0?"Recommendation: MOVE NOW":"Recommendation: WAIT / RECHECK"}</strong>
+      </section>
+      <section className="ranked-moves">
+        <header><div><span>BEST TRANSFERS FOR YOUR SQUAD</span><h2>Every target has a real route.</h2></div><small>Sorted by five-GW raw projected gain (not model utility)</small></header>
+        {rows.slice(0,10).map((r,i)=>{const key=`${r.out.id}-${r.incoming.id}`;const isOpen=expanded.has(key);return <article key={key} className={r.gainBand==="anomaly"?"needs-review":""}>
+          <i>{i+1}</i>
+          <div><span>{r.out.name}</span><b>→ {r.incoming.name}</b><small>{r.incoming.teamShort} · £{r.incoming.price.toFixed(1)}m</small></div>
+          <p><b>{r.gain1>=0?"+":""}{r.gain1.toFixed(1)}</b><small>GW</small></p>
+          <p><b>{r.gain3>=0?"+":""}{r.gain3.toFixed(1)}</b><small>3 GW</small></p>
+          <p>{r.gainBand==="anomaly"?<b title={`Raw: ${r.gain5>=0?"+":""}${r.gain5.toFixed(1)}`}>⚠ Review</b>:<b>{r.gain5>=0?"+":""}{r.gain5.toFixed(1)}</b>}<small>5 GW</small></p>
+          <em className={r.risk.toLowerCase()}>{r.risk} risk</em>
+          <em className={`band-${r.gainBand}`}>{bandLabel[r.gainBand]}</em>
+          <button onClick={()=>toggleExpand(key)}>{isOpen?"Hide detail":"Show detail"}</button>
+          <button onClick={()=>setWatch(r.incoming.id)}>{watchIds.includes(r.incoming.id)?"Watching ✓":"Watch"}</button>
+          {isOpen&&<TransferBreakdown r={r}/>}
+        </article>})}
+      </section>
+      <PriceIntel rows={rows}/>
+      {process.env.NODE_ENV!=="production"&&<TransferDebugTable rows={rows.slice(0,10)}/>}
+    </>:<Watchlist data={data} squad={squad} ids={watchIds} remove={setWatch}/>}
+  </div>;
+}
+
+function TransferBreakdown({r}:{r:Transfer}){return <div className="transfer-breakdown">
+  <div><span>OUT GW1</span><b>{r.outGw1.toFixed(2)}</b></div><div><span>IN GW1</span><b>{r.inGw1.toFixed(2)}</b></div><div><span>GW1 Δ</span><b>{r.gain1.toFixed(2)}</b></div>
+  <div><span>OUT 3-GW</span><b>{r.outGw3.toFixed(2)}</b></div><div><span>IN 3-GW</span><b>{r.inGw3.toFixed(2)}</b></div><div><span>3-GW Δ</span><b>{r.gain3.toFixed(2)}</b></div>
+  <div><span>OUT 5-GW</span><b>{r.outGw5.toFixed(2)}</b></div><div><span>IN 5-GW</span><b>{r.inGw5.toFixed(2)}</b></div><div><span>5-GW Δ</span><b>{r.gain5.toFixed(2)}</b></div>
+  <div><span>xMins OUT/IN</span><b>{Math.round(r.expectedMinutesOut)} / {Math.round(r.expectedMinutesIn)}</b></div>
+  <div><span>Start% OUT/IN</span><b>{Math.round(r.startProbOut*100)}% / {Math.round(r.startProbIn*100)}%</b></div>
+  <div><span>DC OUT/IN</span><b>{r.dcOut.toFixed(2)} / {r.dcIn.toFixed(2)}</b></div>
+  <div><span>Attacking OUT/IN</span><b>{r.attackingOut.toFixed(2)} / {r.attackingIn.toFixed(2)}</b></div>
+  <div><span>Fixture adj. (IN, avg FDR)</span><b>{r.fixtureAdjustmentIn.toFixed(1)}</b></div>
+  <div><span>Confidence OUT/IN</span><b>{Math.round(r.confidenceOut*100)}% / {Math.round(r.confidenceIn*100)}%</b></div>
+  <div><span>Transfer hit</span><b>{r.hitCost?`−${r.hitCost}`:"None"}</b></div>
+  <div><span>Net (after hit)</span><b>{r.netDifference.toFixed(2)}</b></div>
+  <div><span>Model utility Δ</span><b>{r.utilityChange===null?"—":r.utilityChange.toFixed(2)}</b></div>
+  {r.anomalies.length>0&&<div className="breakdown-anomalies"><span>Anomaly flags</span>{r.anomalies.map(f=><p key={f.code}>⚠ {f.message}</p>)}</div>}
+</div>}
+
+function TransferDebugTable({rows}:{rows:Transfer[]}){return <section className="transfer-debug-table"><header><span>DEV ONLY · TRANSFER ENGINE DEBUG</span><h2>Every number, traceable to its components.</h2></header><div className="debug-table-scroll"><table><thead><tr><th>OUT</th><th>IN</th><th>OUT GW1</th><th>IN GW1</th><th>GW1 Δ</th><th>OUT 3GW</th><th>IN 3GW</th><th>3GW Δ</th><th>OUT 5GW</th><th>IN 5GW</th><th>5GW Δ</th><th>xMins OUT/IN</th><th>Start% OUT/IN</th><th>Risk OUT/IN</th><th>Fixture adj.</th><th>DC IN</th><th>Attacking IN</th><th>Confidence IN</th><th>Utility Δ</th></tr></thead><tbody>{rows.map(r=><tr key={`${r.out.id}-${r.incoming.id}`}><td>{r.out.name}</td><td>{r.incoming.name}</td><td>{r.outGw1.toFixed(2)}</td><td>{r.inGw1.toFixed(2)}</td><td>{r.gain1.toFixed(2)}</td><td>{r.outGw3.toFixed(2)}</td><td>{r.inGw3.toFixed(2)}</td><td>{r.gain3.toFixed(2)}</td><td>{r.outGw5.toFixed(2)}</td><td>{r.inGw5.toFixed(2)}</td><td>{r.gain5.toFixed(2)}</td><td>{Math.round(r.expectedMinutesOut)}/{Math.round(r.expectedMinutesIn)}</td><td>{Math.round(r.startProbOut*100)}%/{Math.round(r.startProbIn*100)}%</td><td>{Math.round((1-r.startProbOut)*100)}%/{Math.round((1-r.startProbIn)*100)}%</td><td>{r.fixtureAdjustmentIn.toFixed(1)}</td><td>{r.dcIn.toFixed(2)}</td><td>{r.attackingIn.toFixed(2)}</td><td>{Math.round(r.confidenceIn*100)}%</td><td>{r.utilityChange===null?"—":r.utilityChange.toFixed(2)}</td></tr>)}</tbody></table></div></section>}
+
 function PriceIntel({rows}:{rows:Transfer[]}){return <section className="price-intel"><header><span>PRICE-CHANGE INTELLIGENCE</span><h2>Market pressure, without chasing it.</h2></header>{rows.slice(0,4).map(r=>{const net=r.incoming.transfersIn-r.incoming.transfersOut;const level=net>100000?"HIGH":net>30000?"MEDIUM":"LOW";return <article key={r.incoming.id}><b>{r.incoming.name}<small>£{r.incoming.price.toFixed(1)}m</small></b><span>Rise pressure: {level}</span><p>{r.gain5>3?"Transfer case is supported by projected points.":"Price pressure alone does not justify an early move."}</p></article>})}</section>}
 function Watchlist({data,squad,ids,remove}:{data:FplData;squad:FplPlayer[];ids:number[];remove:(id:number)=>void}){const events=futureEvents(data,5),first=events[0]?.id;const owned=new Set(squad.map(p=>p.id));const players=ids.map(id=>data.players.find(p=>p.id===id)).filter(Boolean) as FplPlayer[];const candidates=[...data.players].filter(p=>!owned.has(p.id)&&!ids.includes(p.id)&&p.status!=="u").sort((a,b)=>b.epNext-a.epNext).slice(0,12);const[add,setAdd]=useState("");const addPlayer=()=>{const id=Number(add);if(id)remove(id);setAdd("")};return <><section className="watchlist-add"><div><span>PERMANENT WATCHLIST</span><h2>Monitor the next move before making it.</h2></div><select value={add} onChange={e=>setAdd(e.target.value)}><option value="">Choose a player…</option>{candidates.map(p=><option key={p.id} value={p.id}>{p.name} · {p.teamShort} · £{p.price.toFixed(1)}m</option>)}</select><button onClick={addPlayer} disabled={!add}>Add to watchlist</button></section><section className="watchlist-grid">{players.length?players.map(p=>{const m=projectionMetrics(p,first,data.fixtures,first);const natural=squad.filter(x=>x.positionId===p.positionId&&x.price<=p.price+1).sort((a,b)=>playerProjection(a,first,data.fixtures,first)-playerProjection(b,first,data.fixtures,first))[0];const five=events.reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0);const priority=m.startProbability>.8&&five>22?"BUY":m.startProbability>.7?"CLOSE":"WATCH";return <article key={p.id}><header><div><span>{p.teamShort} · {p.positionShort}</span><h3>{p.name}</h3></div><b className={priority.toLowerCase()}>{priority}</b></header><div className="watch-kpis"><span><small>PRICE</small><b>£{p.price.toFixed(1)}m</b></span><span><small>OWNED</small><b>{p.selectedBy.toFixed(1)}%</b></span><span><small>5-GW xPTS</small><b>{five.toFixed(1)}</b></span></div><p><b>Why:</b> {m.startProbability>.8?"Secure-looking minutes and competitive projection.":"Upside exists, but minutes need confirmation."}</p><p><b>Monitoring:</b> starts · role · expected minutes · xGI/90</p><p><b>Buy trigger:</b> {m.startProbability>.8?"Projected gain clears your transfer threshold.":"Two consecutive starts with 70+ expected minutes."}</p><small>Likely route: {natural?`${natural.name} → ${p.name}`:"No affordable natural route yet"}</small><footer><div>{events.map(e=><i key={e.id}>{opponent(p,e.id,data)}</i>)}</div><button onClick={()=>remove(p.id)}>Remove</button></footer></article>}):<div className="empty-watch"><b>Your watchlist is empty.</b><p>Add a transfer target above or from the ranked transfer list.</p></div>}</section></>}
 
