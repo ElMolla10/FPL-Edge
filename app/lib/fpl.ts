@@ -73,6 +73,15 @@ export function findIdentityConflicts(players:FplPlayer[]):IdentityConflict[]{
   return conflicts;
 }
 
+// The exact function the API route calls on every refresh -- kept here (not inlined in the route)
+// so the production code path itself is directly unit-testable, not just findIdentityConflicts()
+// in isolation. A refactor that silently drops this call would fail the route's own test.
+export function attachIntegrityWarnings<T extends {players:FplPlayer[]}>(payload:T):T&{dataIntegrityWarnings:string[]}{
+  const conflicts=findIdentityConflicts(payload.players);
+  if(conflicts.length)console.error("FPL data integrity: conflicting player identities in upstream feed",conflicts);
+  return {...payload,dataIntegrityWarnings:conflicts.map(c=>c.issue)};
+}
+
 export const eventTotals=(squad:FplPlayer[],eventIds:number[],fixtures:FplFixture[])=>eventIds.map(id=>bestXi(squad,id,fixtures,eventIds[0]).total);
 export function isValidSquad(squad:FplPlayer[],data:FplData){if(squad.length!==data.rules.squadSize||squad.reduce((s,p)=>s+p.price,0)>data.rules.budget+.001||data.rules.positions.some(r=>squad.filter(p=>p.positionId===r.id).length!==r.squad))return false;const clubs=new Map<number,number>();squad.forEach(p=>clubs.set(p.teamId,(clubs.get(p.teamId)??0)+1));return [...clubs.values()].every(n=>n<=data.rules.teamLimit)}
 

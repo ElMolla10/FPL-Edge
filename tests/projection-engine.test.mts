@@ -4,12 +4,13 @@ import {
   FplData,
   FplFixture,
   FplPlayer,
+  attachIntegrityWarnings,
   findIdentityConflicts,
   isValidSquad,
   playerProjection,
   projectionMetrics,
 } from "../app/lib/fpl.ts";
-import { bestTransfers, Transfer } from "../app/components/CoachApp.tsx";
+import { analysis, bestTransfers, Transfer } from "../app/components/CoachApp.tsx";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -167,4 +168,52 @@ test("DC scoring is probability-weighted: a low-minutes player with a high per-s
   const metrics = projectionMetrics(rotationRisk, 1, fixtures, 1);
   // Old linear formula gave clamp(95/9/10, 0, .9) * sixtyProb ~= 0.9 * ~0.2 = ~0.18-0.2.
   assert.ok(metrics.defensiveContribution < 0.15, `expected low-minutes player's DC credit to be discounted by probability of reaching the match threshold, got ${metrics.defensiveContribution.toFixed(3)}`);
+});
+
+test("regression: bench order always keeps the backup GK last, even when they outproject an outfield bench player", () => {
+  // Reproduces the real Raya-vs-Gabriel case: a moderately-projected backup GK must never rank
+  // above an outfield bench player, since a backup GK can only ever sub in for the starting GK.
+  const starterGkp = makePlayer({ id: 1, positionShort: "GKP", positionId: 1, teamId: 1, priorMinutes: 3400, priorStarts: 38, priorSaves: 120, selectedBy: 20 });
+  const backupGkp = makePlayer({ id: 2, positionShort: "GKP", positionId: 1, teamId: 2, priorMinutes: 1800, priorStarts: 20, priorSaves: 70, selectedBy: 3 });
+  const defs = [1, 2, 3, 4].map((n) => makePlayer({ id: 10 + n, positionShort: "DEF", positionId: 2, teamId: 10 + n, priorMinutes: 3200, priorStarts: 36, priorExpectedGoals: 1, priorExpectedAssists: 1.5, priorDefensiveContribution: 200 }));
+  const weakDef = makePlayer({ id: 15, positionShort: "DEF", positionId: 2, teamId: 15, priorMinutes: 0, priorStarts: 0, selectedBy: 0 }); // near-zero projection, should out-rank nobody
+  const mids = [1, 2, 3, 4, 5].map((n) => makePlayer({ id: 20 + n, positionShort: "MID", positionId: 3, teamId: 20 + n, priorMinutes: 2800, priorStarts: 32, priorExpectedGoals: 4, priorExpectedAssists: 4 }));
+  const fwds = [1, 2, 3].map((n) => makePlayer({ id: 30 + n, positionShort: "FWD", positionId: 4, teamId: 30 + n, priorMinutes: 2600, priorStarts: 30, priorExpectedGoals: 8, priorExpectedAssists: 2 }));
+  const squad = [starterGkp, backupGkp, ...defs, weakDef, ...mids, ...fwds];
+  assert.equal(squad.length, 15);
+
+  const fixtures = squad.map((p) => makeFixture({ id: p.teamId, event: 1, teamH: p.teamId, teamA: 900 + p.teamId }));
+  const events = [{ id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(), current: false, next: true, finished: false }];
+  const data: FplData = {
+    updatedAt: new Date().toISOString(), source: "test", seasonStatsThrough: 0,
+    players: squad, fixtures, events,
+    teams: squad.map((p) => ({ id: p.teamId, name: `Team ${p.teamId}`, short: `T${p.teamId}` })),
+    rules: makeRules(),
+  };
+
+  assert.equal(isValidSquad(squad, data), true, "test fixture squad must be a legal 15-player squad");
+  const a = analysis(data, squad)!;
+  assert.ok(a, "analysis() must return a result for a valid squad");
+  assert.equal(a.bench[a.bench.length - 1].positionShort, "GKP", "the backup GK must always be the last bench entry, regardless of raw xPts");
+  // Confirm this isn't vacuous: the backup GK's xPts must genuinely exceed the weakest outfield
+  // bench player's, so the GK-last guard is doing real work, not just matching a lucky ordering.
+  const gkXpts = playerProjection(backupGkp, 1, fixtures, 1);
+  const outfieldBenchXpts = a.bench.filter((p) => p.positionShort !== "GKP").map((p) => playerProjection(p, 1, fixtures, 1));
+  assert.ok(outfieldBenchXpts.some((x) => x < gkXpts), "test setup should produce a backup GK who out-projects at least one outfield bench player, otherwise this test doesn't exercise the guard");
+});
+
+test("identity-warning wiring: attachIntegrityWarnings (the exact function the API route calls) surfaces conflicts, and is silent on clean data", () => {
+  const clean = { players: [makePlayer({ id: 1, teamId: 1 }), makePlayer({ id: 2, teamId: 2 })] };
+  const cleanResult = attachIntegrityWarnings(clean);
+  assert.deepEqual(cleanResult.dataIntegrityWarnings, []);
+
+  const conflicting = {
+    players: [
+      makePlayer({ id: 112, teamId: 6, positionId: 2, positionShort: "DEF" }),
+      makePlayer({ id: 112, teamId: 19, positionId: 2, positionShort: "DEF" }),
+    ],
+  };
+  const conflictResult = attachIntegrityWarnings(conflicting);
+  assert.equal(conflictResult.dataIntegrityWarnings.length, 1);
+  assert.match(conflictResult.dataIntegrityWarnings[0], /conflicting teams/);
 });

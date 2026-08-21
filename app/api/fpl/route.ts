@@ -1,4 +1,4 @@
-import { findIdentityConflicts } from "../../lib/fpl";
+import { attachIntegrityWarnings } from "../../lib/fpl";
 
 const BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/";
 const FIXTURES_URL = "https://fantasy.premierleague.com/api/fixtures/";
@@ -155,12 +155,7 @@ export async function GET() {
       })),
     };
 
-    const identityConflicts = findIdentityConflicts(payload.players);
-    if (identityConflicts.length) {
-      console.error("FPL data integrity: conflicting player identities in upstream feed", identityConflicts);
-    }
-
-    return Response.json({ ...payload, dataIntegrityWarnings: identityConflicts.map((c) => c.issue) }, {
+    return Response.json(attachIntegrityWarnings(payload), {
       headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
     });
   } catch (error) {
