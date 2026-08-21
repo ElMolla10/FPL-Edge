@@ -1,3 +1,4 @@
+import { isMissingTableError } from "../../../../db";
 import { AuthError, createSession, serializeSessionCookie, signUpWithPassword } from "../../../lib/auth";
 
 export async function POST(request: Request) {
@@ -13,6 +14,10 @@ export async function POST(request: Request) {
     return Response.json({ email: user.email }, { headers: { "Set-Cookie": serializeSessionCookie(token, expiresAt) } });
   } catch (error) {
     if (error instanceof AuthError) return Response.json({ error: error.message }, { status: 409 });
+    console.error("signup error:", error);
+    if (isMissingTableError(error)) {
+      return Response.json({ error: "The database schema isn't set up yet. Apply the migration (see README.md) and try again." }, { status: 503 });
+    }
     return Response.json({ error: "Could not create account." }, { status: 500 });
   }
 }

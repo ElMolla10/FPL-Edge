@@ -1,3 +1,4 @@
+import { isMissingTableError } from "../../../../db";
 import { AuthError, createSession, serializeSessionCookie, signInWithPassword } from "../../../lib/auth";
 
 // TODO: no rate-limiting on failed login attempts. Deferred scope cut (see the design
@@ -15,6 +16,10 @@ export async function POST(request: Request) {
     return Response.json({ email: user.email }, { headers: { "Set-Cookie": serializeSessionCookie(token, expiresAt) } });
   } catch (error) {
     if (error instanceof AuthError) return Response.json({ error: error.message }, { status: 401 });
+    console.error("login error:", error);
+    if (isMissingTableError(error)) {
+      return Response.json({ error: "The database schema isn't set up yet. Apply the migration (see README.md) and try again." }, { status: 503 });
+    }
     return Response.json({ error: "Could not sign in." }, { status: 500 });
   }
 }
