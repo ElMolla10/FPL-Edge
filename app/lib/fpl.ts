@@ -13,7 +13,10 @@ export type FplData = { updatedAt:string; source:string; seasonStatsThrough:numb
 
 const difficultyFactor:Record<number,number>={1:1.24,2:1.12,3:1,4:.88,5:.76};
 export const availability=(player:FplPlayer)=>player.chance!==null?Math.max(0,player.chance/100):player.status==="a"?1:player.status==="d"?.72:.2;
-export const futureEvents=(data:FplData,count=8)=>data.events.filter(event=>!event.finished&&new Date(event.deadline).getTime()>Date.now()-86400000).slice(0,count);
+// No grace window past an event's own deadline: once locked, there's nothing left to plan for it,
+// regardless of whether its matches have finished being played. That's a separate "results"
+// concept (official post-event history), not this function's job.
+export const futureEvents=(data:FplData,count=8)=>data.events.filter(event=>!event.finished&&new Date(event.deadline).getTime()>Date.now()).slice(0,count);
 
 const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
 
