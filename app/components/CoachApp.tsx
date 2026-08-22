@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
-import { LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
+import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
 import { FplData, FplFixture, FplPlayer, ProjectionMetrics, bestXi, fetchFplData, futureEvents, isValidSquad, playerProjection, projectionMetrics, savedSquad } from "../lib/fpl";
 import { createOptimizer } from "../lib/optimizer";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "../lib/anomalies";
+import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
 import { persist, syncWithServer } from "../lib/persistence";
 
 type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
@@ -164,8 +165,29 @@ function withModelUtilityChange(rows:Transfer[],squad:FplPlayer[],optimizer:Retu
   });
 }
 
-function Overview({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const[meta,setMeta]=useManager();const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);const a=analysis(data,squad);if(!a)return <><ConnectTeam data={data} onConnected={setMeta}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually. Your recommendations, transfer centre and deadline check will activate immediately.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></>;const moves=bestTransfers(data,squad,(meta?.bank??a.bank));const move=moves[0];const roll=!move||move.gain5<2.2;const issues=a.issues;const next=a.events[0];const savedCaptainId=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));const activeCaptain=a.xi.players.find(p=>p.id===savedCaptainId)??a.xi.captain!;const projected=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0)+playerProjection(activeCaptain,a.first,data.fixtures,a.first);return <div className="coach-page"><section className="command-top"><div><span>NEXT DEADLINE</span><h2>{next.name}</h2><p>{new Date(next.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p></div><DeadlineClock data={data}/></section><section className="weekly-call"><div className="call-label"><span>THIS WEEK'S RECOMMENDATION</span><b>{roll?"LIKELY":"MODEL EDGE"}</b></div><h2>{roll?"ROLL TRANSFER":`${move.out.name} → ${move.incoming.name}`}</h2><ul>{roll?<><li>No legal single move clears the 2.2-point five-GW action threshold.</li><li>Your current XI keeps two future transfer routes open.</li><li>Recheck official flags before the deadline.</li></>:<><li>+{move.gain5.toFixed(1)} projected points across five gameweeks.</li><li>{move.minutes>=0?`${Math.round(move.minutes)} extra expected minutes this week.`:"The upside is fixture-led despite lower expected minutes."}</li><li>{move.risk} modelled minutes/availability risk.</li></>}</ul><button onClick={()=>go("transfers")}>Inspect the reasoning →</button></section><div className="command-metrics"><article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy</small></article><article><span>SQUAD VALUE</span><b>£{(meta?.squadValue??a.cost).toFixed(1)}m</b><small>official when connected</small></article><article><span>IN THE BANK</span><b>£{(meta?.bank??a.bank).toFixed(1)}m</b><small>{meta?"official public data":"builder estimate"}</small></article><article><span>FREE TRANSFERS</span><b>Set in Transfers</b><small>not exposed publicly by FPL</small></article><article><span>OVERALL RANK</span><b>{fmt(meta?.overallRank)}</b><small>{meta?meta.teamName:"connect to reveal"}</small></article><article><span>GW RANK</span><b>{fmt(meta?.gameweekRank)}</b><small>{meta?.gameweekPoints??"—"} GW points</small></article><article><span>TOTAL POINTS</span><b>{meta?.overallPoints??"—"}</b><small>official account history</small></article></div><section className="urgent-card"><header><div><span>URGENT ISSUES</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div><button onClick={()=>go("deadline")}>Open final check →</button></header>{issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}</section><WhatChanged data={data} squad={squad}/></div>}
+function Overview({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const[meta,setMeta]=useManager();const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);const a=analysis(data,squad);if(!a)return <><ConnectTeam data={data} onConnected={setMeta}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually. Your recommendations, transfer centre and deadline check will activate immediately.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></>;const moves=bestTransfers(data,squad,(meta?.bank??a.bank));const move=moves[0];const roll=!move||move.gain5<2.2;const issues=a.issues;const next=a.events[0];const savedCaptainId=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));const activeCaptain=a.xi.players.find(p=>p.id===savedCaptainId)??a.xi.captain!;const projected=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0)+playerProjection(activeCaptain,a.first,data.fixtures,a.first);return <div className="coach-page"><section className="command-top"><div><span>NEXT DEADLINE</span><h2>{next.name}</h2><p>{new Date(next.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p></div><DeadlineClock data={data}/></section><section className="weekly-call"><div className="call-label"><span>THIS WEEK'S RECOMMENDATION</span><b>{roll?"LIKELY":"MODEL EDGE"}</b></div><h2>{roll?"ROLL TRANSFER":`${move.out.name} → ${move.incoming.name}`}</h2><ul>{roll?<><li>No legal single move clears the 2.2-point five-GW action threshold.</li><li>Your current XI keeps two future transfer routes open.</li><li>Recheck official flags before the deadline.</li></>:<><li>+{move.gain5.toFixed(1)} projected points across five gameweeks.</li><li>{move.minutes>=0?`${Math.round(move.minutes)} extra expected minutes this week.`:"The upside is fixture-led despite lower expected minutes."}</li><li>{move.risk} modelled minutes/availability risk.</li></>}</ul><button onClick={()=>go("transfers")}>Inspect the reasoning →</button></section><div className="command-metrics"><article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy</small></article><article><span>SQUAD VALUE</span><b>£{(meta?.squadValue??a.cost).toFixed(1)}m</b><small>official when connected</small></article><article><span>IN THE BANK</span><b>£{(meta?.bank??a.bank).toFixed(1)}m</b><small>{meta?"official public data":"builder estimate"}</small></article><article><span>FREE TRANSFERS</span><b>Set in Transfers</b><small>not exposed publicly by FPL</small></article><article><span>OVERALL RANK</span><b>{fmt(meta?.overallRank)}</b><small>{meta?meta.teamName:"connect to reveal"}</small></article><article><span>GW RANK</span><b>{fmt(meta?.gameweekRank)}</b><small>{meta?.gameweekPoints??"—"} GW points</small></article><article><span>TOTAL POINTS</span><b>{meta?.overallPoints??"—"}</b><small>official account history</small></article></div><section className="urgent-card"><header><div><span>URGENT ISSUES</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div><button onClick={()=>go("deadline")}>Open final check →</button></header>{issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}</section><WhatChanged data={data} squad={squad}/><DgwAlert data={data}/></div>}
 function WhatChanged({data,squad}:{data:FplData;squad:FplPlayer[]}){const flagged=squad.filter(p=>p.news||p.status!=="a");const market=[...data.players].filter(p=>p.transfersIn>p.transfersOut).sort((a,b)=>(b.transfersIn-b.transfersOut)-(a.transfersIn-a.transfersOut))[0];return <section className="changed-card"><div><span>SINCE YOUR LAST CHECK</span><h2>What changed?</h2></div><div>{flagged.slice(0,2).map(p=><p key={p.id}><i className="amber"/><b>{p.name}</b> {p.news||"remains flagged in the official feed"}</p>)}{market&&<p><i className="green"/><b>{market.name}</b> has the strongest net transfer-in pressure.</p>}{!flagged.length&&<p><i className="green"/>No new official flag affects your saved squad.</p>}</div><strong>Impact: {flagged.length?"Review the final-check risk flags.":"No forced transfer."}</strong></section>}
+
+// Surfaces confirmed doubles/blanks within the same 8-GW horizon Chips/Fixtures already use, so a
+// user doesn't have to notice a rearrangement by manually browsing the Fixtures page close to the
+// deadline. Renders nothing on an ordinary week -- true for the whole 2026/27 season so far.
+function DgwAlert({data}:{data:FplData}){
+  const horizon=futureEvents(data,8).map(e=>e.id);
+  const anomalies=detectFixtureAnomalies(data);
+  const nextDoubles=nearestInHorizon(anomalies.doubles,horizon);
+  const nextBlanks=nearestInHorizon(anomalies.blanks,horizon);
+  if(!nextDoubles.length&&!nextBlanks.length)return null;
+  const teamNames=(entries:{teamId:number}[])=>[...new Set(entries.map(e=>data.teams.find(t=>t.id===e.teamId)?.name??"Unknown"))];
+  const eventLabel=(eventId:number)=>data.events.find(e=>e.id===eventId)?.name.replace("Gameweek ","GW")??`GW${eventId}`;
+  const listTeams=(names:string[])=>names.length>3?`${names.slice(0,3).join(", ")} (+${names.length-3} more)`:names.join(", ");
+  return <section className="dgw-alert">
+    <div><span>FIXTURE PLANNER</span><h2>Plan ahead of the schedule, not the week of.</h2></div>
+    <div>
+      {nextDoubles.length>0&&<p><b>{eventLabel(nextDoubles[0].eventId)}</b> is a double gameweek for {listTeams(teamNames(nextDoubles))}.</p>}
+      {nextBlanks.length>0&&<p><b>{eventLabel(nextBlanks[0].eventId)}</b> is a blank gameweek for {listTeams(teamNames(nextBlanks))}.</p>}
+    </div>
+  </section>;
+}
 
 function useCaptaincy(players:FplPlayer[],event:number,modelCaptain:FplPlayer|undefined,modelVice:FplPlayer|undefined){
   const[captainId,setCaptainId]=useState<number|null>(null);const[viceId,setViceId]=useState<number|null>(null);
@@ -186,6 +208,16 @@ function TeamAnalytics({data,squad,a}:{data:FplData;squad:FplPlayer[];a:NonNulla
 
 const bandLabel:Record<FiveGwGainBand,string>={negligible:"Negligible",modest:"Modest",strong:"Strong",exceptional:"Exceptional",anomaly:"Anomaly review"};
 
+// Pure so the hold decision is directly unit-testable (tests/dgw.test.mts) without rendering.
+// Only fires when rolling is already the recommendation -- this never argues for holding a
+// transfer that would otherwise clear the action threshold, only reinforces a roll that's already correct.
+export function transferHoldNote(nearestDoubles:DoubleGameweek[],rollRecommended:boolean):string|null{
+  if(!rollRecommended||!nearestDoubles.length)return null;
+  const eventId=nearestDoubles[0].eventId;
+  const teamCount=new Set(nearestDoubles.map(d=>d.teamId)).size;
+  return `A double gameweek is coming in GW${eventId} (${teamCount} team${teamCount>1?"s":""}) — consider banking this transfer.`;
+}
+
 function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
   const[meta]=useManager();const[tab,setTab]=useState<"moves"|"watchlist">("moves");const[fts,setFts]=useState(1);
@@ -198,6 +230,7 @@ function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:n
   const rows=useMemo(()=>withModelUtilityChange(baseRows,squad,optimizer),[baseRows,squad,optimizer]);
   if(!a)return <><ConnectTeam data={data}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></>;
   const best=rows[0];const roll=!best||best.netDifference<2.2;
+  const holdNote=transferHoldNote(nearestInHorizon(detectFixtureAnomalies(data).doubles,futureEvents(data,5).map(e=>e.id)),roll);
   const setWatch=(id:number)=>{const next=watchIds.includes(id)?watchIds.filter(x=>x!==id):[...watchIds,id];setWatchIds(next);persist("fpl-edge-watchlist",JSON.stringify(next))};
   const toggleExpand=(key:string)=>setExpanded(x=>{const next=new Set(x);next.has(key)?next.delete(key):next.add(key);return next});
   return <div className="coach-page">
@@ -210,6 +243,7 @@ function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:n
         {!roll&&<div>{[["GW","1",best.gain1],["NEXT","3",best.gain3],["NEXT","5",best.gain5]].map(([label,n,value])=><span key={String(n)}><small>{label} {n}</small><b>{Number(value)>=0?"+":""}{Number(value).toFixed(1)} pts</b></span>)}<span><small>PRICE DIFFERENCE</small><b>{`${best.price>=0?"+":"−"}£${Math.abs(best.price).toFixed(1)}m`}</b></span><span><small>EXPECTED MINUTES</small><b>{`${best.minutes>=0?"+":""}${Math.round(best.minutes)}`}</b></span><span><small>TRANSFER HIT</small><b>{best.hitCost?`−${best.hitCost}`:"None"}</b></span><span><small>NET (AFTER HIT)</small><b>{best.netDifference>=0?"+":""}{best.netDifference.toFixed(1)} pts</b></span>{best.utilityChange!==null&&<span><small>MODEL UTILITY CHANGE</small><b>{best.utilityChange>=0?"+":""}{best.utilityChange.toFixed(1)}</b></span>}</div>}
         <strong>{roll?"Recommendation: SAVE THE TRANSFER":best.gainBand==="anomaly"?"Recommendation: REVIEW BEFORE ACTING":best.gain1-best.hitCost>0?"Recommendation: MOVE NOW":"Recommendation: WAIT / RECHECK"}</strong>
       </section>
+      {holdNote&&<p className="transfer-hold-note">{holdNote}</p>}
       <section className="ranked-moves">
         <header><div><span>BEST TRANSFERS FOR YOUR SQUAD</span><h2>Every target has a real route.</h2></div><small>Sorted by five-GW raw projected gain (not model utility)</small></header>
         {rows.slice(0,10).map((r,i)=>{const key=`${r.out.id}-${r.incoming.id}`;const isOpen=expanded.has(key);return <article key={key} className={r.gainBand==="anomaly"?"needs-review":""}>
@@ -330,6 +364,27 @@ export function reconcileLock(existingLock:LockRecord|undefined,current:{xiIds:n
   return sameIds(existingLock.xiIds,current.xiIds)&&existingLock.captainId===current.captainId&&existingLock.viceId===current.viceId?"matches":"mismatch";
 }
 
+export type ChipHorizonRow={eventId:number;scores:ChipScores};
+export type ChipVerdictResult={label:string;ready:boolean;detail:string};
+// Pure so "is a better chip window coming soon" is directly unit-testable (tests/dgw.test.mts)
+// without rendering or the expensive chipScoresForEvent computation -- the caller runs that once
+// per event in the horizon and passes the already-scored rows in. rows[0] is always the current
+// event; a later event only overrides the verdict if it clears the SAME chip's score by a real
+// margin (>1pt), not a rounding-noise difference.
+export function chipVerdictAcrossHorizon(rows:ChipHorizonRow[]):ChipVerdictResult{
+  if(!rows.length)return{label:"SAVE",ready:false,detail:"No upcoming gameweek data available."};
+  const current=rows[0];
+  const keys=["wildcard","freeHit","benchBoost","tripleCaptain"] as const;
+  const labels={wildcard:"WILDCARD",freeHit:"FREE HIT",benchBoost:"BENCH BOOST",tripleCaptain:"TRIPLE CAPTAIN"};
+  const bestKey=keys.reduce((best,k)=>current.scores[k].score>current.scores[best].score?k:best,"wildcard" as const);
+  const bestLabel=labels[bestKey];
+  const currentScore=current.scores[bestKey].score;
+  const betterLater=rows.slice(1).filter(r=>r.scores[bestKey].score>currentScore+1).sort((a,b)=>b.scores[bestKey].score-a.scores[bestKey].score)[0];
+  if(currentScore>=8&&!betterLater)return{label:bestLabel,ready:true,detail:`${bestLabel} scores ${currentScore}/10 this week`};
+  if(betterLater)return{label:"SAVE",ready:false,detail:`A better ${bestLabel} window is coming in GW${betterLater.eventId} (${betterLater.scores[bestKey].score}/10 vs ${currentScore}/10 now)`};
+  return{label:"SAVE",ready:false,detail:`${bestLabel} scores ${currentScore}/10 this week`};
+}
+
 function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
   const a=analysis(data,squad);
@@ -349,10 +404,9 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
   const lock=()=>{const record:LockRecord={event:a.first,lockedAt:new Date().toISOString(),dataUpdatedAt:data.updatedAt,predicted:Number(predicted.toFixed(2)),squadIds:squad.map(p=>p.id),xiIds,captainId:captain.id,viceId:vice.id};persist("fpl-edge-locks",JSON.stringify([...existingLocks.filter(x=>x.event!==a.first),record]));setLockVersion(v=>v+1)};
   const modelCaptain=a.xi.captain;
   const captainDisagreement=modelCaptain&&modelCaptain.id!==captain.id?modelCaptain:null;
-  const chip=chipScoresForEvent(data,squad,a.events[0],a.events.slice(0,5).map(e=>e.id),true);
-  const bestChipKey=(["wildcard","freeHit","benchBoost","tripleCaptain"] as const).reduce((best,k)=>chip[k].score>chip[best].score?k:best,"wildcard" as const);
-  const bestChipLabel={wildcard:"WILDCARD",freeHit:"FREE HIT",benchBoost:"BENCH BOOST",tripleCaptain:"TRIPLE CAPTAIN"}[bestChipKey];
-  const chipVerdict=chip[bestChipKey].score>=8?bestChipLabel:"SAVE";
+  const chipHorizon=a.events.slice(0,5);
+  const chipRows=chipHorizon.map((event,index)=>({eventId:event.id,scores:chipScoresForEvent(data,squad,event,chipHorizon.slice(index,index+5).map(e=>e.id),true)}));
+  const chip=chipVerdictAcrossHorizon(chipRows);
   return <div className="coach-page">
     <section className="lock-header"><div><span>LOCK-IN</span><h2>Your exact deadline plan.</h2><p>Generated from your saved squad and the latest official FPL feed.</p></div><div><b>{formation(a.xi.players)}</b><small>formation · {predicted.toFixed(1)} xPts</small></div></section>
     {lockStatus==="mismatch"&&existingLock&&<div className="lock-mismatch-banner"><b>⚠ Your locked plan differs from the current recommendation.</b><p>Locked {new Date(existingLock.lockedAt).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · projected {existingLock.predicted.toFixed(1)} pts. Review before the deadline, or press Lock This Team again to update it.</p></div>}
@@ -363,7 +417,7 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
       <article><span>CAPTAIN</span><b>{captain.name}</b><small>{playerProjection(captain,a.first,data.fixtures,a.first).toFixed(1)} xPts</small></article>
       <article><span>VICE</span><b>{vice.name}</b><small>{playerProjection(vice,a.first,data.fixtures,a.first).toFixed(1)} xPts</small></article>
       <article><span>TRANSFER</span><b>Review Transfer Centre</b><small>never inferred without your FT count</small></article>
-      <article><span>CHIP</span><b>{chipVerdict==="SAVE"?"SAVE":`PLAY ${chipVerdict}`}</b><small>{bestChipLabel} scores {chip[bestChipKey].score}/10 this week</small></article>
+      <article><span>CHIP</span><b>{chip.ready?`PLAY ${chip.label}`:"SAVE"}</b><small>{chip.detail}</small></article>
     </div>
     <section className="deadline-grid"><article><span>LATEST TEAM NEWS</span>{squad.filter(p=>p.news||p.status!=="a").length?squad.filter(p=>p.news||p.status!=="a").map(p=><p key={p.id}><b>{p.name}</b> · {p.news||"Officially flagged"}</p>):<p>No official squad-specific news.</p>}</article><article><span>RISK FLAGS</span>{a.issues.length?a.issues.map(p=><p key={p.id}><b>{p.name}</b> · {startPct(p,a.first,data)}% start probability</p>):<p>No player is below the 68% start threshold.</p>}</article></section>
     <CaptainCompare players={[captain,vice]} data={data} event={a.first}/>

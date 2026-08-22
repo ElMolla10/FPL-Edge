@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplEvent, FplFixture, FplPlayer, isValidSquad, projectionMetrics } from "../app/lib/fpl.ts";
-import { Transfer, bestTransfers, opponent } from "../app/components/CoachApp.tsx";
-import { detectFixtureAnomalies } from "../app/lib/dgw.ts";
+import { ChipHorizonRow, Transfer, bestTransfers, chipVerdictAcrossHorizon, opponent, transferHoldNote } from "../app/components/CoachApp.tsx";
+import { ChipScores } from "../app/components/LiveIntelligence.tsx";
+import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../app/lib/dgw.ts";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -231,4 +232,95 @@ test("detectFixtureAnomalies: multiple teams can each be flagged as a double in 
   const result = detectFixtureAnomalies(data);
   const teamIds = result.doubles.map((d) => d.teamId).sort();
   assert.deepEqual(teamIds, [1, 2], "both team 1 (2 fixtures) and team 2 (2 fixtures) should be flagged");
+});
+
+// --- nearestInHorizon: the shared "soonest anomaly in a forward window" helper ---
+
+test("nearestInHorizon: no items fall inside the horizon -- returns empty", () => {
+  const result = nearestInHorizon([{ eventId: 20 }], [1, 2, 3]);
+  assert.deepEqual(result, []);
+});
+
+test("nearestInHorizon: returns only the items at the nearest eventId, not every item in horizon", () => {
+  const items = [{ eventId: 5, tag: "far" }, { eventId: 2, tag: "near-a" }, { eventId: 2, tag: "near-b" }, { eventId: 3, tag: "mid" }];
+  const result = nearestInHorizon(items, [1, 2, 3, 4, 5]);
+  assert.deepEqual(result.map((r) => r.tag).sort(), ["near-a", "near-b"]);
+});
+
+// --- transferHoldNote: only fires when rolling is already the recommendation ---
+
+test("transferHoldNote: no note when a transfer is actually recommended (not rolling)", () => {
+  const doubles: DoubleGameweek[] = [{ eventId: 24, teamId: 1, fixtureIds: [1, 2] }];
+  assert.equal(transferHoldNote(doubles, false), null);
+});
+
+test("transferHoldNote: no note when rolling but no double is within the horizon", () => {
+  assert.equal(transferHoldNote([], true), null);
+});
+
+test("transferHoldNote: fires when rolling and a double is within the horizon, naming the event and team count", () => {
+  const doubles: DoubleGameweek[] = [
+    { eventId: 24, teamId: 1, fixtureIds: [1, 2] },
+    { eventId: 24, teamId: 5, fixtureIds: [3, 4] },
+  ];
+  const note = transferHoldNote(doubles, true);
+  assert.ok(note?.includes("GW24"), `expected the note to mention GW24, got: ${note}`);
+  assert.ok(note?.includes("2 teams"), `expected the note to mention 2 teams, got: ${note}`);
+});
+
+// --- chipVerdictAcrossHorizon: PLAY only when nothing better is coming soon ---
+
+function makeChipScores(overrides: Partial<Record<keyof ChipScores, number>> = {}): ChipScores {
+  const score = (k: keyof ChipScores) => overrides[k] ?? 3;
+  return {
+    wildcard: { score: score("wildcard"), detail: "wc" },
+    freeHit: { score: score("freeHit"), detail: "fh" },
+    benchBoost: { score: score("benchBoost"), detail: "bb" },
+    tripleCaptain: { score: score("tripleCaptain"), detail: "tc" },
+  };
+}
+
+test("chipVerdictAcrossHorizon: empty rows -- SAVE, not ready, no data", () => {
+  const result = chipVerdictAcrossHorizon([]);
+  assert.equal(result.ready, false);
+  assert.equal(result.label, "SAVE");
+});
+
+test("chipVerdictAcrossHorizon: current week clears 8/10 and nothing better is coming -- ready to play", () => {
+  const rows: ChipHorizonRow[] = [
+    { eventId: 1, scores: makeChipScores({ benchBoost: 9 }) },
+    { eventId: 2, scores: makeChipScores({ benchBoost: 4 }) },
+  ];
+  const result = chipVerdictAcrossHorizon(rows);
+  assert.equal(result.ready, true);
+  assert.equal(result.label, "BENCH BOOST");
+});
+
+test("chipVerdictAcrossHorizon: current week does not clear 8/10 -- SAVE", () => {
+  const rows: ChipHorizonRow[] = [{ eventId: 1, scores: makeChipScores({ benchBoost: 6 }) }];
+  const result = chipVerdictAcrossHorizon(rows);
+  assert.equal(result.ready, false);
+  assert.equal(result.label, "SAVE");
+});
+
+test("chipVerdictAcrossHorizon: current week clears 8/10 but a later week clears it by a real margin for the SAME chip -- SAVE, names the better window", () => {
+  const rows: ChipHorizonRow[] = [
+    { eventId: 1, scores: makeChipScores({ benchBoost: 8 }) },
+    { eventId: 2, scores: makeChipScores({ benchBoost: 8.5 }) }, // within the +1 margin -- not "meaningfully" better
+    { eventId: 3, scores: makeChipScores({ benchBoost: 10 }) }, // clears the margin
+  ];
+  const result = chipVerdictAcrossHorizon(rows);
+  assert.equal(result.ready, false);
+  assert.equal(result.label, "SAVE");
+  assert.ok(result.detail.includes("GW3"), `expected the detail to name GW3 as the better window, got: ${result.detail}`);
+});
+
+test("chipVerdictAcrossHorizon: a later week scoring higher for a DIFFERENT chip does not override this week's best chip", () => {
+  const rows: ChipHorizonRow[] = [
+    { eventId: 1, scores: makeChipScores({ benchBoost: 9 }) }, // this week's best chip is Bench Boost
+    { eventId: 2, scores: makeChipScores({ tripleCaptain: 10 }) }, // later week is great for a DIFFERENT chip
+  ];
+  const result = chipVerdictAcrossHorizon(rows);
+  assert.equal(result.ready, true, "a stronger later week for an unrelated chip must not block this week's own best chip");
+  assert.equal(result.label, "BENCH BOOST");
 });

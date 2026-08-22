@@ -49,3 +49,15 @@ export function detectFixtureAnomalies(data: FplData): FixtureAnomalies {
 
   return { doubles, blanks, pending };
 }
+
+// Shared by every Phase C surface (Overview card, Transfers hold-note) that needs "the soonest
+// anomaly within a forward-looking window" -- e.g. events.slice(0,8) for Overview's horizon.
+// Returns every entry at the nearest eventId (there can be several teams double/blank in the same
+// gameweek), or [] if nothing falls inside the horizon.
+export function nearestInHorizon<T extends { eventId: number }>(items: T[], horizonEventIds: Iterable<number>): T[] {
+  const horizon = new Set(horizonEventIds);
+  const inHorizon = items.filter((i) => horizon.has(i.eventId));
+  if (!inHorizon.length) return [];
+  const nearestEventId = Math.min(...inHorizon.map((i) => i.eventId));
+  return inHorizon.filter((i) => i.eventId === nearestEventId);
+}
