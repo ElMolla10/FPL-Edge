@@ -12,7 +12,7 @@ import {
   playerProjection,
   projectionMetrics,
 } from "../app/lib/fpl.ts";
-import { HistoryWeek, LockRecord, analysis, bestTransfers, createProjectionReceipt, evaluateProjectionReceipt, Transfer } from "../app/components/CoachApp.tsx";
+import { HistoryWeek, LockRecord, ProjectionPlayerEvaluationRow, ProjectionTransferEvaluation, aggregateAccuracy, aggregateTransferAccuracy, analysis, bestTransfers, createProjectionReceipt, evaluateProjectionReceipt, projectionConfidenceBand, Transfer } from "../app/components/CoachApp.tsx";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -78,11 +78,13 @@ test("projection receipt freezes every player, selected captaincy and ranked tra
   const data:FplData={updatedAt:"2026-08-22T09:55:00.000Z",source:"official-test",seasonStatsThrough:1,players:[target,captain],fixtures:[makeFixture({id:1,event:2,teamH:1,teamA:2}),makeFixture({id:2,event:3,teamH:2,teamA:1})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false},{id:3,name:"Gameweek 3",deadline:"2026-08-30T10:00:00.000Z",finished:false,current:false,next:false,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
   const transferRows=[{out:captain,incoming:target,gain1:1.2345,gain3:2.3456,gain5:3.4567,individualGain1:1.1111,individualGain3:3.3333,individualGain5:4.5678,rankScore:2.2222,netDifference:3.4567,hitCost:0,startProbIn:.6543,confidenceIn:.4321,risk:"Medium" as const,reviewRequired:true,anomalies:[{code:"test-warning",message:"Test"}]}];
   const receipt=createProjectionReceipt({data,eventIds:[2,3],deadline,capturedAt,squad:[captain],xiIds:[captain.id],captainId:captain.id,viceId:target.id,bank:1.5,freeTransfers:2,transferRows});
-  assert.equal(receipt.schemaVersion,2);
+  assert.equal(receipt.schemaVersion,3);
   assert.equal(receipt.modelVersion,PROJECTION_MODEL_VERSION);
-  assert.equal(receipt.playerEncoding,"tuple-v2");
+  assert.equal(receipt.playerEncoding,"tuple-v3");
   assert.deepEqual(receipt.players.map(player=>player[0]),[11,22],"every official player is captured in deterministic id order");
   assert.equal(receipt.players[0][11]?.length,2,"each player freezes the full evaluation horizon");
+  assert.equal(receipt.players[0][12],1,"team identity is frozen at prediction time");
+  assert.equal(receipt.players[0][13],"MID","position is frozen at prediction time");
   assert.equal(receipt.players[1][3],"position-baseline");
   assert.deepEqual(receipt.eventIds,[2,3]);
   assert.equal(receipt.squad.captainId,11);
@@ -115,6 +117,8 @@ test("post-GW evaluation grades a matching official plan, player calibration and
   assert.ok(result.population&&result.population.rows===4,"both players across both completed events are calibrated");
   assert.equal(result.captain?.actualRaw,5);
   assert.equal(result.captain?.officialContribution,10);
+  assert.equal(result.playerRows.length,2,"the dashboard receives one-step-ahead rows, not hindsight-weighted future rows");
+  assert.deepEqual({teamId:result.playerRows[0].teamId,position:result.playerRows[0].positionShort,band:result.playerRows[0].confidenceBand},{teamId:1,position:"MID",band:projectionConfidenceBand(result.playerRows[0].confidence)});
   assert.equal(result.transfers[0].actualPlayerSwing,4,"actual route swing is IN minus OUT across completed events");
   assert.equal(result.transfers[0].actualNetAfterHit,4);
 });
@@ -165,6 +169,39 @@ test("projection receipt refuses to label a post-deadline capture as pre-deadlin
   const deadline="2026-08-23T10:00:00.000Z";
   const data:FplData={updatedAt:deadline,source:"test",seasonStatsThrough:0,players:[player],fixtures:[],events:[],teams:[{id:1,name:"One",short:"ONE"}],rules:makeRules()};
   assert.throws(()=>createProjectionReceipt({data,eventIds:[2],deadline,capturedAt:deadline,squad:[player],xiIds:[1],captainId:1,viceId:1,bank:0,freeTransfers:1,transferRows:[]}),/deadline has passed/i);
+});
+
+test("accuracy aggregation computes xPts, minutes and probability calibration without mixing denominators",()=>{
+  const rows:ProjectionPlayerEvaluationRow[]=[
+    {event:2,playerId:1,teamId:1,positionShort:"DEF",projectedPoints:4,actualPoints:6,error:2,signedError:2,expectedMinutes:80,actualMinutes:90,startProbability:.8,started:true,confidence:.8,confidenceBand:"High"},
+    {event:2,playerId:2,teamId:1,positionShort:"DEF",projectedPoints:.2,actualPoints:0,error:.2,signedError:-.2,expectedMinutes:10,actualMinutes:0,startProbability:.2,started:false,confidence:.4,confidenceBand:"Low"},
+    {event:2,playerId:3,teamId:2,positionShort:"MID",projectedPoints:3,actualPoints:0,error:3,signedError:-3,expectedMinutes:70,actualMinutes:0,startProbability:.7,started:false,confidence:.6,confidenceBand:"Medium"},
+  ];
+  const metric=aggregateAccuracy(rows);
+  assert.equal(metric.rows,3);
+  assert.equal(metric.activeRows,2,"the fringe non-appearance is retained for minutes/start calibration but excluded from active xPts MAE");
+  assert.equal(metric.pointsMae,2.5);
+  assert.equal(metric.pointsBias,-.5);
+  assert.equal(metric.withinTwoPct,50);
+  assert.equal(metric.minutesMae,30);
+  assert.equal(metric.startBrier,.19);
+});
+
+test("confidence bands have stable documented boundaries",()=>{
+  assert.equal(projectionConfidenceBand(.75),"High");
+  assert.equal(projectionConfidenceBand(.749),"Medium");
+  assert.equal(projectionConfidenceBand(.5),"Medium");
+  assert.equal(projectionConfidenceBand(.499),"Low");
+});
+
+test("transfer accuracy excludes pending routes instead of counting them as zero",()=>{
+  const route=(overrides:Partial<ProjectionTransferEvaluation>):ProjectionTransferEvaluation=>({rank:1,outId:1,outName:"Out",incomingId:2,incomingName:"In",completedEvents:1,horizonEvents:5,projectedPlayerSwing:2,actualPlayerSwing:3,actualNetAfterHit:3,projectedFive:6,hitCost:0,reviewRequired:false,...overrides});
+  const metric=aggregateTransferAccuracy([route({}),route({rank:2,projectedPlayerSwing:1,actualPlayerSwing:-1,actualNetAfterHit:-5,hitCost:4}),route({rank:3,completedEvents:0,projectedPlayerSwing:null,actualPlayerSwing:null,actualNetAfterHit:null})]);
+  assert.equal(metric.rows,2);
+  assert.equal(metric.projectedAverage,1.5);
+  assert.equal(metric.actualAverage,1);
+  assert.equal(metric.netAfterHitAverage,-1);
+  assert.equal(metric.positivePct,50);
 });
 
 test("reconciliation: every GW/3GW/5GW transfer delta returned by bestTransfers equals IN minus OUT exactly", () => {

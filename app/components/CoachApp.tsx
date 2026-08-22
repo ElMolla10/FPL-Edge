@@ -71,7 +71,7 @@ function Page({view,data,go,revision}:{view:View;data:FplData;go:(v:View)=>void;
   if(view==="deadline")return <FinalCheck data={data} go={go} revision={revision}/>;
   if(view==="chips")return <LiveChips/>;
   if(view==="model")return <PointsModel data={data}/>;
-  return <div className="coach-page"><DecisionSnapshots data={data} revision={revision}/><LiveHistory/></div>;
+  return <div className="coach-page"><ModelAudit data={data} revision={revision}/><LiveHistory/></div>;
 }
 
 function Loading({label,retry}:{label:string;retry?:()=>void}){return <div className="coach-loading"><span className="live-spinner"/><b>{label}</b>{retry&&<button onClick={retry}>Try again</button>}</div>}
@@ -738,11 +738,10 @@ function News({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number
 
 // Tuple encoding keeps a full-season receipt archive inside practical browser-storage limits.
 // Field order: id, price, status, prior source, current-event xPts, expected minutes, start
-// probability, confidence, xG, xA, clean-sheet probability, horizon xPts[]. The first eleven
-// fields preserve tuple-v1 compatibility; tuple-v2 appends the per-event projection path needed
-// for honest 1/3/5-GW post-deadline evaluation. Player identity/display fields are resolved from
-// the official id at evaluation time instead of repeating 600 names and clubs in every receipt.
-export type ProjectionReceiptPlayer=[number,number,string,FplPlayer["priorSource"]|null,number,number,number,number,number,number,number,number[]?];
+// probability, confidence, xG, xA, clean-sheet probability, horizon xPts[], team id, position.
+// The first eleven fields preserve tuple-v1 compatibility; tuple-v2 appends the projection path;
+// tuple-v3 freezes team and position so historical calibration is not rewritten after a transfer.
+export type ProjectionReceiptPlayer=[number,number,string,FplPlayer["priorSource"]|null,number,number,number,number,number,number,number,number[]?,number?,string?];
 export type ProjectionReceiptTransfer={
   rank:number;outId:number;outName:string;incomingId:number;incomingName:string;
   gain1:number;gain3:number;gain5:number;individualGain1?:number;individualGain3?:number;individualGain5:number;rankScore:number;
@@ -750,11 +749,11 @@ export type ProjectionReceiptTransfer={
   risk:Transfer["risk"];reviewRequired:boolean;anomalyCodes:string[];
 };
 export type ProjectionReceipt={
-  schemaVersion:1|2;receiptId:string;modelVersion:string;event:number;eventIds:number[];
+  schemaVersion:1|2|3;receiptId:string;modelVersion:string;event:number;eventIds:number[];
   deadline:string;capturedAt:string;dataUpdatedAt:string;dataSource:string;seasonStatsThrough:number;
   assumptions:{bank:number;freeTransfers:number;transferHorizon:number};
   squad:{squadIds:number[];xiIds:number[];captainId:number;viceId:number;predictedTotal:number;captainXPts:number;viceXPts:number};
-  playerEncoding:"tuple-v1"|"tuple-v2";players:ProjectionReceiptPlayer[];transfers:ProjectionReceiptTransfer[];
+  playerEncoding:"tuple-v1"|"tuple-v2"|"tuple-v3";players:ProjectionReceiptPlayer[];transfers:ProjectionReceiptTransfer[];
 };
 type ReceiptTransferInput=Pick<Transfer,"gain1"|"gain3"|"gain5"|"individualGain1"|"individualGain3"|"individualGain5"|"rankScore"|"netDifference"|"hitCost"|"startProbIn"|"confidenceIn"|"risk"|"reviewRequired"|"anomalies">&{out:Pick<FplPlayer,"id"|"name">;incoming:Pick<FplPlayer,"id"|"name">};
 const receiptNumber=(value:number,places=3)=>Number(value.toFixed(places));
@@ -766,13 +765,13 @@ export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad
   if(!eventIds.length)throw new Error("A projection receipt requires at least one future event.");
   if(Date.parse(capturedAt)>=Date.parse(deadline))throw new Error("The deadline has passed; this receipt cannot be labelled pre-deadline.");
   const horizon=eventIds.slice(0,5),first=horizon[0];
-  const players=data.players.map(player=>{const metrics=projectionMetrics(player,first,data.fixtures,first),path=horizon.map(eventId=>receiptNumber(playerProjection(player,eventId,data.fixtures,first)));return[player.id,receiptNumber(player.price,1),player.status,player.priorSource??null,receiptNumber(metrics.xPts),receiptNumber(metrics.expectedMinutes),receiptNumber(metrics.startProbability),receiptNumber(metrics.confidence),receiptNumber(metrics.xG),receiptNumber(metrics.xA),receiptNumber(metrics.cleanSheetProbability),path] satisfies ProjectionReceiptPlayer}).sort((a,b)=>a[0]-b[0]);
+  const players=data.players.map(player=>{const metrics=projectionMetrics(player,first,data.fixtures,first),path=horizon.map(eventId=>receiptNumber(playerProjection(player,eventId,data.fixtures,first)));return[player.id,receiptNumber(player.price,1),player.status,player.priorSource??null,receiptNumber(metrics.xPts),receiptNumber(metrics.expectedMinutes),receiptNumber(metrics.startProbability),receiptNumber(metrics.confidence),receiptNumber(metrics.xG),receiptNumber(metrics.xA),receiptNumber(metrics.cleanSheetProbability),path,player.teamId,player.positionShort] satisfies ProjectionReceiptPlayer}).sort((a,b)=>a[0]-b[0]);
   const byId=new Map(data.players.map(player=>[player.id,player]));
   const projected=(id:number)=>{const player=byId.get(id);return player?playerProjection(player,first,data.fixtures,first):0};
   const captainXPts=projected(captainId),viceXPts=projected(viceId);
   const predictedTotal=xiIds.reduce((sum,id)=>sum+projected(id),0)+captainXPts;
   const transfers=transferRows.slice(0,20).map((row,index)=>({rank:index+1,outId:row.out.id,outName:row.out.name,incomingId:row.incoming.id,incomingName:row.incoming.name,gain1:receiptNumber(row.gain1),gain3:receiptNumber(row.gain3),gain5:receiptNumber(row.gain5),individualGain1:receiptNumber(row.individualGain1),individualGain3:receiptNumber(row.individualGain3),individualGain5:receiptNumber(row.individualGain5),rankScore:receiptNumber(row.rankScore),netDifference:receiptNumber(row.netDifference),hitCost:row.hitCost,startProbability:receiptNumber(row.startProbIn),confidence:receiptNumber(row.confidenceIn),risk:row.risk,reviewRequired:row.reviewRequired,anomalyCodes:row.anomalies.map(flag=>flag.code)}));
-  return{schemaVersion:2,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v2",players,transfers};
+  return{schemaVersion:3,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v3",players,transfers};
 }
 
 export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];captainId:number;viceId:number;receipt?:ProjectionReceipt};
@@ -786,9 +785,16 @@ export function reconcileLock(existingLock:LockRecord|undefined,current:{xiIds:n
 }
 
 export type ProjectionTransferEvaluation={
-  rank:number;outName:string;incomingName:string;completedEvents:number;horizonEvents:number;
+  rank:number;outId:number;outName:string;incomingId:number;incomingName:string;completedEvents:number;horizonEvents:number;
   projectedPlayerSwing:number|null;actualPlayerSwing:number|null;actualNetAfterHit:number|null;
   projectedFive:number;hitCost:number;reviewRequired:boolean;
+};
+export type ProjectionConfidenceBand="High"|"Medium"|"Low";
+export type ProjectionPlayerEvaluationRow={
+  event:number;playerId:number;teamId:number|null;positionShort:string|null;
+  projectedPoints:number;actualPoints:number;error:number;signedError:number;
+  expectedMinutes:number;actualMinutes:number;startProbability:number;started:boolean;
+  confidence:number;confidenceBand:ProjectionConfidenceBand;
 };
 export type ProjectionEvaluation={
   event:number;status:"pending"|"unavailable"|"legacy"|"evaluated";completedEvents:number;horizonEvents:number;
@@ -796,10 +802,12 @@ export type ProjectionEvaluation={
   chip:string|null;adjustedProjectedTotal:number;signedSquadError:number|null;absoluteSquadError:number|null;
   captain:{receiptCaptainId:number;officialCaptainId:number|null;effectiveCaptainId:number|null;matched:boolean|null;projectedRaw:number;actualRaw:number|null;officialContribution:number|null}|null;
   population:{rows:number;activeRows:number;allPlayerPointsMae:number;activePlayerPointsMae:number;pointsBias:number;withinTwoPct:number;minutesMae:number;startBrier:number}|null;
+  playerRows:ProjectionPlayerEvaluationRow[];
   transfers:ProjectionTransferEvaluation[];
 };
 
 const average=(values:number[])=>values.length?values.reduce((sum,value)=>sum+value,0)/values.length:0;
+export const projectionConfidenceBand=(confidence:number):ProjectionConfidenceBand=>confidence>=.75?"High":confidence>=.5?"Medium":"Low";
 const sameIdSet=(a:number[],b:number[])=>a.length===b.length&&[...a].sort((x,y)=>x-y).every((value,index)=>value===[...b].sort((x,y)=>x-y)[index]);
 const historyPlayerStats=(week:HistoryWeek|undefined,id:number):HistoryPlayerStats|null=>{
   const stats=week?.playerStats?.[String(id)];
@@ -815,9 +823,9 @@ const historyPlayerStats=(week:HistoryWeek|undefined,id:number):HistoryPlayerSta
 // UI labels the divergence instead of grading the model against a different plan.
 export function evaluateProjectionReceipt(lock:LockRecord,weeks:HistoryWeek[]):ProjectionEvaluation{
   const receipt=lock.receipt,firstWeek=weeks.find(week=>week.event===lock.event);
-  if(!receipt){const managerActual=firstWeek&&!firstWeek.unavailable?Number(firstWeek.points):null,transferCost=firstWeek?.transferCost??0,scoringTotal=firstWeek?.squad?.reduce((sum,pick)=>sum+(historyPlayerStats(firstWeek,pick.elementId)?.points??0)*pick.multiplier,0)??managerActual;return{event:lock.event,status:"legacy",completedEvents:firstWeek&&!firstWeek.unavailable?1:0,horizonEvents:1,managerActual,actualBeforeHits:scoringTotal,transferCost,officialPlanMatch:null,projectedTotal:lock.predicted,chip:firstWeek?.chip??null,adjustedProjectedTotal:lock.predicted,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,transfers:[]}}
-  if(firstWeek?.unavailable)return{event:receipt.event,status:"unavailable",completedEvents:0,horizonEvents:receipt.eventIds.length,managerActual:null,actualBeforeHits:null,transferCost:0,officialPlanMatch:null,projectedTotal:receipt.squad.predictedTotal,chip:null,adjustedProjectedTotal:receipt.squad.predictedTotal,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,transfers:[]};
-  if(!firstWeek)return{event:receipt.event,status:"pending",completedEvents:0,horizonEvents:receipt.eventIds.length,managerActual:null,actualBeforeHits:null,transferCost:0,officialPlanMatch:null,projectedTotal:receipt.squad.predictedTotal,chip:null,adjustedProjectedTotal:receipt.squad.predictedTotal,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,transfers:[]};
+  if(!receipt){const managerActual=firstWeek&&!firstWeek.unavailable?Number(firstWeek.points):null,transferCost=firstWeek?.transferCost??0,scoringTotal=firstWeek?.squad?.reduce((sum,pick)=>sum+(historyPlayerStats(firstWeek,pick.elementId)?.points??0)*pick.multiplier,0)??managerActual;return{event:lock.event,status:"legacy",completedEvents:firstWeek&&!firstWeek.unavailable?1:0,horizonEvents:1,managerActual,actualBeforeHits:scoringTotal,transferCost,officialPlanMatch:null,projectedTotal:lock.predicted,chip:firstWeek?.chip??null,adjustedProjectedTotal:lock.predicted,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,playerRows:[],transfers:[]}}
+  if(firstWeek?.unavailable)return{event:receipt.event,status:"unavailable",completedEvents:0,horizonEvents:receipt.eventIds.length,managerActual:null,actualBeforeHits:null,transferCost:0,officialPlanMatch:null,projectedTotal:receipt.squad.predictedTotal,chip:null,adjustedProjectedTotal:receipt.squad.predictedTotal,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,playerRows:[],transfers:[]};
+  if(!firstWeek)return{event:receipt.event,status:"pending",completedEvents:0,horizonEvents:receipt.eventIds.length,managerActual:null,actualBeforeHits:null,transferCost:0,officialPlanMatch:null,projectedTotal:receipt.squad.predictedTotal,chip:null,adjustedProjectedTotal:receipt.squad.predictedTotal,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,playerRows:[],transfers:[]};
 
   const weekByEvent=new Map(weeks.filter(week=>!week.unavailable).map(week=>[week.event,week]));
   let completedEvents=0;
@@ -854,6 +862,12 @@ export function evaluateProjectionReceipt(lock:LockRecord,weeks:HistoryWeek[]):P
     }
   }
   const population=allPointErrors.length?{rows:allPointErrors.length,activeRows:activePointErrors.length,allPlayerPointsMae:receiptNumber(average(allPointErrors)),activePlayerPointsMae:receiptNumber(average(activePointErrors)),pointsBias:receiptNumber(average(activeBias)),withinTwoPct:receiptNumber(activePointErrors.length?withinTwo/activePointErrors.length*100:0,1),minutesMae:receiptNumber(average(minuteErrors),1),startBrier:receiptNumber(average(startErrors))}:null;
+  const playerRows:ProjectionPlayerEvaluationRow[]=receipt.players.flatMap(player=>{
+    const stats=historyPlayerStats(firstWeek,player[0]);
+    if(!stats)return[];
+    const projected=player[4],actual=stats.points,confidence=player[7];
+    return[{event:receipt.event,playerId:player[0],teamId:player[12]??null,positionShort:player[13]??null,projectedPoints:projected,actualPoints:actual,error:receiptNumber(Math.abs(actual-projected)),signedError:receiptNumber(actual-projected),expectedMinutes:player[5],actualMinutes:stats.minutes,startProbability:player[6],started:stats.starts>0,confidence,confidenceBand:projectionConfidenceBand(confidence)}];
+  });
 
   const transfers=receipt.transfers.slice(0,5).map(row=>{
     let actualPlayerSwing=0,projectedPlayerSwing=0,paired=0,projectionPairs=0;
@@ -866,9 +880,22 @@ export function evaluateProjectionReceipt(lock:LockRecord,weeks:HistoryWeek[]):P
       if(incomingProjected!==null&&incomingProjected!==undefined&&outgoingProjected!==null&&outgoingProjected!==undefined){projectedPlayerSwing+=incomingProjected-outgoingProjected;projectionPairs++}
       paired++;
     }
-    return{rank:row.rank,outName:row.outName,incomingName:row.incomingName,completedEvents:paired,horizonEvents:receipt.eventIds.length,projectedPlayerSwing:paired&&projectionPairs===paired?receiptNumber(projectedPlayerSwing):null,actualPlayerSwing:paired?actualPlayerSwing:null,actualNetAfterHit:paired?actualPlayerSwing-row.hitCost:null,projectedFive:row.individualGain5,hitCost:row.hitCost,reviewRequired:row.reviewRequired};
+    return{rank:row.rank,outId:row.outId,outName:row.outName,incomingId:row.incomingId,incomingName:row.incomingName,completedEvents:paired,horizonEvents:receipt.eventIds.length,projectedPlayerSwing:paired&&projectionPairs===paired?receiptNumber(projectedPlayerSwing):null,actualPlayerSwing:paired?actualPlayerSwing:null,actualNetAfterHit:paired?actualPlayerSwing-row.hitCost:null,projectedFive:row.individualGain5,hitCost:row.hitCost,reviewRequired:row.reviewRequired};
   });
-  return{event:receipt.event,status:"evaluated",completedEvents,horizonEvents:receipt.eventIds.length,managerActual,actualBeforeHits,transferCost,officialPlanMatch,projectedTotal:receipt.squad.predictedTotal,chip,adjustedProjectedTotal,signedSquadError,absoluteSquadError:signedSquadError===null?null:Math.abs(signedSquadError),captain,population,transfers};
+  return{event:receipt.event,status:"evaluated",completedEvents,horizonEvents:receipt.eventIds.length,managerActual,actualBeforeHits,transferCost,officialPlanMatch,projectedTotal:receipt.squad.predictedTotal,chip,adjustedProjectedTotal,signedSquadError,absoluteSquadError:signedSquadError===null?null:Math.abs(signedSquadError),captain,population,playerRows,transfers};
+}
+
+export type AccuracyMetric={rows:number;activeRows:number;pointsMae:number|null;pointsBias:number|null;withinTwoPct:number|null;minutesMae:number|null;startBrier:number|null};
+export function aggregateAccuracy(rows:ProjectionPlayerEvaluationRow[]):AccuracyMetric{
+  const active=rows.filter(row=>row.projectedPoints>=.5||row.actualMinutes>0);
+  return{rows:rows.length,activeRows:active.length,pointsMae:active.length?receiptNumber(average(active.map(row=>row.error))):null,pointsBias:active.length?receiptNumber(average(active.map(row=>row.signedError))):null,withinTwoPct:active.length?receiptNumber(active.filter(row=>row.error<=2).length/active.length*100,1):null,minutesMae:rows.length?receiptNumber(average(rows.map(row=>Math.abs(row.actualMinutes-row.expectedMinutes))),1):null,startBrier:rows.length?receiptNumber(average(rows.map(row=>Math.pow((row.started?1:0)-row.startProbability,2)))):null};
+}
+
+export type TransferAccuracyMetric={rows:number;projectedAverage:number|null;actualAverage:number|null;netAfterHitAverage:number|null;positivePct:number|null};
+export function aggregateTransferAccuracy(rows:ProjectionTransferEvaluation[]):TransferAccuracyMetric{
+  const completed=rows.filter(row=>row.completedEvents>0&&row.actualPlayerSwing!==null&&row.actualNetAfterHit!==null);
+  const projected=completed.filter(row=>row.projectedPlayerSwing!==null);
+  return{rows:completed.length,projectedAverage:projected.length?receiptNumber(average(projected.map(row=>row.projectedPlayerSwing!))):null,actualAverage:completed.length?receiptNumber(average(completed.map(row=>row.actualPlayerSwing!))):null,netAfterHitAverage:completed.length?receiptNumber(average(completed.map(row=>row.actualNetAfterHit!))):null,positivePct:completed.length?receiptNumber(completed.filter(row=>row.actualNetAfterHit!>0).length/completed.length*100,1):null};
 }
 
 export type ChipHorizonRow={eventId:number;scores:ChipScores};
@@ -962,7 +989,7 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
   const existingLock=existingLocks.find(l=>l.event===a.first);
   const lockStatus=reconcileLock(existingLock,{xiIds,captainId:captain.id,viceId:vice.id});
   const locked=lockStatus==="matches";
-  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===2&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
+  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===3&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
   const lock=()=>{
     setLockError("");
     const event=data.events.find(item=>item.id===a.first),capturedAt=new Date().toISOString();
@@ -1027,10 +1054,56 @@ function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:Fpl
 
 function PointsModel({data}:{data:FplData}){const events=futureEvents(data,5),first=events[0]?.id;const[q,setQ]=useState("");const[selected,setSelected]=useState<number|null>(null);const[technical,setTechnical]=useState(false);const players=data.players.filter(p=>(`${p.name} ${p.teamName}`).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>b.epNext-a.epNext).slice(0,10),p=data.players.find(x=>x.id===(selected??players[0]?.id))??data.players[0],m=projectionMetrics(p,first,data.fixtures,first);const appearance=(1-m.sixtyProbability)*m.startProbability+m.sixtyProbability*2,goalPts=m.xG*(p.positionShort==="FWD"?4:p.positionShort==="MID"?5:6),assistPts=m.xA*3,cleanPts=m.cleanSheetProbability*(p.positionShort==="MID"?1:["GKP","DEF"].includes(p.positionShort)?4:0)*m.sixtyProbability,other=Math.max(0,m.xPts-appearance-goalPts-assistPts-cleanPts-m.bonus);const confidence=m.startProbability>.82?"High":m.startProbability>.62?"Medium":"Low";let locks:any[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}return <div className="coach-page"><section className="model-trust"><div><span>HOW PROJECTIONS WORK</span><h2>Transparent by default. Technical when you want it.</h2><p>Expected points combine expected minutes, team and opponent strength, xG/xA, penalties and set pieces, clean-sheet probability, defensive contributions, home advantage, role and official availability.</p></div><button onClick={()=>setTechnical(x=>!x)}>{technical?"Hide technical detail":"Open technical detail"}</button>{technical&&<div className="technical-note"><b>Technical method</b><p>Current-season performance is blended with prior-season rates while the new sample is small. Each fixture applies venue and difficulty adjustments. Availability discounts both starting probability and 60-minute probability. Component outcomes are summed, then lightly blended with the official next-event expectation when available.</p><p>Uncertainty is driven mainly by start probability, role flags and sample size. Missing inputs are not invented.</p></div>}</section><section className="model-picker"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a player…"/><div>{players.map(x=><button className={x.id===p.id?"active":""} onClick={()=>setSelected(x.id)} key={x.id}>{x.name}<small>{x.teamShort}</small></button>)}</div></section><section className="projection-explainer"><header><div><span>{p.teamName} · {p.position} · £{p.price.toFixed(1)}m</span><h2>{p.name} — {m.xPts.toFixed(1)} xPts</h2></div><b className={confidence.toLowerCase()}>Confidence: {confidence}</b></header><div>{[["Appearance",appearance],["Goals",goalPts],["Assists",assistPts],["Clean sheet",cleanPts],["Bonus",m.bonus],["Other",other]].map(([label,value])=><article key={String(label)}><span>{label}</span><b>{Number(value).toFixed(2)}</b><i><em style={{width:`${clamp(Number(value)/Math.max(.1,m.xPts)*100)}%`}}/></i></article>)}</div><footer><span>{Math.round(m.expectedMinutes)} xMins</span><span>{Math.round(m.startProbability*100)}% start</span><span>{m.penaltyRole?"Penalties":"No confirmed pens"}</span><span>{m.setPieceRole?"Set pieces":"No confirmed set pieces"}</span></footer></section><section className="model-reality"><header><div><span>MODEL VS REALITY</span><h2>Every locked plan becomes an audit trail.</h2></div><strong>{locks.length}<small>projection snapshots</small></strong></header>{locks.length?<div>{locks.slice(-5).reverse().map((l:any)=><article key={l.event}><b>GW{l.event}</b><span>Projected {l.predicted} pts</span><em>Actual result appears after the gameweek is finished</em></article>)}</div>:<p>Lock a team in Final Check to start tracking projected points, actual points, error and rolling model accuracy. No backtest numbers are fabricated.</p>}</section></div>}
 
-function DecisionSnapshots({data,revision}:{data:FplData;revision:number}){
+type EvaluationRow={lock:LockRecord;evaluation:ProjectionEvaluation};
+function ModelAudit({data,revision}:{data:FplData;revision:number}){
   const[rows,setRows]=useState<{lock:LockRecord;evaluation:ProjectionEvaluation}[]>([]);
   const[loading,setLoading]=useState(false);const[error,setError]=useState("");const[refreshToken,setRefreshToken]=useState(0);
   useEffect(()=>{let cancelled=false;const run=async()=>{let locks:LockRecord[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}const entry=localStorage.getItem("fpl-edge-entry");let weeks:HistoryWeek[]=[];setLoading(!!entry);setError("");if(entry)try{const response=await fetch(`/api/fpl/history?entry=${entry}`,{cache:"no-store"});const json=await response.json();if(!response.ok)throw new Error(json.error||"Could not load official history");weeks=json.weeks||[]}catch(e){if(!cancelled)setError(e instanceof Error?e.message:"Could not load official history")}finally{if(!cancelled)setLoading(false)}const mapped=locks.map(lock=>({lock,evaluation:evaluateProjectionReceipt(lock,weeks)})).sort((a,b)=>b.lock.event-a.lock.event);if(!cancelled)setRows(mapped)};run();return()=>{cancelled=true}},[revision,refreshToken]);
+  const refresh=()=>setRefreshToken(value=>value+1);
+  return <><AccuracyDashboard data={data} rows={rows}/><DecisionSnapshots data={data} rows={rows} loading={loading} error={error} refresh={refresh}/></>;
+}
+
+function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
+  const evaluated=rows.filter(row=>row.evaluation.status==="evaluated");
+  const playerRows=evaluated.flatMap(row=>row.evaluation.playerRows);
+  const overall=aggregateAccuracy(playerRows);
+  const captainPairs=evaluated.flatMap(row=>{const captain=row.evaluation.captain;return captain?.actualRaw===null||captain?.actualRaw===undefined?[]:[{event:row.evaluation.event,projected:captain.projectedRaw,actual:captain.actualRaw,error:Math.abs(captain.actualRaw-captain.projectedRaw)}]});
+  const captainMae=captainPairs.length?average(captainPairs.map(row=>row.error)):null;
+  const transferRows=evaluated.flatMap(row=>row.evaluation.transfers);
+  const transfer=aggregateTransferAccuracy(transferRows),topTransfer=aggregateTransferAccuracy(transferRows.filter(row=>row.rank===1));
+  const grouped=(keyOf:(row:ProjectionPlayerEvaluationRow)=>string,labelOf:(key:string)=>string)=>{
+    const map=new Map<string,ProjectionPlayerEvaluationRow[]>();
+    playerRows.forEach(row=>{const key=keyOf(row);map.set(key,[...(map.get(key)??[]),row])});
+    return[...map].map(([key,values])=>({key,label:labelOf(key),metric:aggregateAccuracy(values)}));
+  };
+  const byPosition=grouped(row=>row.positionShort??"LEGACY",key=>key==="LEGACY"?"Legacy / unknown":key).sort((a,b)=>["GKP","DEF","MID","FWD","LEGACY"].indexOf(a.key)-["GKP","DEF","MID","FWD","LEGACY"].indexOf(b.key));
+  const byConfidence=grouped(row=>row.confidenceBand,key=>key).sort((a,b)=>["High","Medium","Low"].indexOf(a.key)-["High","Medium","Low"].indexOf(b.key));
+  const teamName=new Map(data.teams.map(team=>[String(team.id),team.name]));
+  const byClub=grouped(row=>row.teamId===null?"LEGACY":String(row.teamId),key=>key==="LEGACY"?"Legacy / unknown":teamName.get(key)??`Team ${key}`).sort((a,b)=>b.metric.activeRows-a.metric.activeRows||((b.metric.pointsMae??0)-(a.metric.pointsMae??0)));
+  const byEvent=grouped(row=>String(row.event),key=>`GW${key}`).sort((a,b)=>Number(a.key)-Number(b.key));
+  const fmtMetric=(value:number|null,places=2)=>value===null?"—":value.toFixed(places);
+  const SliceTable=({title,items}:{title:string;items:ReturnType<typeof grouped>})=><section className="accuracy-slice"><header><span>{title}</span><small>xPts uses active rows · minutes/start use all rows</small></header><div className="accuracy-table"><div><b>GROUP</b><b>N</b><b>xPTS MAE</b><b>BIAS</b><b>±2 PTS</b><b>xMINS MAE</b><b>BRIER</b></div>{items.map(item=><div key={item.key}><strong>{item.label}</strong><span>{item.metric.activeRows}<small> / {item.metric.rows}</small></span><span>{fmtMetric(item.metric.pointsMae)}</span><span>{item.metric.pointsBias!==null&&item.metric.pointsBias>0?"+":""}{fmtMetric(item.metric.pointsBias)}</span><span>{item.metric.withinTwoPct===null?"—":`${item.metric.withinTwoPct.toFixed(1)}%`}</span><span>{fmtMetric(item.metric.minutesMae,1)}</span><span>{fmtMetric(item.metric.startBrier,3)}</span></div>)}</div></section>;
+  return <section className="accuracy-dashboard">
+    <header><div><span>MODEL ACCURACY</span><h2>Measured forecasts, not a marketing score.</h2><p>One-gameweek-ahead player forecasts are compared with official finished-event data. Lower MAE and Brier scores are better; positive bias means actual points exceeded the forecast.</p></div><strong>{evaluated.length}<small>evaluated gameweeks</small></strong></header>
+    {!playerRows.length?<div className="accuracy-empty"><b>No calibration sample yet.</b><p>Lock a full projection receipt before a deadline and connect your FPL Team ID. This dashboard activates after FPL publishes the finished gameweek.</p></div>:<>
+      <div className="accuracy-kpis">
+        <article><span>xPTS MAE</span><b>{fmtMetric(overall.pointsMae)}</b><small>{overall.activeRows} active player forecasts</small></article>
+        <article><span>START BRIER</span><b>{fmtMetric(overall.startBrier,3)}</b><small>0 is perfect · {overall.rows} probabilities</small></article>
+        <article><span>xMINS MAE</span><b>{fmtMetric(overall.minutesMae,1)}</b><small>minutes per player</small></article>
+        <article><span>CAPTAIN MAE</span><b>{captainMae===null?"—":captainMae.toFixed(2)}</b><small>{captainPairs.length} raw-points forecasts</small></article>
+        <article><span>TOP ROUTE GAIN</span><b>{topTransfer.netAfterHitAverage===null?"—":`${topTransfer.netAfterHitAverage>=0?"+":""}${topTransfer.netAfterHitAverage.toFixed(2)}`}</b><small>{topTransfer.rows} completed #1 routes</small></article>
+        <article><span>ALL ROUTES POSITIVE</span><b>{transfer.positivePct===null?"—":`${transfer.positivePct.toFixed(1)}%`}</b><small>{transfer.rows} frozen route observations</small></article>
+      </div>
+      {evaluated.length<5&&<p className="accuracy-warning"><b>Small sample:</b> {evaluated.length} evaluated gameweek{evaluated.length===1?"":"s"}. Treat these measurements as early calibration evidence, not proof of long-run accuracy.</p>}
+      <SliceTable title="GAMEWEEK TREND" items={byEvent}/>
+      <div className="accuracy-breakdowns"><SliceTable title="BY POSITION" items={byPosition}/><SliceTable title="BY CONFIDENCE" items={byConfidence}/></div>
+      <SliceTable title="BY CLUB" items={byClub}/>
+      <section className="accuracy-transfer"><header><div><span>TRANSFER RECOMMENDATION GAINS</span><h3>Frozen routes through completed horizon weeks</h3></div><small>Recommendations are evaluated as scenarios, not claimed as transfers the manager made.</small></header><div><p><span>All-route forecast</span><b>{transfer.projectedAverage===null?"—":`${transfer.projectedAverage>=0?"+":""}${transfer.projectedAverage.toFixed(2)}`}</b></p><p><span>All-route actual</span><b>{transfer.actualAverage===null?"—":`${transfer.actualAverage>=0?"+":""}${transfer.actualAverage.toFixed(2)}`}</b></p><p><span>After-hit actual</span><b>{transfer.netAfterHitAverage===null?"—":`${transfer.netAfterHitAverage>=0?"+":""}${transfer.netAfterHitAverage.toFixed(2)}`}</b></p><p><span>Top-route positive</span><b>{topTransfer.positivePct===null?"—":`${topTransfer.positivePct.toFixed(1)}%`}</b></p></div></section>
+    </>}
+  </section>;
+}
+
+function DecisionSnapshots({data,rows,loading,error,refresh}:{data:FplData;rows:EvaluationRow[];loading:boolean;error:string;refresh:()=>void}){
   const evaluated=rows.filter(row=>row.evaluation.status==="evaluated");
   const squadErrors=evaluated.flatMap(row=>row.evaluation.absoluteSquadError===null?[]:[row.evaluation.absoluteSquadError]);
   const playerMaes=evaluated.flatMap(row=>row.evaluation.population?[row.evaluation.population.activePlayerPointsMae]:[]);
@@ -1038,7 +1111,7 @@ function DecisionSnapshots({data,revision}:{data:FplData;revision:number}){
   const squadMae=squadErrors.length?average(squadErrors):null,playerMae=playerMaes.length?average(playerMaes):null,captainMae=captainErrors.length?average(captainErrors):null;
   const nameOf=(id:number|null|undefined)=>data.players.find(player=>player.id===id)?.name??(id?`Player ${id}`:"—");
   return <section className="decision-snapshots">
-    <header><div><span>AUTOMATIC POST-GW EVALUATION</span><h2>Every forecast is graded against official results.</h2><p>Evaluations appear after FPL marks the gameweek finished. Changed official teams are flagged instead of being scored against a plan you did not submit.</p></div><button onClick={()=>setRefreshToken(value=>value+1)} disabled={loading}>{loading?"Checking…":"Refresh evaluations"}</button></header>
+    <header><div><span>AUTOMATIC POST-GW EVALUATION</span><h2>Every forecast is graded against official results.</h2><p>Evaluations appear after FPL marks the gameweek finished. Changed official teams are flagged instead of being scored against a plan you did not submit.</p></div><button onClick={refresh} disabled={loading}>{loading?"Checking…":"Refresh evaluations"}</button></header>
     <div className="evaluation-kpis">
       <article><span>EVALUATED</span><b>{evaluated.length}</b><small>finished receipts</small></article>
       <article><span>SQUAD MAE</span><b>{squadMae===null?"—":squadMae.toFixed(1)}</b><small>matching official plans only</small></article>
