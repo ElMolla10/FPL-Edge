@@ -1,7 +1,7 @@
 export type FplPlayer = {
   id:number; name:string; firstName:string; secondName:string; teamId:number; teamName:string; teamShort:string;
   positionId:number; position:string; positionShort:string; price:number; status:string; chance:number|null;
-  epNext:number; form:number; pointsPerGame:number; priorPointsPerGame:number; priorMinutes:number; priorStarts:number; priorExpectedGoals:number; priorExpectedAssists:number; priorBonus:number; priorSaves:number; priorPenaltiesSaved:number; priorDefensiveContribution:number; totalPoints:number; eventPoints:number; selectedBy:number; priceChange:number; priceProjectionToday:number;
+  epNext:number; form:number; pointsPerGame:number; priorPointsPerGame:number; priorMinutes:number; priorStarts:number; priorExpectedGoals:number; priorExpectedAssists:number; priorBonus:number; priorSaves:number; priorPenaltiesSaved:number; priorDefensiveContribution:number; totalPoints:number; eventPoints:number; eventMinutes:number; selectedBy:number; priceChange:number; priceProjectionToday:number;
   transfersIn:number; transfersOut:number; goals:number; assists:number; expectedGoals:number; expectedAssists:number;
   expectedGoalInvolvements:number; expectedGoalsConceded:number; cleanSheets:number; goalsConceded:number; minutes:number;
   starts:number; bonus:number; bps:number; ictIndex:number; influence:number; creativity:number; threat:number;saves:number;penaltiesSaved:number;defensiveContribution:number;clearancesBlocksInterceptions:number;recoveries:number;tackles:number;penaltiesOrder:number|null;directFreekicksOrder:number|null;cornersOrder:number|null;scoutRisks:string[];news:string; newsAdded:string|null;
@@ -58,6 +58,63 @@ export function bestXi(squad:FplPlayer[],eventId:number,fixtures:FplFixture[],fi
   const gk=squad.filter(p=>p.positionShort==="GKP").sort((a,b)=>score(b)-score(a));
   for(let def=3;def<=5;def++)for(let mid=2;mid<=5;mid++){const fwd=10-def-mid;if(fwd<1||fwd>3)continue;const xi=[gk[0],...squad.filter(p=>p.positionShort==="DEF").sort((a,b)=>score(b)-score(a)).slice(0,def),...squad.filter(p=>p.positionShort==="MID").sort((a,b)=>score(b)-score(a)).slice(0,mid),...squad.filter(p=>p.positionShort==="FWD").sort((a,b)=>score(b)-score(a)).slice(0,fwd)].filter(Boolean);if(xi.length!==11)continue;const captain=xi.sort((a,b)=>score(b)-score(a))[0];const total=xi.reduce((s,p)=>s+score(p),0)+score(captain);if(total>best.total)best={players:xi,total,captain};}
   return best;
+}
+
+export type AutosubSwap={outId:number;outName:string;inId:number;inName:string};
+export type AutosubResult={effectiveXi:FplPlayer[];swaps:AutosubSwap[];unfilled:FplPlayer[];effectiveCaptainId:number|null;armbandPassedToVice:boolean;doubleLost:boolean};
+
+// Same DEF 3-5 / MID 2-5 / FWD 1-3 bounds bestXi uses above -- a legal FPL formation, GK fixed at 1.
+const formationLegal=(players:FplPlayer[])=>{const def=players.filter(p=>p.positionShort==="DEF").length,mid=players.filter(p=>p.positionShort==="MID").length,fwd=players.filter(p=>p.positionShort==="FWD").length;return def>=3&&def<=5&&mid>=2&&mid<=5&&fwd>=1&&fwd<=3};
+
+// Real FPL autosub rules, applied to a single gameweek's actual eventMinutes (only meaningful once
+// that gameweek has kicked off -- callers should not invoke this before then). GK: 0-minute starting
+// keeper is replaced by the bench keeper only if the bench keeper actually played. Outfield: bench
+// players 2-4 are tried in bench order; each is swapped in for the first 0-minute outfield starter
+// where the resulting formation stays legal (>=3 DEF, >=2 MID, >=1 FWD) -- if no 0-minute starter
+// can legally take that bench player, they're skipped and the next bench player is tried, matching
+// how the official game actually resolves bench priority. Captain armband: if the captain recorded
+// 0 minutes, the double passes to the vice-captain; if the vice also recorded 0 minutes, no one
+// gets the double that week (doubleLost=true) -- this is independent of whether the captain's own
+// XI slot could be filled by a substitute.
+export function simulateAutosubs(xi:FplPlayer[],bench:FplPlayer[],captainId:number,viceId:number):AutosubResult{
+  let effective=[...xi];
+  const swaps:AutosubSwap[]=[];
+  const usedBenchIds=new Set<number>();
+
+  const gkStarter=effective.find(p=>p.positionShort==="GKP");
+  const benchGk=bench.find(p=>p.positionShort==="GKP"&&p.eventMinutes>0);
+  if(gkStarter&&gkStarter.eventMinutes===0&&benchGk){
+    effective=effective.map(p=>p.id===gkStarter.id?benchGk:p);
+    swaps.push({outId:gkStarter.id,outName:gkStarter.name,inId:benchGk.id,inName:benchGk.name});
+    usedBenchIds.add(benchGk.id);
+  }
+
+  const benchOutfield=bench.filter(p=>p.positionShort!=="GKP"&&!usedBenchIds.has(p.id));
+  for(const benchPlayer of benchOutfield){
+    if(benchPlayer.eventMinutes===0)continue;
+    const zeroMinuteStarters=effective.filter(p=>p.positionShort!=="GKP"&&p.eventMinutes===0);
+    for(const candidate of zeroMinuteStarters){
+      const attempt=effective.map(p=>p.id===candidate.id?benchPlayer:p);
+      if(formationLegal(attempt)){
+        effective=attempt;
+        swaps.push({outId:candidate.id,outName:candidate.name,inId:benchPlayer.id,inName:benchPlayer.name});
+        usedBenchIds.add(benchPlayer.id);
+        break;
+      }
+    }
+  }
+
+  const unfilled=effective.filter(p=>p.eventMinutes===0);
+
+  const captainMinutes=xi.find(p=>p.id===captainId)?.eventMinutes??0;
+  const viceMinutes=xi.find(p=>p.id===viceId)?.eventMinutes??0;
+  let effectiveCaptainId:number|null=captainId,armbandPassedToVice=false,doubleLost=false;
+  if(captainMinutes===0){
+    if(viceMinutes>0){effectiveCaptainId=viceId;armbandPassedToVice=true}
+    else{effectiveCaptainId=null;doubleLost=true}
+  }
+
+  return{effectiveXi:effective,swaps,unfilled,effectiveCaptainId,armbandPassedToVice,doubleLost};
 }
 
 export type IdentityConflict={id:number;issue:string};

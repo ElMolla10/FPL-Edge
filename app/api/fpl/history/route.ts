@@ -41,6 +41,24 @@ export async function GET(request: Request) {
         captainContribution: captainRaw * (captain?.multiplier || 0),
         viceCaptain: playerNames.get(vice?.element) || "—",
         chip: picks.active_chip || null,
+        // Full historical reconstruction for the gameweek navigator's past-week view: the exact
+        // squad/XI/bench (position 1-11 = starting XI in formation order, 12-15 = bench order),
+        // each player's actual points that week, and FPL's own already-computed automatic
+        // substitutions -- no need to re-simulate autosubs for a finished week, the official result
+        // is right here.
+        squad: picks.picks.map((pick: any) => ({
+          elementId: pick.element,
+          position: pick.position,
+          multiplier: pick.multiplier,
+          isCaptain: pick.is_captain,
+          isViceCaptain: pick.is_vice_captain,
+          elementType: pick.element_type,
+        })),
+        playerPoints: Object.fromEntries(points),
+        automaticSubs: (picks.automatic_subs || []).map((sub: any) => ({
+          elementIn: sub.element_in,
+          elementOut: sub.element_out,
+        })),
       };
     }));
     return Response.json({

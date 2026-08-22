@@ -31,10 +31,15 @@ export async function GET() {
     const aggregateFields = ["total_points","goals_scored","assists","expected_goals","expected_assists","expected_goal_involvements","expected_goals_conceded","clean_sheets","goals_conceded","minutes","starts","bonus","bps","ict_index","influence","creativity","threat","saves","penalties_saved","defensive_contribution","clearances_blocks_interceptions","recoveries","tackles"];
     const seasonStats = new Map<number, any>();
     for (const { eventId, payload } of liveEventPayloads) for (const element of payload.elements) {
-      const aggregate = seasonStats.get(element.id) ?? { appearances: 0, eventPoints: 0 };
+      const aggregate = seasonStats.get(element.id) ?? { appearances: 0, eventPoints: 0, eventMinutes: 0 };
       for (const field of aggregateFields) aggregate[field] = number(aggregate[field]) + number(element.stats?.[field]);
       if (number(element.stats?.minutes) > 0) aggregate.appearances += 1;
       aggregate.eventPoints = number(element.stats?.total_points);
+      // Same overwrite-not-sum pattern as eventPoints: minutes in the LATEST active event only, not
+      // a season total (that's the existing `minutes` field below). Needed to detect a 0-minute
+      // starter for autosub simulation -- season-cumulative minutes can't tell you if a player who
+      // started earlier gameweeks specifically played 0 minutes in *this* one.
+      aggregate.eventMinutes = number(element.stats?.minutes);
       aggregate.latestEvent = eventId;
       seasonStats.set(element.id, aggregate);
     }
@@ -106,6 +111,7 @@ export async function GET() {
           priorDefensiveContribution: number(player.defensive_contribution),
           totalPoints: number(season.total_points),
           eventPoints: number(season.eventPoints),
+          eventMinutes: number(season.eventMinutes),
           goals: number(season.goals_scored),
           assists: number(season.assists),
           expectedGoals: number(season.expected_goals),
