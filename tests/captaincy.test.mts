@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplPlayer } from "../app/lib/fpl.ts";
-import { resolveCaptaincy } from "../app/components/CoachApp.tsx";
+import { captainRiskNote, resolveCaptaincy } from "../app/components/CoachApp.tsx";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -78,4 +78,47 @@ test("resolveCaptaincy: vice never collapses onto the same player as captain, ev
   const modelVice = players[0]; // deliberately the same as captain
   const result = resolveCaptaincy(players, 0, 0, undefined, undefined, modelCaptain, modelVice);
   assert.notEqual(result?.captainId, result?.viceId);
+});
+
+// --- captainRiskNote: vice safety net + explicit autosub-for-captaincy warning ---
+
+test("captainRiskNote: captain clears the 68% risk threshold -- no note, this is a safe pick", () => {
+  const captain = makePlayer({ id: 1, name: "Haaland" });
+  const vice = makePlayer({ id: 2, name: "Salah" });
+  const result = captainRiskNote(captain, vice, 90, 85, 9.4, 7.1);
+  assert.equal(result, null);
+});
+
+test("captainRiskNote: exactly at the 68% boundary -- still no note (matches Final Check's strict <68 risk-flag convention)", () => {
+  const captain = makePlayer({ id: 1, name: "Haaland" });
+  const vice = makePlayer({ id: 2, name: "Salah" });
+  const result = captainRiskNote(captain, vice, 68, 85, 9.4, 7.1);
+  assert.equal(result, null);
+});
+
+test("captainRiskNote: captain below 68% -- fires, names both players and states the exact swing", () => {
+  const captain = makePlayer({ id: 1, name: "Haaland" });
+  const vice = makePlayer({ id: 2, name: "Salah" });
+  const result = captainRiskNote(captain, vice, 61, 90, 9.4, 7.1);
+  assert.ok(result, "expected a risk note when the captain is below the 68% threshold");
+  assert.ok(result!.message.includes("Haaland"), "message must name the captain");
+  assert.ok(result!.message.includes("Salah"), "message must name the vice");
+  assert.ok(result!.message.includes("61%"), "message must state the captain's actual start probability");
+  assert.equal(result!.pointsIfCaptainPlays, 18.8, "captain's own doubled points (9.4 * 2)");
+  assert.equal(result!.pointsIfArmbandPasses, 14.2, "vice's doubled points if the armband passes (7.1 * 2)");
+});
+
+test("captainRiskNote: vice is also below 68% -- message explicitly flags the compounding risk", () => {
+  const captain = makePlayer({ id: 1, name: "Haaland" });
+  const vice = makePlayer({ id: 2, name: "Salah" });
+  const result = captainRiskNote(captain, vice, 55, 60, 9.4, 7.1);
+  assert.ok(result?.message.includes("isn't nailed either"), `expected the compounding-risk caveat, got: ${result?.message}`);
+  assert.ok(result?.message.includes("60%"), "message must state the vice's own start probability too");
+});
+
+test("captainRiskNote: vice is safe (>=68%) -- message does NOT include the compounding-risk caveat", () => {
+  const captain = makePlayer({ id: 1, name: "Haaland" });
+  const vice = makePlayer({ id: 2, name: "Salah" });
+  const result = captainRiskNote(captain, vice, 55, 68, 9.4, 7.1);
+  assert.ok(!result?.message.includes("isn't nailed either"), `did not expect the compounding-risk caveat when vice is safe, got: ${result?.message}`);
 });

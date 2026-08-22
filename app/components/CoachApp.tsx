@@ -399,6 +399,24 @@ export function chipVerdictAcrossHorizon(rows:ChipHorizonRow[]):ChipVerdictResul
   return{label:"SAVE",ready:false,detail:`${bestLabel} scores ${currentScore}/10 this week`};
 }
 
+export type CaptainRiskNote={message:string;captainStartPct:number;viceStartPct:number;pointsIfCaptainPlays:number;pointsIfArmbandPasses:number};
+// Reuses the exact 68% risk threshold Final Check's own RISK FLAGS section and the flagged
+// pitch-button styling already use (startPct(...)<68), rather than inventing a new number.
+// Combines the vice-safety-net signal and the explicit FPL autosub-for-captaincy rule into one
+// note: if the captain records zero minutes, the armband passes to vice and VICE's score is
+// doubled instead -- not the captain's, and not triggered by merely playing a few minutes.
+// startProbability is used as an approximate proxy for "risk of playing zero minutes" since the
+// engine has no direct P(zero minutes) figure; the UI text says "if they don't play at all" rather
+// than overclaiming precision the model doesn't have.
+export function captainRiskNote(captain:FplPlayer,vice:FplPlayer,captainStartPct:number,viceStartPct:number,captainXPts:number,viceXPts:number):CaptainRiskNote|null{
+  if(captainStartPct>=68)return null;
+  const pointsIfCaptainPlays=captainXPts*2;
+  const pointsIfArmbandPasses=viceXPts*2;
+  const viceAlsoAtRisk=viceStartPct<68;
+  const message=`${captain.name} carries real doubt this week (${captainStartPct}% start probability). If they don't play at all, the armband passes to ${vice.name} and your week swings from ${pointsIfCaptainPlays.toFixed(1)} to ${pointsIfArmbandPasses.toFixed(1)} captained points${viceAlsoAtRisk?` — and ${vice.name} isn't nailed either, at ${viceStartPct}% start probability`:""}.`;
+  return{message,captainStartPct,viceStartPct,pointsIfCaptainPlays,pointsIfArmbandPasses};
+}
+
 function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
   const a=analysis(data,squad);
@@ -418,6 +436,7 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
   const lock=()=>{const record:LockRecord={event:a.first,lockedAt:new Date().toISOString(),dataUpdatedAt:data.updatedAt,predicted:Number(predicted.toFixed(2)),squadIds:squad.map(p=>p.id),xiIds,captainId:captain.id,viceId:vice.id};persist("fpl-edge-locks",JSON.stringify([...existingLocks.filter(x=>x.event!==a.first),record]));setLockVersion(v=>v+1)};
   const modelCaptain=a.xi.captain;
   const captainDisagreement=modelCaptain&&modelCaptain.id!==captain.id?modelCaptain:null;
+  const riskNote=captainRiskNote(captain,vice,startPct(captain,a.first,data),startPct(vice,a.first,data),playerProjection(captain,a.first,data.fixtures,a.first),playerProjection(vice,a.first,data.fixtures,a.first));
   const chipHorizon=a.events.slice(0,5);
   const chipRows=chipHorizon.map((event,index)=>({eventId:event.id,scores:chipScoresForEvent(data,squad,event,chipHorizon.slice(index,index+5).map(e=>e.id),true)}));
   const chip=chipVerdictAcrossHorizon(chipRows);
@@ -426,6 +445,7 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
     {lockStatus==="mismatch"&&existingLock&&<div className="lock-mismatch-banner"><b>⚠ Your locked plan differs from the current recommendation.</b><p>Locked {new Date(existingLock.lockedAt).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · projected {existingLock.predicted.toFixed(1)} pts. Review before the deadline, or press Lock This Team again to update it.</p></div>}
     <CaptaincyPicker players={a.xi.players} captain={captain} vice={vice} onCaptain={chooseCaptain} onVice={chooseVice} event={a.first} data={data}/>
     {captainDisagreement&&<p className="captain-model-note">Model recommends <b>{captainDisagreement.name}</b> ({playerProjection(captainDisagreement,a.first,data.fixtures,a.first).toFixed(1)} xPts) over your pick <b>{captain.name}</b> ({playerProjection(captain,a.first,data.fixtures,a.first).toFixed(1)} xPts).</p>}
+    {riskNote&&<div className="captain-risk-note"><b>⚠ {riskNote.message}</b></div>}
     <Pitch players={a.xi.players} bench={a.bench} captain={captain} vice={vice} event={a.first} data={data} onSelect={()=>{}}/>
     <div className="lock-summary">
       <article><span>CAPTAIN</span><b>{captain.name}</b><small>{playerProjection(captain,a.first,data.fixtures,a.first).toFixed(1)} xPts</small></article>
