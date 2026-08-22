@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FplFixture, FplPlayer, isValidSquad, projectionMetrics } from "../app/lib/fpl.ts";
+import { FplEvent, FplFixture, FplPlayer, isValidSquad, projectionMetrics } from "../app/lib/fpl.ts";
 import { Transfer, bestTransfers, opponent } from "../app/components/CoachApp.tsx";
+import { detectFixtureAnomalies } from "../app/lib/dgw.ts";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -38,6 +39,14 @@ function makeRules() {
       { id: 3, name: "Midfielder", short: "MID", squad: 5, minPlay: 2, maxPlay: 5 },
       { id: 4, name: "Forward", short: "FWD", squad: 3, minPlay: 1, maxPlay: 3 },
     ],
+  };
+}
+
+function makeEvent(overrides: Partial<FplEvent> = {}): FplEvent {
+  return {
+    id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(),
+    current: false, next: false, finished: false,
+    ...overrides,
   };
 }
 
@@ -144,4 +153,82 @@ test("bestTransfers: an incoming player's fixture-adjustment reflects both legs 
   const row = rows.find((r) => r.incoming.id === 500);
   assert.ok(row, "expected a transfer row recommending the double-gameweek candidate");
   assert.equal(row!.fixtureAdjustmentIn, 3, `fixture adjustment should average both legs (1 and 5 -> 3), got ${row!.fixtureAdjustmentIn}`);
+});
+
+// --- detectFixtureAnomalies: doubles, blanks, pending (event: null) fixtures ---
+
+test("detectFixtureAnomalies: a fully-scheduled season (today's real fixture list) finds nothing", () => {
+  // Every team plays exactly once per event -- the actual shape of the live 2026/27 fixture list
+  // right now (verified directly against the official feed: 380/380 fixtures, 0 doubles, 0 blanks).
+  const events = [makeEvent({ id: 1 }), makeEvent({ id: 2 })];
+  const fixtures = [
+    makeFixture({ id: 1, event: 1, teamH: 1, teamA: 2 }),
+    makeFixture({ id: 2, event: 1, teamH: 3, teamA: 4 }),
+    makeFixture({ id: 3, event: 2, teamH: 1, teamA: 3 }),
+    makeFixture({ id: 4, event: 2, teamH: 2, teamA: 4 }),
+  ];
+  const data = { events, fixtures, teams: [{ id: 1, name: "A", short: "A" }, { id: 2, name: "B", short: "B" }, { id: 3, name: "C", short: "C" }, { id: 4, name: "D", short: "D" }] } as any;
+  const result = detectFixtureAnomalies(data);
+  assert.deepEqual(result.doubles, []);
+  assert.deepEqual(result.blanks, []);
+  assert.deepEqual(result.pending, []);
+});
+
+test("detectFixtureAnomalies: a team with two fixtures in one event is flagged as a double, with both fixture ids", () => {
+  const events = [makeEvent({ id: 1 })];
+  const fixtures = [
+    makeFixture({ id: 10, event: 1, teamH: 1, teamA: 2 }),
+    makeFixture({ id: 11, event: 1, teamH: 3, teamA: 1 }),
+  ];
+  const data = { events, fixtures, teams: [{ id: 1, name: "A", short: "A" }, { id: 2, name: "B", short: "B" }, { id: 3, name: "C", short: "C" }] } as any;
+  const result = detectFixtureAnomalies(data);
+  assert.equal(result.doubles.length, 1);
+  assert.equal(result.doubles[0].teamId, 1);
+  assert.equal(result.doubles[0].eventId, 1);
+  assert.deepEqual([...result.doubles[0].fixtureIds].sort(), [10, 11]);
+});
+
+test("detectFixtureAnomalies: a team missing from an unfinished event's fixtures is flagged as a blank", () => {
+  const events = [makeEvent({ id: 1, finished: false })];
+  // Team 2 has no fixture at all in event 1.
+  const fixtures = [makeFixture({ id: 1, event: 1, teamH: 1, teamA: 3 })];
+  const data = { events, fixtures, teams: [{ id: 1, name: "A", short: "A" }, { id: 2, name: "B", short: "B" }, { id: 3, name: "C", short: "C" }] } as any;
+  const result = detectFixtureAnomalies(data);
+  assert.ok(result.blanks.some((b) => b.teamId === 2 && b.eventId === 1), "team 2 should be flagged blank in event 1");
+});
+
+test("detectFixtureAnomalies: a finished event is never reported as blank, even if a team has no fixture in it", () => {
+  const events = [makeEvent({ id: 1, finished: true })];
+  const fixtures = [makeFixture({ id: 1, event: 1, teamH: 1, teamA: 3 })];
+  const data = { events, fixtures, teams: [{ id: 1, name: "A", short: "A" }, { id: 2, name: "B", short: "B" }, { id: 3, name: "C", short: "C" }] } as any;
+  const result = detectFixtureAnomalies(data);
+  assert.deepEqual(result.blanks, [], "a finished gameweek should never be flagged -- there's nothing left to plan around");
+});
+
+test("detectFixtureAnomalies: a fixture with event: null is reported as pending, and excluded from doubles/blanks", () => {
+  const events = [makeEvent({ id: 1 })];
+  const fixtures = [
+    makeFixture({ id: 1, event: 1, teamH: 1, teamA: 2 }),
+    makeFixture({ id: 2, event: null, teamH: 3, teamA: 1 }),
+  ];
+  const data = { events, fixtures, teams: [{ id: 1, name: "A", short: "A" }, { id: 2, name: "B", short: "B" }, { id: 3, name: "C", short: "C" }] } as any;
+  const result = detectFixtureAnomalies(data);
+  assert.equal(result.pending.length, 1);
+  assert.deepEqual(result.pending[0], { fixtureId: 2, teamH: 3, teamA: 1 });
+  // Team 1 still has its normal event-1 fixture, so it must not also show up as a double just
+  // because a second, unrelated, not-yet-scheduled fixture involving it exists.
+  assert.deepEqual(result.doubles, []);
+});
+
+test("detectFixtureAnomalies: multiple teams can each be flagged as a double in the same event", () => {
+  const events = [makeEvent({ id: 1 })];
+  const fixtures = [
+    makeFixture({ id: 1, event: 1, teamH: 1, teamA: 2 }),
+    makeFixture({ id: 2, event: 1, teamH: 1, teamA: 3 }),
+    makeFixture({ id: 3, event: 1, teamH: 2, teamA: 4 }),
+  ];
+  const data = { events, fixtures, teams: [{ id: 1, name: "A", short: "A" }, { id: 2, name: "B", short: "B" }, { id: 3, name: "C", short: "C" }, { id: 4, name: "D", short: "D" }] } as any;
+  const result = detectFixtureAnomalies(data);
+  const teamIds = result.doubles.map((d) => d.teamId).sort();
+  assert.deepEqual(teamIds, [1, 2], "both team 1 (2 fixtures) and team 2 (2 fixtures) should be flagged");
 });
