@@ -118,6 +118,7 @@ test("post-GW evaluation grades a matching official plan, player calibration and
   ];
   const result=evaluateProjectionReceipt(lock,weeks);
   assert.equal(result.status,"evaluated");
+  assert.equal(result.modelVersion,receipt.modelVersion,"the evaluation remains attributable to its frozen model generation");
   assert.equal(result.officialPlanMatch,true);
   assert.equal(result.managerActual,6,"official net points stay visible");
   assert.equal(result.actualBeforeHits,10,"projection accuracy is graded against scoring output before transfer-cost accounting");
@@ -178,6 +179,16 @@ test("projection receipt refuses to label a post-deadline capture as pre-deadlin
   const deadline="2026-08-23T10:00:00.000Z";
   const data:FplData={updatedAt:deadline,source:"test",seasonStatsThrough:0,players:[player],fixtures:[],events:[],teams:[{id:1,name:"One",short:"ONE"}],rules:makeRules()};
   assert.throws(()=>createProjectionReceipt({data,eventIds:[2],deadline,capturedAt:deadline,squad:[player],xiIds:[1],captainId:1,viceId:1,bank:0,freeTransfers:1,transferRows:[]}),/deadline has passed/i);
+});
+
+test("pending, unavailable and legacy evaluations preserve honest model-version provenance",()=>{
+  const player=makePlayer({id:1}),deadline="2026-08-23T10:00:00.000Z",capturedAt="2026-08-22T10:00:00.000Z";
+  const data:FplData={updatedAt:capturedAt,source:"test",seasonStatsThrough:0,players:[player],fixtures:[],events:[],teams:[{id:1,name:"One",short:"ONE"}],rules:makeRules()};
+  const receipt=createProjectionReceipt({data,eventIds:[2],deadline,capturedAt,squad:[player],xiIds:[1],captainId:1,viceId:1,bank:0,freeTransfers:1,transferRows:[]});
+  const lock:LockRecord={event:2,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:[1],xiIds:[1],captainId:1,viceId:1,receipt};
+  assert.equal(evaluateProjectionReceipt(lock,[]).modelVersion,receipt.modelVersion);
+  assert.equal(evaluateProjectionReceipt(lock,[{event:2,points:0,unavailable:true}]).modelVersion,receipt.modelVersion);
+  assert.equal(evaluateProjectionReceipt({...lock,receipt:undefined},[]).modelVersion,null);
 });
 
 test("accuracy aggregation computes xPts, minutes and probability calibration without mixing denominators",()=>{

@@ -8,6 +8,7 @@ import { createOptimizer } from "../lib/optimizer";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
 import { persist, syncWithServer } from "../lib/persistence";
+import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
 
 type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
 export type OfficialPick={elementId:number;position:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean;sellingPrice?:number|null};
@@ -133,7 +134,7 @@ function Page({view,data,go,revision}:{view:View;data:FplData;go:(v:View)=>void;
   if(view==="news")return <News data={data} go={go} revision={revision}/>;
   if(view==="deadline")return <FinalCheck data={data} go={go} revision={revision}/>;
   if(view==="chips")return <LiveChips/>;
-  if(view==="model")return <div className="coach-page"><TeamQualityPanel data={data}/><PointsModel data={data}/></div>;
+  if(view==="model")return <div className="coach-page"><ModelVersionPanel/><TeamQualityPanel data={data}/><PointsModel data={data}/></div>;
   return <div className="coach-page"><ModelAudit data={data} revision={revision}/><LiveHistory/></div>;
 }
 
@@ -970,7 +971,7 @@ export type ProjectionPlayerEvaluationRow={
   confidence:number;confidenceBand:ProjectionConfidenceBand;calibrationGroup:PlayerCalibrationGroup|null;lowPlContinuityClub:boolean|null;
 };
 export type ProjectionEvaluation={
-  event:number;status:"pending"|"unavailable"|"legacy"|"evaluated";completedEvents:number;horizonEvents:number;
+  event:number;modelVersion:string|null;status:"pending"|"unavailable"|"legacy"|"evaluated";completedEvents:number;horizonEvents:number;
   managerActual:number|null;actualBeforeHits:number|null;transferCost:number;officialPlanMatch:boolean|null;projectedTotal:number;
   chip:string|null;adjustedProjectedTotal:number;signedSquadError:number|null;absoluteSquadError:number|null;
   captain:{receiptCaptainId:number;officialCaptainId:number|null;effectiveCaptainId:number|null;matched:boolean|null;projectedRaw:number;actualRaw:number|null;officialContribution:number|null}|null;
@@ -996,9 +997,9 @@ const historyPlayerStats=(week:HistoryWeek|undefined,id:number):HistoryPlayerSta
 // UI labels the divergence instead of grading the model against a different plan.
 export function evaluateProjectionReceipt(lock:LockRecord,weeks:HistoryWeek[]):ProjectionEvaluation{
   const receipt=lock.receipt,firstWeek=weeks.find(week=>week.event===lock.event);
-  if(!receipt){const managerActual=firstWeek&&!firstWeek.unavailable?Number(firstWeek.points):null,transferCost=firstWeek?.transferCost??0,scoringTotal=firstWeek?.squad?.reduce((sum,pick)=>sum+(historyPlayerStats(firstWeek,pick.elementId)?.points??0)*pick.multiplier,0)??managerActual;return{event:lock.event,status:"legacy",completedEvents:firstWeek&&!firstWeek.unavailable?1:0,horizonEvents:1,managerActual,actualBeforeHits:scoringTotal,transferCost,officialPlanMatch:null,projectedTotal:lock.predicted,chip:firstWeek?.chip??null,adjustedProjectedTotal:lock.predicted,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,playerRows:[],transfers:[]}}
-  if(firstWeek?.unavailable)return{event:receipt.event,status:"unavailable",completedEvents:0,horizonEvents:receipt.eventIds.length,managerActual:null,actualBeforeHits:null,transferCost:0,officialPlanMatch:null,projectedTotal:receipt.squad.predictedTotal,chip:null,adjustedProjectedTotal:receipt.squad.predictedTotal,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,playerRows:[],transfers:[]};
-  if(!firstWeek)return{event:receipt.event,status:"pending",completedEvents:0,horizonEvents:receipt.eventIds.length,managerActual:null,actualBeforeHits:null,transferCost:0,officialPlanMatch:null,projectedTotal:receipt.squad.predictedTotal,chip:null,adjustedProjectedTotal:receipt.squad.predictedTotal,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,playerRows:[],transfers:[]};
+  if(!receipt){const managerActual=firstWeek&&!firstWeek.unavailable?Number(firstWeek.points):null,transferCost=firstWeek?.transferCost??0,scoringTotal=firstWeek?.squad?.reduce((sum,pick)=>sum+(historyPlayerStats(firstWeek,pick.elementId)?.points??0)*pick.multiplier,0)??managerActual;return{event:lock.event,modelVersion:null,status:"legacy",completedEvents:firstWeek&&!firstWeek.unavailable?1:0,horizonEvents:1,managerActual,actualBeforeHits:scoringTotal,transferCost,officialPlanMatch:null,projectedTotal:lock.predicted,chip:firstWeek?.chip??null,adjustedProjectedTotal:lock.predicted,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,playerRows:[],transfers:[]}}
+  if(firstWeek?.unavailable)return{event:receipt.event,modelVersion:receipt.modelVersion,status:"unavailable",completedEvents:0,horizonEvents:receipt.eventIds.length,managerActual:null,actualBeforeHits:null,transferCost:0,officialPlanMatch:null,projectedTotal:receipt.squad.predictedTotal,chip:null,adjustedProjectedTotal:receipt.squad.predictedTotal,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,playerRows:[],transfers:[]};
+  if(!firstWeek)return{event:receipt.event,modelVersion:receipt.modelVersion,status:"pending",completedEvents:0,horizonEvents:receipt.eventIds.length,managerActual:null,actualBeforeHits:null,transferCost:0,officialPlanMatch:null,projectedTotal:receipt.squad.predictedTotal,chip:null,adjustedProjectedTotal:receipt.squad.predictedTotal,signedSquadError:null,absoluteSquadError:null,captain:null,population:null,playerRows:[],transfers:[]};
 
   const weekByEvent=new Map(weeks.filter(week=>!week.unavailable).map(week=>[week.event,week]));
   let completedEvents=0;
@@ -1055,7 +1056,7 @@ export function evaluateProjectionReceipt(lock:LockRecord,weeks:HistoryWeek[]):P
     }
     return{rank:row.rank,outId:row.outId,outName:row.outName,incomingId:row.incomingId,incomingName:row.incomingName,completedEvents:paired,horizonEvents:receipt.eventIds.length,projectedPlayerSwing:paired&&projectionPairs===paired?receiptNumber(projectedPlayerSwing):null,actualPlayerSwing:paired?actualPlayerSwing:null,actualNetAfterHit:paired?actualPlayerSwing-row.hitCost:null,projectedFive:row.individualGain5,hitCost:row.hitCost,reviewRequired:row.reviewRequired};
   });
-  return{event:receipt.event,status:"evaluated",completedEvents,horizonEvents:receipt.eventIds.length,managerActual,actualBeforeHits,transferCost,officialPlanMatch,projectedTotal:receipt.squad.predictedTotal,chip,adjustedProjectedTotal,signedSquadError,absoluteSquadError:signedSquadError===null?null:Math.abs(signedSquadError),captain,population,playerRows,transfers};
+  return{event:receipt.event,modelVersion:receipt.modelVersion,status:"evaluated",completedEvents,horizonEvents:receipt.eventIds.length,managerActual,actualBeforeHits,transferCost,officialPlanMatch,projectedTotal:receipt.squad.predictedTotal,chip,adjustedProjectedTotal,signedSquadError,absoluteSquadError:signedSquadError===null?null:Math.abs(signedSquadError),captain,population,playerRows,transfers};
 }
 
 export type AccuracyMetric={rows:number;activeRows:number;pointsMae:number|null;pointsBias:number|null;withinTwoPct:number|null;minutesMae:number|null;startBrier:number|null};
@@ -1225,6 +1226,14 @@ function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:Fpl
   </section>;
 }
 
+function ModelVersionPanel(){
+  const current=modelRelease(PROJECTION_MODEL_VERSION);
+  return <section className="model-version-panel">
+    <header><div><span>MODEL VERSION</span><h2>{current?`${current.short} · ${current.title}`:PROJECTION_MODEL_VERSION}</h2><p>Every pre-deadline receipt keeps the exact model version that produced it. Historical accuracy is calculated within that version only—never pooled across changed formulas.</p></div><b>CURRENT</b></header>
+    <div className="model-release-grid">{MODEL_RELEASES.map(release=><article className={release.version===PROJECTION_MODEL_VERSION?"current":""} key={release.version}><div><span>{release.short}</span><small>{release.released}</small></div><h3>{release.title}</h3><ul>{release.changes.map(change=><li key={change}>{change}</li>)}</ul><code>{release.version}</code></article>)}</div>
+  </section>;
+}
+
 function PointsModel({data}:{data:FplData}){
   const events=futureEvents(data,5),first=events[0]?.id;const[q,setQ]=useState("");const[selected,setSelected]=useState<number|null>(null);const[technical,setTechnical]=useState(false);
   const players=data.players.filter(p=>(`${p.name} ${p.teamName}`).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>b.epNext-a.epNext).slice(0,10),p=data.players.find(x=>x.id===(selected??players[0]?.id))??data.players[0],m=projectionMetrics(p,first,data.fixtures,first),calibration=playerCalibrationProfile(p);
@@ -1249,7 +1258,11 @@ function ModelAudit({data,revision}:{data:FplData;revision:number}){
 }
 
 function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
-  const evaluated=rows.filter(row=>row.evaluation.status==="evaluated");
+  const allEvaluated=rows.filter(row=>row.evaluation.status==="evaluated");
+  const[selectedVersion,setSelectedVersion]=useState(PROJECTION_MODEL_VERSION);
+  const groupedVersions=groupByModelVersion(allEvaluated,row=>row.evaluation.modelVersion);
+  const availableVersions=[PROJECTION_MODEL_VERSION,...[...groupedVersions.keys()].filter(version=>version!==PROJECTION_MODEL_VERSION)];
+  const evaluated=comparableModelRows(allEvaluated,selectedVersion,row=>row.evaluation.modelVersion);
   const playerRows=evaluated.flatMap(row=>row.evaluation.playerRows);
   const overall=aggregateAccuracy(playerRows);
   const captainPairs=evaluated.flatMap(row=>{const captain=row.evaluation.captain;return captain?.actualRaw===null||captain?.actualRaw===undefined?[]:[{event:row.evaluation.event,projected:captain.projectedRaw,actual:captain.actualRaw,error:Math.abs(captain.actualRaw-captain.projectedRaw)}]});
@@ -1269,9 +1282,19 @@ function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
   const byClub=grouped(row=>row.teamId===null?"LEGACY":String(row.teamId),key=>key==="LEGACY"?"Legacy / unknown":teamName.get(key)??`Team ${key}`).sort((a,b)=>b.metric.activeRows-a.metric.activeRows||((b.metric.pointsMae??0)-(a.metric.pointsMae??0)));
   const byEvent=grouped(row=>String(row.event),key=>`GW${key}`).sort((a,b)=>Number(a.key)-Number(b.key));
   const fmtMetric=(value:number|null,places=2)=>value===null?"—":value.toFixed(places);
+  const versionSummaries=availableVersions.map(version=>{
+    const versionRows=groupedVersions.get(version)??[];
+    const metric=aggregateAccuracy(versionRows.flatMap(row=>row.evaluation.playerRows));
+    const captains=versionRows.flatMap(row=>{const captain=row.evaluation.captain;return captain?.actualRaw===null||captain?.actualRaw===undefined?[]:[Math.abs(captain.actualRaw-captain.projectedRaw)]});
+    const top=aggregateTransferAccuracy(versionRows.flatMap(row=>row.evaluation.transfers.filter(route=>route.rank===1)));
+    return{version,rows:versionRows.length,metric,captainMae:captains.length?average(captains):null,topGain:top.netAfterHitAverage};
+  });
   const SliceTable=({title,items}:{title:string;items:ReturnType<typeof grouped>})=><section className="accuracy-slice"><header><span>{title}</span><small>xPts uses active rows · minutes/start use all rows</small></header><div className="accuracy-table"><div><b>GROUP</b><b>N</b><b>xPTS MAE</b><b>BIAS</b><b>±2 PTS</b><b>xMINS MAE</b><b>BRIER</b></div>{items.map(item=><div key={item.key}><strong>{item.label}</strong><span>{item.metric.activeRows}<small> / {item.metric.rows}</small></span><span>{fmtMetric(item.metric.pointsMae)}</span><span>{item.metric.pointsBias!==null&&item.metric.pointsBias>0?"+":""}{fmtMetric(item.metric.pointsBias)}</span><span>{item.metric.withinTwoPct===null?"—":`${item.metric.withinTwoPct.toFixed(1)}%`}</span><span>{fmtMetric(item.metric.minutesMae,1)}</span><span>{fmtMetric(item.metric.startBrier,3)}</span></div>)}</div></section>;
   return <section className="accuracy-dashboard">
     <header><div><span>MODEL ACCURACY</span><h2>Measured forecasts, not a marketing score.</h2><p>One-gameweek-ahead player forecasts are compared with official finished-event data. Lower MAE and Brier scores are better; positive bias means actual points exceeded the forecast.</p></div><strong>{evaluated.length}<small>evaluated gameweeks</small></strong></header>
+    <nav className="model-version-tabs" aria-label="Accuracy model version">{availableVersions.map(version=><button className={selectedVersion===version?"active":""} onClick={()=>setSelectedVersion(version)} key={version}><span>{modelDisplayName(version)}</span><small>{groupedVersions.get(version)?.length??0} evaluated GW</small></button>)}</nav>
+    <p className="model-comparability-note"><b>{modelDisplayName(selectedVersion)}</b> only. Metrics below never combine forecasts made by different model generations.</p>
+    {versionSummaries.length>1&&<section className="version-comparison"><header><span>VERSION COMPARISON</span><small>Separate cohorts · lower error is better · fewer than 5 GWs is early evidence</small></header><div>{versionSummaries.map(summary=><button className={selectedVersion===summary.version?"active":""} onClick={()=>setSelectedVersion(summary.version)} key={summary.version}><strong>{modelDisplayName(summary.version)}</strong><span>{summary.rows} GW{summary.rows===1?"":"s"}{summary.rows<5?" · early sample":""}</span><dl><div><dt>xPts MAE</dt><dd>{fmtMetric(summary.metric.pointsMae)}</dd></div><div><dt>Start Brier</dt><dd>{fmtMetric(summary.metric.startBrier,3)}</dd></div><div><dt>Captain MAE</dt><dd>{fmtMetric(summary.captainMae)}</dd></div><div><dt>Top route</dt><dd>{summary.topGain===null?"—":`${summary.topGain>=0?"+":""}${summary.topGain.toFixed(2)}`}</dd></div></dl></button>)}</div></section>}
     {!playerRows.length?<div className="accuracy-empty"><b>No calibration sample yet.</b><p>Lock a full projection receipt before a deadline and connect your FPL Team ID. This dashboard activates after FPL publishes the finished gameweek.</p></div>:<>
       <div className="accuracy-kpis">
         <article><span>xPTS MAE</span><b>{fmtMetric(overall.pointsMae)}</b><small>{overall.activeRows} active player forecasts</small></article>
@@ -1292,7 +1315,9 @@ function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
 }
 
 function DecisionSnapshots({data,rows,loading,error,refresh}:{data:FplData;rows:EvaluationRow[];loading:boolean;error:string;refresh:()=>void}){
-  const evaluated=rows.filter(row=>row.evaluation.status==="evaluated");
+  const allEvaluated=rows.filter(row=>row.evaluation.status==="evaluated");
+  const evaluated=allEvaluated.filter(row=>row.evaluation.modelVersion===PROJECTION_MODEL_VERSION);
+  const archivedEvaluated=allEvaluated.length-evaluated.length;
   const squadErrors=evaluated.flatMap(row=>row.evaluation.absoluteSquadError===null?[]:[row.evaluation.absoluteSquadError]);
   const playerMaes=evaluated.flatMap(row=>row.evaluation.population?[row.evaluation.population.activePlayerPointsMae]:[]);
   const captainErrors=evaluated.flatMap(row=>{const captain=row.evaluation.captain;return captain?.actualRaw===null||captain?.actualRaw===undefined?[]:[Math.abs(captain.actualRaw-captain.projectedRaw)]});
@@ -1301,11 +1326,12 @@ function DecisionSnapshots({data,rows,loading,error,refresh}:{data:FplData;rows:
   return <section className="decision-snapshots">
     <header><div><span>AUTOMATIC POST-GW EVALUATION</span><h2>Every forecast is graded against official results.</h2><p>Evaluations appear after FPL marks the gameweek finished. Changed official teams are flagged instead of being scored against a plan you did not submit.</p></div><button onClick={refresh} disabled={loading}>{loading?"Checking…":"Refresh evaluations"}</button></header>
     <div className="evaluation-kpis">
-      <article><span>EVALUATED</span><b>{evaluated.length}</b><small>finished receipts</small></article>
+      <article><span>CURRENT MODEL</span><b>{evaluated.length}</b><small>evaluated · {archivedEvaluated} archived separately</small></article>
       <article><span>SQUAD MAE</span><b>{squadMae===null?"—":squadMae.toFixed(1)}</b><small>matching official plans only</small></article>
       <article><span>ACTIVE-PLAYER MAE</span><b>{playerMae===null?"—":playerMae.toFixed(2)}</b><small>xPts error per player-event</small></article>
       <article><span>CAPTAIN MAE</span><b>{captainMae===null?"—":captainMae.toFixed(2)}</b><small>raw points vs forecast</small></article>
     </div>
+    <p className="model-comparability-note"><b>{modelDisplayName(PROJECTION_MODEL_VERSION)}</b> only in the summary above. All archived receipts remain visible below with their original version label.</p>
     {error&&<p className="evaluation-error">Official evaluation refresh failed: {error}</p>}
     {rows.length?<div className="evaluation-list">{rows.map(({lock,evaluation})=>{
       const receipt=lock.receipt,population=evaluation.population,captain=evaluation.captain;
