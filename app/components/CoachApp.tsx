@@ -791,41 +791,57 @@ function SquadValueAlert({squad}:{squad:FplPlayer[]}){
 // Pure so the branching is directly unit-testable (tests/watchlist.test.mts) without rendering.
 // close: true when the ONLY blocking factor is a small gap on that same metric — this is the
 // single source the priority badge is derived from, so the badge can never disagree with the message.
-export type BuyTrigger={message:string;ready:boolean;close:boolean};
-export function buyTriggerMessage(target:FplPlayer,natural:FplPlayer|undefined,targetMetrics:ProjectionMetrics,targetFiveGw:number,naturalFiveGw:number,bank:number):BuyTrigger{
-  if(!natural)return{message:"No same-position squad player to swap out yet — build your squad first.",ready:false,close:false};
+export type BuyTrigger={message:string;ready:boolean;close:boolean;budgetNote:string|null};
+export function buyTriggerMessage(target:FplPlayer,natural:FplPlayer|undefined,targetMetrics:ProjectionMetrics,naturalMetrics:ProjectionMetrics|undefined,targetFiveGw:number,naturalFiveGw:number,bank:number):BuyTrigger{
+  if(!natural)return{message:"No same-position squad player to swap out yet — build your squad first.",ready:false,close:false,budgetNote:null};
   const priceDiff=target.price-natural.price;
-  if(priceDiff>bank+.001){
-    const shortfall=priceDiff-bank;
-    return{message:`If price drops by £${shortfall.toFixed(1)}m (to £${(target.price-shortfall).toFixed(1)}m or below), or your bank grows by the same`,ready:false,close:shortfall<=1};
-  }
-  if(targetMetrics.startProbability<.7){
-    return{message:`If start probability clears 70% (currently ${Math.round(targetMetrics.startProbability*100)}%)`,ready:false,close:targetMetrics.startProbability>=.55};
+  const shortfall=Math.max(0,priceDiff-bank);
+  const budgetNote=shortfall>.001?`This route is currently £${shortfall.toFixed(1)}m outside your budget. That affects execution, not the player's football trigger.`:null;
+  const naturalStart=Math.round((naturalMetrics?.startProbability??0)*100),targetStart=Math.round(targetMetrics.startProbability*100);
+  if(targetMetrics.startProbability<.7||targetMetrics.expectedMinutes<60){
+    return{message:`Wait for a secure role: ${target.name} is at ${targetStart}% start probability and ${Math.round(targetMetrics.expectedMinutes)} expected minutes versus ${natural.name} at ${naturalStart}%.`,ready:false,close:targetMetrics.startProbability>=.6&&targetMetrics.expectedMinutes>=50,budgetNote};
   }
   const gain5=targetFiveGw-naturalFiveGw;
   if(gain5<2){
-    return{message:`Needs a bigger fixture-adjusted edge over ${natural.name} — currently ${gain5>=0?"+":""}${gain5.toFixed(1)} pts over 5 GWs`,ready:false,close:gain5>=1};
+    return{message:`Wait for ${target.name} to build a real five-gameweek edge over ${natural.name}; the current gap is only ${gain5>=0?"+":""}${gain5.toFixed(1)} points.`,ready:false,close:gain5>=1,budgetNote};
   }
-  return{message:`Clears your transfer threshold now: ${gain5>=0?"+":""}${gain5.toFixed(1)} pts over 5 GWs vs ${natural.name}`,ready:true,close:false};
+  if(target.starts<2){
+    const nextStart=target.starts===0?"a confirmed start":"a second confirmed start";
+    return{message:`Wait for ${nextStart}. ${target.name}'s role projects well (${targetStart}% start chance) and the model edge is ${gain5>=0?"+":""}${gain5.toFixed(1)} points, but one match is not enough performance evidence.`,ready:false,close:target.starts===1,budgetNote};
+  }
+  const naturalHasSample=natural.starts>=2||natural.minutes>=150;
+  const targetPpg=target.pointsPerGame,naturalPpg=natural.pointsPerGame;
+  if(naturalHasSample&&targetPpg+.25<naturalPpg){
+    return{message:`Wait until recent output supports the move. ${target.name} is averaging ${targetPpg.toFixed(1)} points per appearance versus ${natural.name}'s ${naturalPpg.toFixed(1)}, despite the fixture projection.`,ready:false,close:targetPpg+.75>=naturalPpg,budgetNote};
+  }
+  const performanceMessage=`Performance case met: ${target.name} has a secure ${targetStart}% projected start chance, ${targetPpg.toFixed(1)} points per appearance and a ${gain5>=0?"+":""}${gain5.toFixed(1)}-point five-GW edge over ${natural.name}.`;
+  if(shortfall>.001)return{message:performanceMessage,ready:false,close:false,budgetNote};
+  return{message:performanceMessage,ready:true,close:false,budgetNote:null};
+}
+
+export function watchlistCandidatePool(players:FplPlayer[],ownedIds:number[],watchedIds:number[],query="",position="ALL"):FplPlayer[]{
+  const owned=new Set(ownedIds),watched=new Set(watchedIds),needle=query.trim().toLowerCase();
+  return players.filter(player=>!owned.has(player.id)&&!watched.has(player.id)&&player.status!=="u"&&(position==="ALL"||player.positionShort===position)&&(!needle||`${player.name} ${player.teamName} ${player.teamShort}`.toLowerCase().includes(needle))).sort((a,b)=>a.positionId-b.positionId||a.name.localeCompare(b.name));
 }
 
 function Watchlist({data,squad,ids,remove,bank}:{data:FplData;squad:FplPlayer[];ids:number[];remove:(id:number)=>void;bank:number}){
   const events=futureEvents(data,5),first=events[0]?.id;
-  const owned=new Set(squad.map(p=>p.id));
   const players=ids.map(id=>data.players.find(p=>p.id===id)).filter(Boolean) as FplPlayer[];
-  const candidates=[...data.players].filter(p=>!owned.has(p.id)&&!ids.includes(p.id)&&p.status!=="u").sort((a,b)=>b.epNext-a.epNext).slice(0,12);
-  const[add,setAdd]=useState("");
+  const[add,setAdd]=useState(""),[search,setSearch]=useState(""),[position,setPosition]=useState("ALL");
+  const candidates=useMemo(()=>watchlistCandidatePool(data.players,squad.map(player=>player.id),ids,search,position),[data.players,squad,ids,search,position]);
   const addPlayer=()=>{const id=Number(add);if(id)remove(id);setAdd("")};
-  return <><section className="watchlist-add"><div><span>PERMANENT WATCHLIST</span><h2>Monitor the next move before making it.</h2></div><select value={add} onChange={e=>setAdd(e.target.value)}><option value="">Choose a player…</option>{candidates.map(p=><option key={p.id} value={p.id}>{p.name} · {p.teamShort} · £{p.price.toFixed(1)}m</option>)}</select><button onClick={addPlayer} disabled={!add}>Add to watchlist</button></section>
+  return <><section className="watchlist-add"><div><span>PERMANENT WATCHLIST</span><h2>Search every official FPL player.</h2><p>{candidates.length} eligible player{candidates.length===1?"":"s"} match your filters.</p></div><div className="watchlist-player-search"><input value={search} onChange={event=>{setSearch(event.target.value);setAdd("")}} placeholder="Search player or club…"/><select value={position} onChange={event=>{setPosition(event.target.value);setAdd("")}}><option value="ALL">All positions</option>{data.rules.positions.map(rule=><option value={rule.short} key={rule.id}>{rule.short}</option>)}</select><select value={add} onChange={e=>setAdd(e.target.value)}><option value="">Choose from {candidates.length} players…</option>{candidates.map(p=><option key={p.id} value={p.id}>{p.name} · {p.teamShort} · {p.positionShort} · £{p.price.toFixed(1)}m</option>)}</select></div><button onClick={addPlayer} disabled={!add}>Add to watchlist</button></section>
   <section className="watchlist-grid">{players.length?players.map(p=>{
     const m=projectionMetrics(p,first,data.fixtures,first);
-    const natural=squad.filter(x=>x.positionId===p.positionId&&x.price<=p.price+1).sort((a,b)=>playerProjection(a,first,data.fixtures,first)-playerProjection(b,first,data.fixtures,first))[0];
+    const samePosition=squad.filter(player=>player.positionId===p.positionId).map(player=>({player,fiveGw:events.reduce((sum,event)=>sum+playerProjection(player,event.id,data.fixtures,first),0),shortfall:Math.max(0,p.price-player.price-bank)}));
+    const naturalRoute=[...samePosition].sort((a,b)=>(a.shortfall===0?0:1)-(b.shortfall===0?0:1)||a.shortfall-b.shortfall||a.fiveGw-b.fiveGw)[0];
+    const natural=naturalRoute?.player,naturalMetrics=natural?projectionMetrics(natural,first,data.fixtures,first):undefined;
     const gw1=playerProjection(p,first,data.fixtures,first);
     const threeGw=events.slice(0,3).reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0);
     const fiveGw=events.reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0);
-    const naturalFiveGw=natural?events.reduce((s,e)=>s+playerProjection(natural,e.id,data.fixtures,first),0):0;
-    const trigger=buyTriggerMessage(p,natural,m,fiveGw,naturalFiveGw,bank);
-    const priority=trigger.ready?"BUY":trigger.close?"CLOSE":"WATCH";
+    const naturalFiveGw=naturalRoute?.fiveGw??0;
+    const trigger=buyTriggerMessage(p,natural,m,naturalMetrics,fiveGw,naturalFiveGw,bank);
+    const priority=trigger.ready?"BUY":trigger.close?"BUILDING":"WATCH";
     return <article key={p.id}>
       <header><div><span>{p.teamShort} · {p.positionShort}</span><h3>{p.name}</h3></div><b className={priority.toLowerCase()}>{priority}</b></header>
       <div className="watch-kpis">
@@ -840,8 +856,9 @@ function Watchlist({data,squad,ids,remove,bank}:{data:FplData;squad:FplPlayer[];
         <span><small>CONFIDENCE</small><b>{Math.round(m.confidence*100)}%</b></span>
       </div>
       <p><b>Role:</b> {p.positionShort}{m.penaltyRole?" · first-choice penalties":""}{m.setPieceRole?" · set-piece role":""}{!m.penaltyRole&&!m.setPieceRole?" · no confirmed set-piece role":""}</p>
-      <p className={trigger.ready?"trigger-ready":""}><b>Buy trigger:</b> {trigger.message}</p>
-      <small>Likely route: {natural?`${natural.name} → ${p.name}`:"No affordable natural route yet"}</small>
+      <p className={trigger.ready?"trigger-ready":""}><b>Performance trigger:</b> {trigger.message}</p>
+      {trigger.budgetNote&&<p className="watch-budget-note"><b>Budget:</b> {trigger.budgetNote}</p>}
+      <small>Compared route: {natural?`${natural.name} → ${p.name}`:"No same-position route yet"}</small>
       <footer>
         <div>{events.map(e=>{const games=data.fixtures.filter(f=>f.event===e.id&&(f.teamH===p.teamId||f.teamA===p.teamId));const difficulties=games.map(f=>f.teamH===p.teamId?f.teamHDifficulty:f.teamADifficulty);const difficulty=difficulties.length?Math.round(difficulties.reduce((s,d)=>s+d,0)/difficulties.length):3;return <i key={e.id} className={`fdr-${difficulty}`}>{opponent(p,e.id,data)}<small>{difficulties.length?difficulties.join(", "):3}</small></i>})}</div>
         <button onClick={()=>remove(p.id)}>Remove</button>
