@@ -5,7 +5,7 @@ import { FplEvent, futureEvents } from "../app/lib/fpl.ts";
 function makeEvent(overrides: Partial<FplEvent> = {}): FplEvent {
   return {
     id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(),
-    current: false, next: false, finished: false,
+    current: false, next: false, finished: false, dataChecked: false,
     ...overrides,
   };
 }

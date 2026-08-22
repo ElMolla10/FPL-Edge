@@ -18,7 +18,7 @@ function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
     positionId: 3, position: "Midfielder", positionShort: "MID", price: 6, status: "a", chance: null,
     epNext: 2, form: 2, pointsPerGame: 3, priorPointsPerGame: 3, priorMinutes: 1500, priorStarts: 20,
     priorExpectedGoals: 3, priorExpectedAssists: 3, priorBonus: 10, priorSaves: 0, priorPenaltiesSaved: 0,
-    priorDefensiveContribution: 100, totalPoints: 0, eventPoints: 0, selectedBy: 10, priceChange: 0, priceProjectionToday: 0,
+    priorDefensiveContribution: 100, totalPoints: 0, eventPoints: 0, eventMinutes: 0, selectedBy: 10, priceChange: 0, priceProjectionToday: 0,
     transfersIn: 0, transfersOut: 0, goals: 0, assists: 0, expectedGoals: 0, expectedAssists: 0,
     expectedGoalInvolvements: 0, expectedGoalsConceded: 0, cleanSheets: 0, goalsConceded: 0, minutes: 0,
     starts: 0, bonus: 0, bps: 0, ictIndex: 0, influence: 0, creativity: 0, threat: 0, saves: 0,
@@ -85,11 +85,11 @@ test("reconciliation: every GW/3GW/5GW transfer delta returned by bestTransfers 
     makeFixture({ id: event * 10 + 2, event, teamH: incoming.teamId, teamA: 901 }),
   ]);
   const events = [
-    { id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(), current: false, next: true, finished: false },
-    { id: 2, name: "Gameweek 2", deadline: new Date(Date.now() + 2 * 86400000).toISOString(), current: false, next: false, finished: false },
-    { id: 3, name: "Gameweek 3", deadline: new Date(Date.now() + 3 * 86400000).toISOString(), current: false, next: false, finished: false },
-    { id: 4, name: "Gameweek 4", deadline: new Date(Date.now() + 4 * 86400000).toISOString(), current: false, next: false, finished: false },
-    { id: 5, name: "Gameweek 5", deadline: new Date(Date.now() + 5 * 86400000).toISOString(), current: false, next: false, finished: false },
+    { id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(), current: false, next: true, finished: false, dataChecked: false },
+    { id: 2, name: "Gameweek 2", deadline: new Date(Date.now() + 2 * 86400000).toISOString(), current: false, next: false, finished: false, dataChecked: false },
+    { id: 3, name: "Gameweek 3", deadline: new Date(Date.now() + 3 * 86400000).toISOString(), current: false, next: false, finished: false, dataChecked: false },
+    { id: 4, name: "Gameweek 4", deadline: new Date(Date.now() + 4 * 86400000).toISOString(), current: false, next: false, finished: false, dataChecked: false },
+    { id: 5, name: "Gameweek 5", deadline: new Date(Date.now() + 5 * 86400000).toISOString(), current: false, next: false, finished: false, dataChecked: false },
   ];
 
   const data: FplData = {
@@ -183,7 +183,7 @@ test("regression: bench order always keeps the backup GK last, even when they ou
   assert.equal(squad.length, 15);
 
   const fixtures = squad.map((p) => makeFixture({ id: p.teamId, event: 1, teamH: p.teamId, teamA: 900 + p.teamId }));
-  const events = [{ id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(), current: false, next: true, finished: false }];
+  const events = [{ id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(), current: false, next: true, finished: false, dataChecked: false }];
   const data: FplData = {
     updatedAt: new Date().toISOString(), source: "test", seasonStatsThrough: 0,
     players: squad, fixtures, events,

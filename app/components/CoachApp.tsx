@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
-import { FplData, FplFixture, FplPlayer, ProjectionMetrics, bestXi, fetchFplData, futureEvents, isValidSquad, playerProjection, projectionMetrics, savedSquad } from "../lib/fpl";
+import { FplData, FplEvent, FplFixture, FplPlayer, ProjectionMetrics, bestXi, fetchFplData, futureEvents, isValidSquad, playerProjection, projectionMetrics, savedSquad, simulateAutosubs } from "../lib/fpl";
 import { createOptimizer } from "../lib/optimizer";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
@@ -214,11 +214,232 @@ function useCaptaincy(players:FplPlayer[],event:number,modelCaptain:FplPlayer|un
 
 function CaptaincyPicker({players,captain,vice,onCaptain,onVice,event,data}:{players:FplPlayer[];captain:FplPlayer;vice:FplPlayer;onCaptain:(id:number)=>void;onVice:(id:number)=>void;event:number;data:FplData}){return <section className="captaincy-picker"><div><span>CAPTAIN</span><select value={captain.id} onChange={e=>onCaptain(Number(e.target.value))}>{players.map(p=><option key={p.id} value={p.id}>{p.name} · {playerProjection(p,event,data.fixtures,event).toFixed(1)} xPts</option>)}</select><small>Scores double if they play.</small></div><i>↔</i><div><span>VICE-CAPTAIN</span><select value={vice.id} onChange={e=>onVice(Number(e.target.value))}>{players.map(p=><option key={p.id} value={p.id}>{p.name} · {playerProjection(p,event,data.fixtures,event).toFixed(1)} xPts</option>)}</select><small>Takes over if your captain does not play.</small></div><strong>Saved automatically for GW{event}</strong></section>}
 
-function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const squad=useMemo(()=>savedSquad(data),[data,revision]);const a=analysis(data,squad);const[tab,setTab]=useState<"Pitch"|"List"|"Analytics">("Pitch");const[selected,setSelected]=useState<FplPlayer|null>(null);const players=a?.xi.players??[];const ranked=[...players].sort((x,y)=>a?playerProjection(y,a.first,data.fixtures,a.first)-playerProjection(x,a.first,data.fixtures,a.first):0);const captaincy=useCaptaincy(players,a?.first??0,a?.xi.captain??ranked[0],ranked[1]);if(!a)return <><ConnectTeam data={data}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></>;const{captain,vice,chooseCaptain,chooseVice}=captaincy;const xiBase=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0);const projected=xiBase+playerProjection(captain,a.first,data.fixtures,a.first);const replacement=bestTransfers(data,squad,a.bank).filter(x=>selected&&x.out.id===selected.id).slice(0,3);return <div className="coach-page"><section className="team-toolbar"><div><span>FORMATION</span><b>{formation(a.xi.players)}</b></div><div><span>PROJECTED</span><b>{projected.toFixed(1)} pts</b></div><div className="segmented">{(["Pitch","List","Analytics"] as const).map(x=><button className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div><button onClick={()=>go("draft")}>Edit squad</button></section><CaptaincyPicker players={a.xi.players} captain={captain} vice={vice} onCaptain={chooseCaptain} onVice={chooseVice} event={a.first} data={data}/>{tab==="Pitch"&&<Pitch players={a.xi.players} bench={a.bench} captain={captain} vice={vice} event={a.first} data={data} onSelect={setSelected}/>} {tab==="List"&&<section className="team-list"><header><span>PLAYER</span><span>FIXTURE</span><span>xPTS</span><span>xMINS</span><span>START</span><span>STATUS</span></header>{[...a.xi.players,...a.bench].map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><b>{i<11?"XI":"BENCH"} · {p.name}{p.id===captain.id?" (C)":p.id===vice.id?" (V)":""}<small>{p.teamShort} · {p.positionShort}</small></b><span>{opponent(p,a.first,data)}</span><strong>{playerProjection(p,a.first,data.fixtures,a.first).toFixed(1)}</strong><span>{expectedMins(p,a.first,data)}</span><span>{startPct(p,a.first,data)}%</span><em className={p.status==="a"?"ok":"risk"}>{p.status==="a"?"LIKELY":"FLAGGED"}</em></button>)}</section>} {tab==="Analytics"&&<TeamAnalytics data={data} squad={squad} a={a}/>} {selected&&<PlayerPanel player={selected} data={data} first={a.first} replacements={replacement} close={()=>setSelected(null)}/>}</div>}
+// --- Gameweek navigator: past/current/future squad views on the Team page ---
+
+export type HistoryWeekPick={elementId:number;position:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean;elementType:number};
+export type HistoryWeek={event:number;points:number;unavailable?:boolean;squad?:HistoryWeekPick[];playerPoints?:Record<string,number>;automaticSubs?:{elementIn:number;elementOut:number}[]};
+
+function useGameweekHistory(entry:string|null){
+  const[weeks,setWeeks]=useState<HistoryWeek[]|null>(null);
+  useEffect(()=>{
+    if(!entry){setWeeks(null);return}
+    let cancelled=false;
+    fetch(`/api/fpl/history?entry=${entry}`,{cache:"no-store"}).then(r=>r.ok?r.json():null).then(json=>{if(!cancelled)setWeeks(json?.weeks??null)}).catch(()=>{if(!cancelled)setWeeks(null)});
+    return()=>{cancelled=true};
+  },[entry]);
+  return weeks;
+}
+
+export type PastGameweekPlayer={player:FplPlayer;points:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean};
+export type PastGameweekResult={source:"official"|"locked-prediction";totalPoints:number|null;predictedPoints:number|null;xi:PastGameweekPlayer[];bench:PastGameweekPlayer[];automaticSubs:{inName:string;outName:string}[]};
+
+// Two possible sources for a past week, in preference order -- neither is invented. "official" is
+// the real reconstructed result (connected accounts, via /api/fpl/history's picks+live data).
+// "locked-prediction" is what the app itself recorded before that week's deadline (Final Check's
+// Lock This Team) -- a real prediction, clearly not the actual outcome, so actual points stay null
+// rather than being guessed. If neither exists, the caller shows "no snapshot recorded."
+export function resolvePastGameweek(players:FplPlayer[],historyWeek:HistoryWeek|undefined,lock:LockRecord|undefined):PastGameweekResult|null{
+  const byId=(id:number)=>players.find(p=>p.id===id);
+  if(historyWeek&&!historyWeek.unavailable&&historyWeek.squad?.length){
+    const rows=historyWeek.squad.map(pick=>({player:byId(pick.elementId),points:historyWeek.playerPoints?.[String(pick.elementId)]??0,multiplier:pick.multiplier,isCaptain:pick.isCaptain,isViceCaptain:pick.isViceCaptain,position:pick.position})).filter(row=>row.player) as (PastGameweekPlayer&{position:number})[];
+    let xi=rows.filter(r=>r.position<=11).sort((a,b)=>a.position-b.position).map(({position,...rest})=>rest);
+    let bench=rows.filter(r=>r.position>11).sort((a,b)=>a.position-b.position).map(({position,...rest})=>rest);
+    // The nominal pick order (position 1-11 vs 12-15) is who was SELECTED, not who actually
+    // contributed points -- FPL's own automatic_subs already tells us who really played. Reflect
+    // those swaps in the display too, not just as a footnote, so the pitch shows the player whose
+    // points actually counted rather than a 0-pointer who never got on.
+    for(const sub of historyWeek.automaticSubs??[]){
+      const comingOn=bench.find(r=>r.player.id===sub.elementIn);
+      const goingOff=xi.find(r=>r.player.id===sub.elementOut);
+      if(comingOn&&goingOff){
+        xi=xi.map(r=>r.player.id===sub.elementOut?comingOn:r);
+        bench=bench.map(r=>r.player.id===sub.elementIn?goingOff:r);
+      }
+    }
+    const automaticSubs=(historyWeek.automaticSubs??[]).map(sub=>({inName:byId(sub.elementIn)?.name??"Unknown",outName:byId(sub.elementOut)?.name??"Unknown"}));
+    return{source:"official",totalPoints:historyWeek.points,predictedPoints:null,xi,bench,automaticSubs};
+  }
+  if(lock){
+    const toRow=(id:number):PastGameweekPlayer|null=>{const player=byId(id);return player?{player,points:0,multiplier:id===lock.captainId?2:1,isCaptain:id===lock.captainId,isViceCaptain:id===lock.viceId}:null};
+    const xi=lock.xiIds.map(toRow).filter(Boolean) as PastGameweekPlayer[];
+    const bench=lock.squadIds.filter(id=>!lock.xiIds.includes(id)).map(toRow).filter(Boolean) as PastGameweekPlayer[];
+    return{source:"locked-prediction",totalPoints:null,predictedPoints:lock.predicted,xi,bench,automaticSubs:[]};
+  }
+  return null;
+}
+
+export type CurrentXiResolution={xi:FplPlayer[];bench:FplPlayer[];modelCaptain:FplPlayer|undefined;modelVice:FplPlayer|undefined;source:"locked"|"model"};
+
+// If this event was locked in Final Check, that recorded XI is what actually got played --
+// bestXi() re-derives its OWN pick from today's projections, which can drift from what was really
+// locked in (bench-order/model changes since lock time). Preferring the lock here mirrors
+// resolvePastGameweek's locked-prediction branch and useCaptaincy's stored-choice precedence:
+// without it, live points would silently sum eventPoints for players who were never actually in
+// the real starting XI that week -- the same class of silent disagreement the Final Check
+// locks-reconciliation fix exists to prevent. Only falls back to bestXi() when no lock exists.
+export function resolveCurrentXi(squad:FplPlayer[],players:FplPlayer[],eventId:number,fixtures:FplFixture[],lock:LockRecord|undefined):CurrentXiResolution{
+  if(lock){
+    const byId=(id:number)=>players.find(p=>p.id===id);
+    const xi=lock.xiIds.map(byId).filter(Boolean) as FplPlayer[];
+    const bench=lock.squadIds.filter(id=>!lock.xiIds.includes(id)).map(byId).filter(Boolean) as FplPlayer[];
+    return{xi,bench,modelCaptain:xi.find(p=>p.id===lock.captainId)??xi[0],modelVice:xi.find(p=>p.id===lock.viceId)??xi[1],source:"locked"};
+  }
+  const result=bestXi(squad,eventId,fixtures,eventId);
+  const xi=result.players;
+  const bench=squad.filter(p=>!xi.some(x=>x.id===p.id)).sort((a,b)=>{if(a.positionShort==="GKP")return 1;if(b.positionShort==="GKP")return-1;return playerProjection(b,eventId,fixtures,eventId)-playerProjection(a,eventId,fixtures,eventId)});
+  const modelVice=[...xi].sort((a,b)=>playerProjection(b,eventId,fixtures,eventId)-playerProjection(a,eventId,fixtures,eventId))[1];
+  return{xi,bench,modelCaptain:result.captain??xi[0],modelVice,source:"model"};
+}
+
+// What the bench should actually display: normally just `bench`, but once autosub promotes a
+// bench player into `effectiveXi` they need to drop out of this list (or they'd show twice -- once
+// on the pitch, once here) and whoever they replaced (no longer in effectiveXi) needs to appear
+// here instead of vanishing -- they're off the pitch, not off the squad.
+export function resolveBenchDisplay(bench:FplPlayer[],xi:FplPlayer[],effectiveXi:FplPlayer[]):FplPlayer[]{
+  return[...bench,...xi].filter(p=>!effectiveXi.some(e=>e.id===p.id));
+}
+
+function GameweekNav({event,branch,onBack,onForward,canBack,canForward}:{event:FplEvent;branch:"past"|"current"|"future";onBack:()=>void;onForward:()=>void;canBack:boolean;canForward:boolean}){
+  return <section className="gw-nav">
+    <button onClick={onBack} disabled={!canBack} aria-label="Previous gameweek">←</button>
+    <div className={`gw-nav-label gw-${branch}`}>
+      <span>{branch==="past"?"PAST RESULT":branch==="current"?"LIVE NOW":"UPCOMING · PROVISIONAL"}</span>
+      <b>{event.name}</b>
+    </div>
+    <button onClick={onForward} disabled={!canForward} aria-label="Next gameweek">→</button>
+  </section>;
+}
+
+function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
+  const squad=useMemo(()=>savedSquad(data),[data,revision]);
+  const a=analysis(data,squad);
+
+  // Critical: the LIVE/in-progress gameweek is data.events.find(e=>e.current), NOT
+  // futureEvents()[0]. futureEvents() returns the next *planning* gameweek (the one a deadline
+  // hasn't passed for yet) -- after the grace-window fix, that's deliberately different from
+  // whichever gameweek's matches are actually being played right now. Getting this backwards here
+  // would reintroduce a version of the original GW1-stuck bug inside this feature.
+  const currentAnchor=useMemo(()=>data.events.find(e=>e.current)??null,[data]);
+  const horizonEvents=useMemo(()=>futureEvents(data,8),[data]);
+  const backwardBoundId=data.events[0]?.id??1;
+  const forwardBoundId=horizonEvents.length?horizonEvents[horizonEvents.length-1].id:(currentAnchor?.id??data.events[data.events.length-1]?.id??backwardBoundId);
+  const defaultEventId=currentAnchor?.id??horizonEvents[0]?.id??backwardBoundId;
+  const[navEventId,setNavEventId]=useState<number>(()=>defaultEventId);
+  const[tab,setTab]=useState<"Pitch"|"List">("Pitch");
+  const[selected,setSelected]=useState<FplPlayer|null>(null);
+
+  const event=data.events.find(e=>e.id===navEventId)??currentAnchor??horizonEvents[0]??data.events[0];
+  // "Past" is decided by event.finished, not by comparing ids to currentAnchor -- a gameweek stays
+  // current:true and finished:false for as long as its matches are still being played (including a
+  // mid-gameweek state where some fixtures are done and others haven't kicked off), so this can't
+  // prematurely read as "past" partway through.
+  const branch:"past"|"current"|"future"=!event?"future":event.finished?"past":(currentAnchor&&event.id===currentAnchor.id)?"current":"future";
+
+  let entry:string|null=null;
+  try{entry=localStorage.getItem("fpl-edge-entry")}catch{}
+  const history=useGameweekHistory(entry);
+
+  // Hooks run unconditionally every render regardless of which branch is displayed -- the "current"
+  // XI/captaincy is computed here even when a past or future week is what's actually shown.
+  let locks:LockRecord[]=[];
+  try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
+  const currentLock=currentAnchor?locks.find(l=>l.event===currentAnchor.id):undefined;
+  const currentResolution=useMemo(()=>currentAnchor?resolveCurrentXi(squad,data.players,currentAnchor.id,data.fixtures,currentLock):null,[squad,data,currentAnchor,currentLock]);
+  const currentXi=currentResolution?.xi??[];
+  const currentBench=currentResolution?.bench??[];
+  const currentCaptaincy=useCaptaincy(currentXi,currentAnchor?.id??0,currentResolution?.modelCaptain,currentResolution?.modelVice);
+
+  if(!a)return <><ConnectTeam data={data}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></>;
+
+  const goBack=()=>setNavEventId(id=>Math.max(backwardBoundId,id-1));
+  const goForward=()=>setNavEventId(id=>Math.min(forwardBoundId,id+1));
+
+  return <div className="coach-page">
+    <GameweekNav event={event} branch={branch} onBack={goBack} onForward={goForward} canBack={event.id>backwardBoundId} canForward={event.id<forwardBoundId}/>
+    {branch==="past"&&<PastGameweekView data={data} event={event} history={history}/>}
+    {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go}/>}
+    {branch==="future"&&<FutureGameweekView data={data} event={event} squad={squad} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank}/>}
+  </div>;
+}
 function formation(players:FplPlayer[]){return ["DEF","MID","FWD"].map(pos=>players.filter(p=>p.positionShort===pos).length).join("-")}
 function Pitch({players,bench,captain,vice,event,data,onSelect}:{players:FplPlayer[];bench:FplPlayer[];captain:FplPlayer;vice:FplPlayer;event:number;data:FplData;onSelect:(p:FplPlayer)=>void}){return <><section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{players.filter(p=>p.positionShort===pos).map(p=><button key={p.id} className={p.status!=="a"||startPct(p,event,data)<68?"flagged":""} onClick={()=>onSelect(p)}><i>{pos}</i><b>{p.name}{p.id===captain.id&&<em>C</em>}{p.id===vice.id&&<em>V</em>}</b><span>{opponent(p,event,data)} · {playerProjection(p,event,data.fixtures,event).toFixed(1)} xPts</span><small>{startPct(p,event,data)}% start</small></button>)}</div>)}</section><section className="coach-bench"><span>BENCH ORDER</span>{bench.map((p,i)=><button key={p.id} onClick={()=>onSelect(p)}><i>{i+1}</i><b>{p.name}</b><small>{opponent(p,event,data)} · {playerProjection(p,event,data.fixtures,event).toFixed(1)}</small></button>)}</section></>}
 function PlayerPanel({player,data,first,replacements,close}:{player:FplPlayer;data:FplData;first:number;replacements:Transfer[];close:()=>void}){const events=futureEvents(data,5);const m=projectionMetrics(player,first,data.fixtures,first);return <div className="player-panel-backdrop" onClick={close}><aside className="player-panel" onClick={e=>e.stopPropagation()}><button className="panel-close" onClick={close}>×</button><span>{player.teamName} · {player.position}</span><h2>{player.name}</h2><div className="panel-price">£{player.price.toFixed(1)}m <small>{player.selectedBy.toFixed(1)}% owned</small></div><div className="panel-fixtures">{events.map(e=><div key={e.id}><b>{e.name.replace("Gameweek ","GW")}</b><span>{opponent(player,e.id,data)}</span><strong>{playerProjection(player,e.id,data.fixtures,first).toFixed(1)}</strong></div>)}</div><div className="panel-stats"><p><span>Expected minutes</span><b>{Math.round(m.expectedMinutes)}</b></p><p><span>Start probability</span><b>{Math.round(m.startProbability*100)}%</b></p><p><span>Season xG / xA</span><b>{player.expectedGoals.toFixed(2)} / {player.expectedAssists.toFixed(2)}</b></p><p><span>Form</span><b>{player.form.toFixed(1)}</b></p><p><span>Penalties</span><b>{m.penaltyRole?"First choice":"Not confirmed"}</b></p><p><span>Set pieces</span><b>{m.setPieceRole?"First choice":"Not confirmed"}</b></p></div><section><span>COACH VIEW</span><p>{m.startProbability>.8?`LIKELY starter with ${Math.round(m.expectedMinutes)} expected minutes.`:`UNCERTAIN minutes profile: only ${Math.round(m.startProbability*100)}% start probability.`} {m.penaltyRole?"First-choice penalties improve the ceiling.":"No confirmed penalty role is included."}</p></section><section><span>BEST REPLACEMENTS</span>{replacements.length?replacements.map(r=><p key={r.incoming.id}><b>{r.incoming.name}</b> · +{r.gain5.toFixed(1)} five-GW xPts · {r.risk} risk</p>):<p>No clearly stronger legal one-player route was found.</p>}</section></aside></div>}
-function TeamAnalytics({data,squad,a}:{data:FplData;squad:FplPlayer[];a:NonNullable<ReturnType<typeof analysis>>}){return <div className="team-analytics"><section><span>NEXT FIVE GAMEWEEKS</span><div>{a.events.map(e=>{const xi=bestXi(squad,e.id,data.fixtures,a.first);return <article key={e.id}><b>{e.name.replace("Gameweek ","GW")}</b><strong>{xi.total.toFixed(1)}</strong><small>projected points</small></article>})}</div></section><section><span>STRUCTURAL READ</span><h2>{a.issues.length?`${a.issues.length} minutes concern${a.issues.length>1?"s":""}`:"Strong minutes security"}</h2><p>Bench value £{a.bench.reduce((s,p)=>s+p.price,0).toFixed(1)}m · Bank £{a.bank.toFixed(1)}m · Captain {a.xi.captain?.name}</p></section></div>}
+function PastGameweekView({data,event,history}:{data:FplData;event:FplEvent;history:HistoryWeek[]|null}){
+  const historyWeek=history?.find(w=>w.event===event.id);
+  let locks:LockRecord[]=[];
+  try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
+  const lock=locks.find(l=>l.event===event.id);
+  const resolved=resolvePastGameweek(data.players,historyWeek,lock);
+
+  if(!resolved)return <section className="gw-empty">
+    <span>NO RECORD</span>
+    <h2>No snapshot recorded for this week.</h2>
+    <p>{event.name} wasn't locked in Final Check before its deadline, and this account isn't connected to an official FPL Team ID. Connect a team on Overview to see full official history, or lock upcoming weeks in Final Check to build a record going forward.</p>
+  </section>;
+
+  return <div className="gw-past">
+    <section className="gw-past-summary">
+      <div>
+        <span>{resolved.source==="official"?"OFFICIAL RESULT":"YOUR LOCKED PLAN"}</span>
+        <h2>{resolved.totalPoints!==null?`${resolved.totalPoints} points`:resolved.predictedPoints!==null?`${resolved.predictedPoints} projected`:"—"}</h2>
+      </div>
+      {resolved.source==="locked-prediction"&&<p className="gw-pending-note">This is the plan you locked before the deadline, not the confirmed result -- connect an official FPL Team ID to see the real outcome for this week.</p>}
+    </section>
+    {resolved.automaticSubs.length>0&&<section className="gw-autosub-note"><span>AUTOMATIC SUBSTITUTIONS</span>{resolved.automaticSubs.map((s,i)=><p key={i}><b>{s.inName}</b> came on for <b>{s.outName}</b></p>)}</section>}
+    <section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{resolved.xi.filter(r=>r.player.positionShort===pos).map(r=><button key={r.player.id} disabled><i>{pos}</i><b>{r.player.name}{r.isCaptain&&<em>C</em>}{r.isViceCaptain&&<em>V</em>}</b><span>{r.points}{r.multiplier>1?` × ${r.multiplier}`:""} pts</span></button>)}</div>)}</section>
+    <section className="coach-bench"><span>BENCH</span>{resolved.bench.map((r,i)=><button key={r.player.id} disabled><i>{i+1}</i><b>{r.player.name}</b><small>{r.points} pts</small></button>)}</section>
+  </div>;
+}
+
+function CurrentGameweekView({data,event,squad,xi,bench,captaincy,tab,setTab,selected,setSelected,bank,go}:{data:FplData;event:FplEvent;squad:FplPlayer[];xi:FplPlayer[];bench:FplPlayer[];captaincy:{captain:FplPlayer;vice:FplPlayer;chooseCaptain:(id:number)=>void;chooseVice:(id:number)=>void};tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number;go:(v:View)=>void}){
+  const{captain,vice,chooseCaptain,chooseVice}=captaincy;
+  const gwFixtures=data.fixtures.filter(f=>f.event===event.id);
+  const hasStarted=gwFixtures.some(f=>f.started);
+  // A 0-minute reading mid-gameweek doesn't mean a player won't play -- they may just not have been
+  // brought on yet while their match is still live. Autosub only becomes trustworthy once every
+  // fixture in the gameweek has actually finished (which can be true before the event-level
+  // `finished`/`data_checked` flags catch up, since those wait on bonus-point confirmation too).
+  const allFixturesFinished=gwFixtures.length>0&&gwFixtures.every(f=>f.finished);
+  const autosub=allFixturesFinished&&xi.length===11?simulateAutosubs(xi,bench,captain.id,vice.id):null;
+  const effectiveXi=autosub?autosub.effectiveXi:xi;
+  const armbandHolderId=autosub?autosub.effectiveCaptainId:captain.id;
+  const armbandHolder=effectiveXi.find(p=>p.id===armbandHolderId);
+  const liveTotal=effectiveXi.reduce((s,p)=>s+p.eventPoints,0)+(armbandHolder?.eventPoints??0);
+  const replacement=bestTransfers(data,squad,bank).filter(x=>selected&&x.out.id===selected.id).slice(0,3);
+  const planningFirst=futureEvents(data,5)[0]?.id??event.id;
+
+  return <div className="gw-current">
+    <section className="team-toolbar"><div><span>FORMATION</span><b>{formation(xi)}</b></div><div><span>{hasStarted?"LIVE POINTS":"KICKOFF PENDING"}</span><b>{hasStarted?liveTotal:"—"}</b></div><div className="segmented">{(["Pitch","List"] as const).map(x=><button className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div><button onClick={()=>go("draft")}>Edit squad</button></section>
+    {!hasStarted&&<p className="gw-pending-note">{event.name}'s matches haven't kicked off yet -- live points will appear here once they do.</p>}
+    {hasStarted&&!allFixturesFinished&&<p className="gw-pending-note">Some of this gameweek's matches are still in progress -- a player showing 0 minutes may not have played yet. Final XI and automatic substitutions appear once every match finishes.</p>}
+    {allFixturesFinished&&!event.dataChecked&&<p className="gw-pending-note">Bonus points aren't final yet -- FPL confirms them a few hours after the last match of the gameweek.</p>}
+    {autosub&&autosub.swaps.length>0&&<section className="gw-autosub-note"><span>AUTOMATIC SUBSTITUTIONS</span>{autosub.swaps.map((s,i)=><p key={i}><b>{s.inName}</b> came on for <b>{s.outName}</b> (0 minutes)</p>)}</section>}
+    {autosub&&autosub.armbandPassedToVice&&<p className="gw-armband-note">{captain.name} didn't play -- the armband passed to {vice.name} ({vice.name}'s score is doubled).</p>}
+    {autosub&&autosub.doubleLost&&<p className="gw-armband-note">Neither {captain.name} nor {vice.name} played -- no double applies this week.</p>}
+    <CaptaincyPicker players={xi} captain={captain} vice={vice} onCaptain={chooseCaptain} onVice={chooseVice} event={event.id} data={data}/>
+    {tab==="Pitch"&&<><section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{effectiveXi.filter(p=>p.positionShort===pos).map(p=>{const isArmband=p.id===armbandHolderId;const wasSubbedIn=autosub?.swaps.some(s=>s.inId===p.id);return <button key={p.id} className={p.status!=="a"?"flagged":""} onClick={()=>setSelected(p)}><i>{pos}{wasSubbedIn?" · AUTO":""}</i><b>{p.name}{p.id===captain.id&&<em>C</em>}{p.id===vice.id&&<em>V</em>}</b><span>{hasStarted?`${p.eventPoints}${isArmband?" × 2":""} pts`:opponent(p,event.id,data)}</span><small>{hasStarted?`${p.eventMinutes} mins`:""}</small></button>})}</div>)}</section>
+    <section className="coach-bench"><span>BENCH</span>{resolveBenchDisplay(bench,xi,effectiveXi).map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><i>{i+1}</i><b>{p.name}</b><small>{hasStarted?`${p.eventPoints} pts · ${p.eventMinutes} mins`:opponent(p,event.id,data)}</small></button>)}</section></>}
+    {tab==="List"&&<section className="team-list"><header><span>PLAYER</span><span>FIXTURE</span><span>PTS</span><span>MINS</span><span>STATUS</span></header>{[...effectiveXi,...bench].map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><b>{i<11?"XI":"BENCH"} · {p.name}{p.id===captain.id?" (C)":p.id===vice.id?" (V)":""}<small>{p.teamShort} · {p.positionShort}</small></b><span>{opponent(p,event.id,data)}</span><strong>{p.eventPoints}{p.id===armbandHolderId?" × 2":""}</strong><span>{p.eventMinutes}</span><em className={p.status==="a"?"ok":"risk"}>{p.status==="a"?"LIKELY":"FLAGGED"}</em></button>)}</section>}
+    {selected&&<PlayerPanel player={selected} data={data} first={planningFirst} replacements={replacement} close={()=>setSelected(null)}/>}
+  </div>;
+}
+
+function FutureGameweekView({data,event,squad,tab,setTab,selected,setSelected,bank}:{data:FplData;event:FplEvent;squad:FplPlayer[];tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number}){
+  const xiResult=bestXi(squad,event.id,data.fixtures,event.id);
+  const xi=xiResult.players;
+  const bench=squad.filter(p=>!xi.some(x=>x.id===p.id)).sort((a,b)=>{if(a.positionShort==="GKP")return 1;if(b.positionShort==="GKP")return-1;return playerProjection(b,event.id,data.fixtures,event.id)-playerProjection(a,event.id,data.fixtures,event.id)});
+  const replacement=bestTransfers(data,squad,bank).filter(x=>selected&&x.out.id===selected.id).slice(0,3);
+  const gwFixtures=data.fixtures.filter(f=>f.event===event.id);
+
+  return <div className="gw-future">
+    <section className="gw-provisional-note"><span>PROVISIONAL</span><h2>Today's squad against {event.name}'s fixtures.</h2><p>No transfers have been made for this week yet -- this is where your squad stands right now, not a locked plan. Come back closer to the deadline as news and fixtures firm up.</p></section>
+    <div className="segmented">{(["Pitch","List"] as const).map(x=><button className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div>
+    {tab==="Pitch"&&<section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{xi.filter(p=>p.positionShort===pos).map(p=><button key={p.id} className={p.status!=="a"?"flagged":""} onClick={()=>setSelected(p)}><i>{pos}</i><b>{p.name}</b><span>{opponent(p,event.id,data)}</span><small>{p.status==="a"?"LIKELY":"FLAGGED"}</small></button>)}</div>)}</section>}
+    {tab==="List"&&<section className="team-list"><header><span>PLAYER</span><span>FIXTURE</span><span>STATUS</span></header>{[...xi,...bench].map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><b>{i<11?"XI":"BENCH"} · {p.name}<small>{p.teamShort} · {p.positionShort}</small></b><span>{opponent(p,event.id,data)}</span><em className={p.status==="a"?"ok":"risk"}>{p.status==="a"?"LIKELY":"FLAGGED"}</em></button>)}</section>}
+    {!gwFixtures.length&&<p className="gw-blank-note">No official fixtures are on the board yet for {event.name}, or this is a blank gameweek for part of your squad.</p>}
+    {selected&&<PlayerPanel player={selected} data={data} first={event.id} replacements={replacement} close={()=>setSelected(null)}/>}
+  </div>;
+}
 
 const bandLabel:Record<FiveGwGainBand,string>={negligible:"Negligible",modest:"Modest",strong:"Strong",exceptional:"Exceptional",anomaly:"Anomaly review"};
 

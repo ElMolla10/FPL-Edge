@@ -11,7 +11,7 @@ function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
     positionId: 4, position: "Forward", positionShort: "FWD", price: 15, status: "a", chance: null,
     epNext: 9, form: 9, pointsPerGame: 10, priorPointsPerGame: 10, priorMinutes: 3400, priorStarts: 37,
     priorExpectedGoals: 42, priorExpectedAssists: 8, priorBonus: 34, priorSaves: 0, priorPenaltiesSaved: 0,
-    priorDefensiveContribution: 0, totalPoints: 0, eventPoints: 0, selectedBy: 55, priceChange: 0, priceProjectionToday: 0,
+    priorDefensiveContribution: 0, totalPoints: 0, eventPoints: 0, eventMinutes: 0, selectedBy: 55, priceChange: 0, priceProjectionToday: 0,
     transfersIn: 0, transfersOut: 0, goals: 0, assists: 0, expectedGoals: 0, expectedAssists: 0,
     expectedGoalInvolvements: 0, expectedGoalsConceded: 0, cleanSheets: 0, goalsConceded: 0, minutes: 0,
     starts: 0, bonus: 0, bps: 0, ictIndex: 0, influence: 0, creativity: 0, threat: 0, saves: 0,
@@ -46,7 +46,7 @@ function makeRules() {
 function makeEvent(overrides: Partial<FplEvent> = {}): FplEvent {
   return {
     id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(),
-    current: false, next: false, finished: false,
+    current: false, next: false, finished: false, dataChecked: false,
     ...overrides,
   };
 }
@@ -135,7 +135,7 @@ test("bestTransfers: an incoming player's fixture-adjustment reflects both legs 
     makeFixture({ id: 2, event: 1, teamH: 9, teamA: 901, teamHDifficulty: 1, teamADifficulty: 5 }),
     makeFixture({ id: 3, event: 1, teamH: 902, teamA: 9, teamHDifficulty: 1, teamADifficulty: 5 }),
   ];
-  const events = [{ id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(), current: false, next: true, finished: false }];
+  const events = [{ id: 1, name: "Gameweek 1", deadline: new Date(Date.now() + 86400000).toISOString(), current: false, next: true, finished: false, dataChecked: false }];
 
   const data = {
     updatedAt: new Date().toISOString(),

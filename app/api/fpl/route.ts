@@ -72,6 +72,7 @@ export async function GET() {
         current: event.is_current,
         next: event.is_next,
         finished: event.finished,
+        dataChecked: event.data_checked,
       })),
       teams: bootstrap.teams.map((team: any) => ({
         id: team.id,

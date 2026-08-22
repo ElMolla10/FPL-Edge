@@ -9,7 +9,7 @@ function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
     positionId: 3, position: "Midfielder", positionShort: "MID", price: 6, status: "a", chance: null,
     epNext: 2, form: 2, pointsPerGame: 3, priorPointsPerGame: 3, priorMinutes: 1500, priorStarts: 20,
     priorExpectedGoals: 3, priorExpectedAssists: 3, priorBonus: 10, priorSaves: 0, priorPenaltiesSaved: 0,
-    priorDefensiveContribution: 100, totalPoints: 0, eventPoints: 0, selectedBy: 10, priceChange: 0, priceProjectionToday: 0,
+    priorDefensiveContribution: 100, totalPoints: 0, eventPoints: 0, eventMinutes: 0, selectedBy: 10, priceChange: 0, priceProjectionToday: 0,
     transfersIn: 0, transfersOut: 0, goals: 0, assists: 0, expectedGoals: 0, expectedAssists: 0,
     expectedGoalInvolvements: 0, expectedGoalsConceded: 0, cleanSheets: 0, goalsConceded: 0, minutes: 0,
     starts: 0, bonus: 0, bps: 0, ictIndex: 0, influence: 0, creativity: 0, threat: 0, saves: 0,
@@ -50,7 +50,7 @@ function makeData(squad: FplPlayer[]): FplData {
   }));
   const events = [1, 2, 3, 4, 5].map((id) => ({
     id, name: `Gameweek ${id}`, deadline: new Date(Date.now() + id * 86400000).toISOString(),
-    current: false, next: id === 1, finished: false,
+    current: false, next: id === 1, finished: false, dataChecked: false,
   }));
   return {
     updatedAt: new Date().toISOString(), source: "test", seasonStatsThrough: 0,

@@ -9,7 +9,7 @@ function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
     positionId: 4, position: "Forward", positionShort: "FWD", price: 8, status: "a", chance: null,
     epNext: 5, form: 5, pointsPerGame: 5, priorPointsPerGame: 5, priorMinutes: 2000, priorStarts: 25,
     priorExpectedGoals: 10, priorExpectedAssists: 3, priorBonus: 15, priorSaves: 0, priorPenaltiesSaved: 0,
-    priorDefensiveContribution: 0, totalPoints: 0, eventPoints: 0, selectedBy: 20, priceChange: 0, priceProjectionToday: 0,
+    priorDefensiveContribution: 0, totalPoints: 0, eventPoints: 0, eventMinutes: 0, selectedBy: 20, priceChange: 0, priceProjectionToday: 0,
     transfersIn: 0, transfersOut: 0, goals: 0, assists: 0, expectedGoals: 0, expectedAssists: 0,
     expectedGoalInvolvements: 0, expectedGoalsConceded: 0, cleanSheets: 0, goalsConceded: 0, minutes: 0,
     starts: 0, bonus: 0, bps: 0, ictIndex: 0, influence: 0, creativity: 0, threat: 0, saves: 0,
