@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FplPlayer } from "../app/lib/fpl.ts";
-import { captainRiskNote, resolveCaptaincy } from "../app/components/CoachApp.tsx";
+import { FplPlayer, ProjectionMetrics } from "../app/lib/fpl.ts";
+import { CaptainCandidate, captainRiskNote, captainReturnHaul, captaincyRiskFraming, resolveCaptaincy } from "../app/components/CoachApp.tsx";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -121,4 +121,124 @@ test("captainRiskNote: vice is safe (>=68%) -- message does NOT include the comp
   const vice = makePlayer({ id: 2, name: "Salah" });
   const result = captainRiskNote(captain, vice, 55, 68, 9.4, 7.1);
   assert.ok(!result?.message.includes("isn't nailed either"), `did not expect the compounding-risk caveat when vice is safe, got: ${result?.message}`);
+});
+
+// --- captainReturnHaul: the haul-probability ceiling bug ---
+
+function makeMetrics(overrides: Partial<ProjectionMetrics> = {}): ProjectionMetrics {
+  return {
+    xPts: 5, expectedMinutes: 80, startProbability: 0.9, sixtyProbability: 0.85, rotationRisk: 0.1,
+    xG: 0.3, xA: 0.2, xG90: 0.15, xA90: 0.1, cleanSheetProbability: 0.3, bonus: 0.5, defensiveContribution: 0.2, saves: 0,
+    penaltyRole: false, setPieceRole: false, confidence: 0.8,
+    ...overrides,
+  };
+}
+
+test("captainReturnHaul: an elite forward's haul probability is no longer pinned to the clamp ceiling", () => {
+  const m = makeMetrics({ xG: 0.87, xA: 0.15, startProbability: 0.9 });
+  const { haul } = captainReturnHaul(m);
+  assert.ok(haul < 58, `elite-forward haul (${haul}) must be below the 58% ceiling -- pinning to the ceiling means the bug regressed`);
+  assert.ok(haul > 30, `elite-forward haul (${haul}) should still be a real, high number, not just below the ceiling`);
+});
+
+test("captainReturnHaul: haul probability actually differentiates between an elite forward and a low-threat defender", () => {
+  const elite = captainReturnHaul(makeMetrics({ xG: 0.87, xA: 0.15 }));
+  const defender = captainReturnHaul(makeMetrics({ xG: 0.06, xA: 0.05 }));
+  assert.ok(elite.haul > defender.haul * 5, `expected a large gap between elite (${elite.haul}) and defender (${defender.haul}) haul probability -- the old formula clamped both to the same 58%`);
+});
+
+test("captainReturnHaul: haul probability still respects its floor and ceiling for extreme inputs", () => {
+  const zero = captainReturnHaul(makeMetrics({ xG: 0, xA: 0 }));
+  assert.equal(zero.haul, 2);
+  const extreme = captainReturnHaul(makeMetrics({ xG: 5, xA: 5 }));
+  assert.equal(extreme.haul, 58);
+});
+
+test("captainReturnHaul: return probability is unchanged by the fix", () => {
+  const m = makeMetrics({ xG: 0.5, xA: 0.2, startProbability: 0.85 });
+  const { ret } = captainReturnHaul(m);
+  assert.ok(Math.abs(ret - ((0.5 + 0.2) * 64 + 0.85 * 18)) < 1e-9, "return-probability formula must be untouched");
+});
+
+// --- captaincyRiskFraming: safe vs. differential vs. balanced, and when an alternative is real ---
+
+function makeCandidate(overrides: Partial<CaptainCandidate> = {}): CaptainCandidate {
+  return { id: 1, name: "Player", xPts: 5, ret: 40, haul: 20, startProbability: 0.7, selectedBy: 15, ...overrides };
+}
+
+test("captaincyRiskFraming: default captain is already the safest option -- no alternatives surfaced", () => {
+  const candidates = [
+    makeCandidate({ id: 1, name: "Default", startProbability: 0.9, ret: 60, haul: 20, selectedBy: 30 }),
+    makeCandidate({ id: 2, name: "Other", startProbability: 0.5, ret: 30, haul: 15, selectedBy: 20 }),
+  ];
+  const result = captaincyRiskFraming(candidates, 1);
+  assert.equal(result.defaultRole, "safe");
+  assert.equal(result.safeAlternative, null);
+  assert.equal(result.differentialAlternative, null);
+});
+
+test("captaincyRiskFraming: default captain is already the differential -- no alternatives surfaced", () => {
+  const candidates = [
+    makeCandidate({ id: 1, name: "Default", startProbability: 0.75, ret: 40, haul: 50, selectedBy: 5 }),
+    makeCandidate({ id: 2, name: "Other", startProbability: 0.6, ret: 35, haul: 20, selectedBy: 15 }),
+  ];
+  const result = captaincyRiskFraming(candidates, 1);
+  assert.equal(result.defaultRole, "differential");
+  assert.equal(result.differentialAlternative, null);
+});
+
+test("captaincyRiskFraming: a genuine safer alternative is surfaced when it clears the meaningful-edge threshold", () => {
+  const candidates = [
+    makeCandidate({ id: 1, name: "Default", startProbability: 0.7, ret: 40, haul: 30, selectedBy: 20 }),
+    makeCandidate({ id: 2, name: "SaferPick", startProbability: 0.85, ret: 55, haul: 25, selectedBy: 25 }), // ret edge = 15 >= 10
+  ];
+  const result = captaincyRiskFraming(candidates, 1);
+  assert.equal(result.defaultRole, "balanced");
+  assert.equal(result.safeAlternative?.id, 2);
+});
+
+test("captaincyRiskFraming: a safer candidate is NOT surfaced if the return-probability edge is below the meaningful threshold", () => {
+  const candidates = [
+    makeCandidate({ id: 1, name: "Default", startProbability: 0.7, ret: 40, haul: 30, selectedBy: 20 }),
+    makeCandidate({ id: 2, name: "BarelySafer", startProbability: 0.85, ret: 45, haul: 25, selectedBy: 25 }), // ret edge = 5 < 10
+  ];
+  const result = captaincyRiskFraming(candidates, 1);
+  assert.equal(result.safeAlternative, null);
+});
+
+test("captaincyRiskFraming: a genuine differential is surfaced when the haul edge is real AND it costs real return probability", () => {
+  const candidates = [
+    makeCandidate({ id: 1, name: "Default", startProbability: 0.75, ret: 45, haul: 25, selectedBy: 20 }),
+    makeCandidate({ id: 2, name: "Differential", startProbability: 0.6, ret: 35, haul: 40, selectedBy: 5 }), // haul edge = 15 >= 10, ret cost = 10 >= 5
+  ];
+  const result = captaincyRiskFraming(candidates, 1);
+  assert.equal(result.differentialAlternative?.id, 2);
+});
+
+test("captaincyRiskFraming: a differential is NOT surfaced if it's a free upgrade (no real cost in return probability)", () => {
+  const candidates = [
+    makeCandidate({ id: 1, name: "Default", startProbability: 0.75, ret: 45, haul: 25, selectedBy: 20 }),
+    makeCandidate({ id: 2, name: "FreeUpgrade", startProbability: 0.7, ret: 47, haul: 40, selectedBy: 5 }), // haul edge = 15, but ret is HIGHER not lower -- no real cost
+  ];
+  const result = captaincyRiskFraming(candidates, 1);
+  assert.equal(result.differentialAlternative, null, "an alternative that costs nothing in return probability is not a real tradeoff, and must not be surfaced as one");
+});
+
+test("captaincyRiskFraming: a differential is NOT surfaced if ownership is not actually below the 10% threshold", () => {
+  const candidates = [
+    makeCandidate({ id: 1, name: "Default", startProbability: 0.75, ret: 45, haul: 25, selectedBy: 20 }),
+    makeCandidate({ id: 2, name: "NotADifferential", startProbability: 0.6, ret: 35, haul: 40, selectedBy: 15 }), // owned 15% -- not under 10%
+  ];
+  const result = captaincyRiskFraming(candidates, 1);
+  assert.equal(result.differentialAlternative, null);
+});
+
+test("captaincyRiskFraming: no candidate clears the safe threshold -- no safe pick, no crash", () => {
+  const candidates = [
+    makeCandidate({ id: 1, name: "Default", startProbability: 0.7, ret: 45, haul: 25, selectedBy: 20 }),
+    makeCandidate({ id: 2, name: "Other", startProbability: 0.6, ret: 35, haul: 20, selectedBy: 20 }),
+  ];
+  const result = captaincyRiskFraming(candidates, 1);
+  assert.notEqual(result.defaultRole, "safe");
+  assert.equal(result.safeAlternative, null);
 });

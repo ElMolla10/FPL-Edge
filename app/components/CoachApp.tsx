@@ -417,6 +417,40 @@ export function captainRiskNote(captain:FplPlayer,vice:FplPlayer,captainStartPct
   return{message,captainStartPct,viceStartPct,pointsIfCaptainPlays,pointsIfArmbandPasses};
 }
 
+// The haul formula previously had a stray *30 multiplier that pushed every realistic player
+// straight through its clamp ceiling -- verified against real profiles (elite forward through
+// fringe defender all clamped to the same 58%, zero differentiation). Fixed here; return
+// probability was already sane and is unchanged.
+export function captainReturnHaul(m:ProjectionMetrics):{ret:number;haul:number}{
+  const ret=clamp((m.xG+m.xA)*64+m.startProbability*18,5,92);
+  const haul=clamp(m.xG*45+m.xA*25,2,58);
+  return{ret,haul};
+}
+
+export type CaptainCandidate={id:number;name:string;xPts:number;ret:number;haul:number;startProbability:number;selectedBy:number};
+export type CaptaincyRiskFraming={defaultRole:"safe"|"differential"|"balanced";safeAlternative:CaptainCandidate|null;differentialAlternative:CaptainCandidate|null};
+// "Safe" reuses this exact component's own existing "Risk: Low" threshold (startProbability>.8).
+// "Differential" reuses the Players page's existing "Differential under 10%" ownership filter --
+// neither threshold is invented fresh for this feature. An alternative only surfaces if it's a
+// real tradeoff, not a free upgrade or rounding noise: a double-digit percentage-point edge on its
+// own axis, and (for the differential specifically) a genuine cost in return probability.
+const SAFE_START_THRESHOLD=.8;
+const DIFFERENTIAL_OWNERSHIP_THRESHOLD=10;
+const MEANINGFUL_EDGE=10;
+const MIN_RETURN_COST=5;
+export function captaincyRiskFraming(candidates:CaptainCandidate[],defaultCaptainId:number):CaptaincyRiskFraming{
+  const defaultCaptain=candidates.find(c=>c.id===defaultCaptainId);
+  if(!defaultCaptain)return{defaultRole:"balanced",safeAlternative:null,differentialAlternative:null};
+  const safeCandidates=candidates.filter(c=>c.startProbability>=SAFE_START_THRESHOLD);
+  const safePick=safeCandidates.length?safeCandidates.reduce((best,c)=>c.ret>best.ret?c:best):null;
+  const diffCandidates=candidates.filter(c=>c.selectedBy<DIFFERENTIAL_OWNERSHIP_THRESHOLD);
+  const differentialPick=diffCandidates.length?diffCandidates.reduce((best,c)=>c.haul>best.haul?c:best):null;
+  const defaultRole=safePick?.id===defaultCaptainId?"safe":differentialPick?.id===defaultCaptainId?"differential":"balanced";
+  const safeAlternative=safePick&&safePick.id!==defaultCaptainId&&(safePick.ret-defaultCaptain.ret)>=MEANINGFUL_EDGE?safePick:null;
+  const differentialAlternative=differentialPick&&differentialPick.id!==defaultCaptainId&&(differentialPick.haul-defaultCaptain.haul)>=MEANINGFUL_EDGE&&(defaultCaptain.ret-differentialPick.ret)>=MIN_RETURN_COST?differentialPick:null;
+  return{defaultRole,safeAlternative,differentialAlternative};
+}
+
 function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
   const a=analysis(data,squad);
@@ -454,11 +488,33 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
       <article><span>CHIP</span><b>{chip.ready?`PLAY ${chip.label}`:"SAVE"}</b><small>{chip.detail}</small></article>
     </div>
     <section className="deadline-grid"><article><span>LATEST TEAM NEWS</span>{squad.filter(p=>p.news||p.status!=="a").length?squad.filter(p=>p.news||p.status!=="a").map(p=><p key={p.id}><b>{p.name}</b> · {p.news||"Officially flagged"}</p>):<p>No official squad-specific news.</p>}</article><article><span>RISK FLAGS</span>{a.issues.length?a.issues.map(p=><p key={p.id}><b>{p.name}</b> · {startPct(p,a.first,data)}% start probability</p>):<p>No player is below the 68% start threshold.</p>}</article></section>
-    <CaptainCompare players={[captain,vice]} data={data} event={a.first}/>
+    <CaptainCompare xi={a.xi.players} captain={captain} vice={vice} data={data} event={a.first}/>
     <button className={`lock-button ${locked?"locked":""}`} onClick={lock}>{locked?"TEAM LOCKED ✓":"LOCK THIS TEAM"}<small>{locked?"Projection snapshot saved for Model vs Reality.":"Save this XI, captain and projection for evaluation."}</small></button>
   </div>;
 }
-function CaptainCompare({players,data,event}:{players:FplPlayer[];data:FplData;event:number}){return <section className="captain-compare"><header><span>CAPTAIN COMPARISON</span><h2>{players.map(p=>p.name).join(" vs ")}</h2></header><div>{players.map(p=>{const m=projectionMetrics(p,event,data.fixtures,event);const ret=clamp((m.xG+m.xA)*64+m.startProbability*18,5,92),haul=clamp((m.xG*45+m.xA*25)*30,2,58);return <article key={p.id}><h3>{p.name}<small>{opponent(p,event,data)}</small></h3><p><span>xPts</span><b>{m.xPts.toFixed(1)}</b></p><p><span>Projected minutes</span><b>{Math.round(m.expectedMinutes)}</b></p><p><span>Return probability</span><b>{Math.round(ret)}%</b></p><p><span>Haul probability</span><b>{Math.round(haul)}%</b></p><p><span>Ownership</span><b>{p.selectedBy.toFixed(1)}%</b></p><p><span>Risk</span><b>{m.startProbability>.8?"Low":m.startProbability>.65?"Medium":"High"}</b></p></article>})}</div></section>}
+function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:FplPlayer;vice:FplPlayer;data:FplData;event:number}){
+  const players=[captain,vice];
+  const candidates:CaptainCandidate[]=xi.map(p=>{
+    const m=projectionMetrics(p,event,data.fixtures,event);
+    const{ret,haul}=captainReturnHaul(m);
+    return{id:p.id,name:p.name,xPts:m.xPts,ret,haul,startProbability:m.startProbability,selectedBy:p.selectedBy};
+  });
+  const framing=captaincyRiskFraming(candidates,captain.id);
+  const defaultCandidate=candidates.find(c=>c.id===captain.id)!;
+  const roleLabel=framing.defaultRole==="safe"?`${captain.name} is both your model pick and the safest option in your XI this week.`:framing.defaultRole==="differential"?`${captain.name} is both your model pick and the highest-ceiling differential in your XI this week.`:`${captain.name} is a balanced pick — not the safest floor or the highest ceiling in your XI, just the highest projected points.`;
+  const sameAlternative=framing.safeAlternative&&framing.differentialAlternative&&framing.safeAlternative.id===framing.differentialAlternative.id;
+  return <section className="captain-compare">
+    <header><span>CAPTAIN COMPARISON</span><h2>{players.map(p=>p.name).join(" vs ")}</h2></header>
+    <div>{players.map(p=>{const m=projectionMetrics(p,event,data.fixtures,event);const{ret,haul}=captainReturnHaul(m);return <article key={p.id}><h3>{p.name}<small>{opponent(p,event,data)}</small></h3><p><span>xPts</span><b>{m.xPts.toFixed(1)}</b></p><p><span>Projected minutes</span><b>{Math.round(m.expectedMinutes)}</b></p><p><span>Return probability</span><b>{Math.round(ret)}%</b></p><p><span>Haul probability</span><b>{Math.round(haul)}%</b></p><p><span>Ownership</span><b>{p.selectedBy.toFixed(1)}%</b></p><p><span>Risk</span><b>{m.startProbability>.8?"Low":m.startProbability>.65?"Medium":"High"}</b></p></article>})}</div>
+    <div className="captain-risk-framing">
+      <span>RISK PROFILE</span>
+      <p>{roleLabel}</p>
+      {sameAlternative&&<p><b>{framing.safeAlternative!.name}</b> is worth weighing — both a safer floor ({Math.round(framing.safeAlternative!.ret)}% return probability vs {Math.round(defaultCandidate.ret)}%) and a higher-ceiling differential ({Math.round(framing.safeAlternative!.haul)}% haul probability vs {Math.round(defaultCandidate.haul)}%, owned by {framing.safeAlternative!.selectedBy.toFixed(1)}%).</p>}
+      {!sameAlternative&&framing.safeAlternative&&<p><b>{framing.safeAlternative.name}</b> is a safer floor: {Math.round(framing.safeAlternative.ret)}% return probability vs {Math.round(defaultCandidate.ret)}% for {captain.name}, at {Math.round(framing.safeAlternative.startProbability*100)}% start probability.</p>}
+      {!sameAlternative&&framing.differentialAlternative&&<p><b>{framing.differentialAlternative.name}</b> is a differential ceiling play: {Math.round(framing.differentialAlternative.haul)}% haul probability vs {Math.round(defaultCandidate.haul)}% for {captain.name}, owned by only {framing.differentialAlternative.selectedBy.toFixed(1)}% — at the cost of {Math.round(defaultCandidate.ret-framing.differentialAlternative.ret)} points lower return probability.</p>}
+    </div>
+  </section>;
+}
 
 function PointsModel({data}:{data:FplData}){const events=futureEvents(data,5),first=events[0]?.id;const[q,setQ]=useState("");const[selected,setSelected]=useState<number|null>(null);const[technical,setTechnical]=useState(false);const players=data.players.filter(p=>(`${p.name} ${p.teamName}`).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>b.epNext-a.epNext).slice(0,10),p=data.players.find(x=>x.id===(selected??players[0]?.id))??data.players[0],m=projectionMetrics(p,first,data.fixtures,first);const appearance=(1-m.sixtyProbability)*m.startProbability+m.sixtyProbability*2,goalPts=m.xG*(p.positionShort==="FWD"?4:p.positionShort==="MID"?5:6),assistPts=m.xA*3,cleanPts=m.cleanSheetProbability*(p.positionShort==="MID"?1:["GKP","DEF"].includes(p.positionShort)?4:0)*m.sixtyProbability,other=Math.max(0,m.xPts-appearance-goalPts-assistPts-cleanPts-m.bonus);const confidence=m.startProbability>.82?"High":m.startProbability>.62?"Medium":"Low";let locks:any[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}return <div className="coach-page"><section className="model-trust"><div><span>HOW PROJECTIONS WORK</span><h2>Transparent by default. Technical when you want it.</h2><p>Expected points combine expected minutes, team and opponent strength, xG/xA, penalties and set pieces, clean-sheet probability, defensive contributions, home advantage, role and official availability.</p></div><button onClick={()=>setTechnical(x=>!x)}>{technical?"Hide technical detail":"Open technical detail"}</button>{technical&&<div className="technical-note"><b>Technical method</b><p>Current-season performance is blended with prior-season rates while the new sample is small. Each fixture applies venue and difficulty adjustments. Availability discounts both starting probability and 60-minute probability. Component outcomes are summed, then lightly blended with the official next-event expectation when available.</p><p>Uncertainty is driven mainly by start probability, role flags and sample size. Missing inputs are not invented.</p></div>}</section><section className="model-picker"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a player…"/><div>{players.map(x=><button className={x.id===p.id?"active":""} onClick={()=>setSelected(x.id)} key={x.id}>{x.name}<small>{x.teamShort}</small></button>)}</div></section><section className="projection-explainer"><header><div><span>{p.teamName} · {p.position} · £{p.price.toFixed(1)}m</span><h2>{p.name} — {m.xPts.toFixed(1)} xPts</h2></div><b className={confidence.toLowerCase()}>Confidence: {confidence}</b></header><div>{[["Appearance",appearance],["Goals",goalPts],["Assists",assistPts],["Clean sheet",cleanPts],["Bonus",m.bonus],["Other",other]].map(([label,value])=><article key={String(label)}><span>{label}</span><b>{Number(value).toFixed(2)}</b><i><em style={{width:`${clamp(Number(value)/Math.max(.1,m.xPts)*100)}%`}}/></i></article>)}</div><footer><span>{Math.round(m.expectedMinutes)} xMins</span><span>{Math.round(m.startProbability*100)}% start</span><span>{m.penaltyRole?"Penalties":"No confirmed pens"}</span><span>{m.setPieceRole?"Set pieces":"No confirmed set pieces"}</span></footer></section><section className="model-reality"><header><div><span>MODEL VS REALITY</span><h2>Every locked plan becomes an audit trail.</h2></div><strong>{locks.length}<small>projection snapshots</small></strong></header>{locks.length?<div>{locks.slice(-5).reverse().map((l:any)=><article key={l.event}><b>GW{l.event}</b><span>Projected {l.predicted} pts</span><em>Actual result appears after the gameweek is finished</em></article>)}</div>:<p>Lock a team in Final Check to start tracking projected points, actual points, error and rolling model accuracy. No backtest numbers are fabricated.</p>}</section></div>}
 
