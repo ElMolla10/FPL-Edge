@@ -101,6 +101,7 @@
 .transfer-breakdown>div{display:flex;flex-direction:column;gap:3px}
 .transfer-breakdown>div>span{font-size:8px;color:#77867e;text-transform:uppercase;letter-spacing:.06em}
 .transfer-breakdown>div>b{font-size:13px}
+.quality-gate-summary{background:#fff;border-radius:9px;padding:22px}.quality-gate-summary>header span{font-size:10px;color:#648000;font-weight:900;letter-spacing:.1em}.quality-gate-summary>header h2{font-size:25px;margin:7px 0 16px}.quality-gate-summary>div{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.quality-gate-summary article{background:#f1f4ef;border-left:3px solid #7aa000;padding:15px}.quality-gate-summary article:nth-child(2){border-color:#c08b22}.quality-gate-summary article:nth-child(3){border-color:#a54236}.quality-gate-summary article b{display:block;font-size:25px}.quality-gate-summary article span{display:block;font-size:11px;font-weight:900;margin:3px 0}.quality-gate-summary article small{font-size:9px;color:#6d7c74;line-height:1.45}.ranked-moves.quality-watchlist{border:1px solid #ead7aa}.ranked-moves.quality-blocked{border:1px solid #e7c2bc}.ranked-moves>article.quality-watchlist{background:#fffbf1}.ranked-moves>article.quality-blocked{background:#fff7f5}.ranked-moves em.quality-badge{font-size:8px;padding:5px 6px;border-radius:4px;text-transform:uppercase;white-space:nowrap}.ranked-moves em.quality-badge.actionable{background:#e6f3d4;color:#426400}.ranked-moves em.quality-badge.watchlist{background:#fff0c8;color:#77560d}.ranked-moves em.quality-badge.blocked{background:#ffe0da;color:#9a3428}.transfer-breakdown .quality-reasons{border-left:3px solid #c08b22}
 .breakdown-anomalies{grid-column:1/-1;background:#fff7f5;border:1px solid #e4aca4;border-radius:6px;padding:10px 12px;margin-top:4px}
 .breakdown-anomalies>span{font-size:9px;color:#a54236;font-weight:900;letter-spacing:.08em}
 .breakdown-anomalies>p{font-size:11px;color:#7a3229;margin:6px 0 0;line-height:1.5}
@@ -146,3 +147,4 @@
 @media(max-width:520px){.accuracy-kpis{grid-template-columns:1fr 1fr}.accuracy-transfer>div{grid-template-columns:1fr}}
 @media(max-width:760px){.calibration-card>div{grid-template-columns:1fr 1fr}}
 @media(max-width:520px){.calibration-card>header{align-items:flex-start;flex-direction:column}.calibration-card>div{grid-template-columns:1fr}}
+@media(max-width:560px){.quality-gate-summary>div{grid-template-columns:1fr}}

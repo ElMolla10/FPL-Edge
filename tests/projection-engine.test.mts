@@ -15,7 +15,7 @@ import {
   plRosterContinuity,
   projectionMetrics,
 } from "../app/lib/fpl.ts";
-import { HistoryWeek, LockRecord, ProjectionPlayerEvaluationRow, ProjectionTransferEvaluation, aggregateAccuracy, aggregateTransferAccuracy, analysis, bestTransfers, createProjectionReceipt, evaluateProjectionReceipt, projectionConfidenceBand, Transfer } from "../app/components/CoachApp.tsx";
+import { HistoryWeek, LockRecord, ProjectionPlayerEvaluationRow, ProjectionTransferEvaluation, aggregateAccuracy, aggregateTransferAccuracy, analysis, bestTransfers, createProjectionReceipt, evaluateProjectionReceipt, evaluateTransferQuality, projectionConfidenceBand, selectPrimaryTransfer, sortTransfersByQuality, Transfer, withModelUtilityChange } from "../app/components/CoachApp.tsx";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -79,9 +79,9 @@ test("projection receipt freezes every player, selected captaincy and ranked tra
   const target=makePlayer({id:22,name:"Target",teamId:2,teamShort:"TWO",price:6.5,priorSource:"position-baseline",priorMinutes:0,priorStarts:0});
   const capturedAt="2026-08-22T10:00:00.000Z",deadline="2026-08-23T10:00:00.000Z";
   const data:FplData={updatedAt:"2026-08-22T09:55:00.000Z",source:"official-test",seasonStatsThrough:1,players:[target,captain],fixtures:[makeFixture({id:1,event:2,teamH:1,teamA:2}),makeFixture({id:2,event:3,teamH:2,teamA:1})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false},{id:3,name:"Gameweek 3",deadline:"2026-08-30T10:00:00.000Z",finished:false,current:false,next:false,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
-  const transferRows=[{out:captain,incoming:target,gain1:1.2345,gain3:2.3456,gain5:3.4567,individualGain1:1.1111,individualGain3:3.3333,individualGain5:4.5678,rankScore:2.2222,netDifference:3.4567,hitCost:0,startProbIn:.6543,confidenceIn:.4321,risk:"Medium" as const,reviewRequired:true,anomalies:[{code:"test-warning",message:"Test"}]}];
+  const transferRows=[{out:captain,incoming:target,gain1:1.2345,gain3:2.3456,gain5:3.4567,individualGain1:1.1111,individualGain3:3.3333,individualGain5:4.5678,rankScore:2.2222,netDifference:3.4567,hitCost:0,startProbIn:.6543,confidenceIn:.4321,risk:"Medium" as const,reviewRequired:true,anomalies:[{code:"test-warning",message:"Test"}],qualityStatus:"blocked" as const,qualityScore:31,qualityReasons:[{code:"insufficient-start-probability",message:"Blocked"}]}];
   const receipt=createProjectionReceipt({data,eventIds:[2,3],deadline,capturedAt,squad:[captain],xiIds:[captain.id],captainId:captain.id,viceId:target.id,bank:1.5,freeTransfers:2,transferRows});
-  assert.equal(receipt.schemaVersion,4);
+  assert.equal(receipt.schemaVersion,5);
   assert.equal(receipt.modelVersion,PROJECTION_MODEL_VERSION);
   assert.equal(receipt.playerEncoding,"tuple-v4");
   assert.deepEqual(receipt.players.map(player=>player[0]),[11,22],"every official player is captured in deterministic id order");
@@ -99,6 +99,9 @@ test("projection receipt freezes every player, selected captaincy and ranked tra
   assert.equal(receipt.transfers[0].incomingId,22);
   assert.equal(receipt.transfers[0].rankScore,2.222);
   assert.deepEqual(receipt.transfers[0].anomalyCodes,["test-warning"]);
+  assert.equal(receipt.transfers[0].qualityStatus,"blocked");
+  assert.equal(receipt.transfers[0].qualityScore,31);
+  assert.deepEqual(receipt.transfers[0].qualityReasonCodes,["insufficient-start-probability"]);
 });
 
 test("post-GW evaluation grades a matching official plan, player calibration and transfer-route outcomes",()=>{
@@ -282,6 +285,55 @@ test("calibration groups distinguish established, limited, absent and newly esta
   assert.equal(playerCalibrationProfile(makePlayer({priorSource:"official-pl-history",priorMinutes:63})).group,"limited-pl");
   assert.equal(playerCalibrationProfile(makePlayer({priorSource:"position-baseline",priorMinutes:0,minutes:200})).group,"no-pl-prior");
   assert.equal(playerCalibrationProfile(makePlayer({priorSource:"position-baseline",priorMinutes:0,minutes:900})).group,"current-pl-established");
+});
+
+test("transfer quality gate: a secure established route with multi-week gains is actionable",()=>{
+  const quality=evaluateTransferQuality({gain1:1.2,gain3:3.4,gain5:5.7,weeklyGains:[1.2,1.1,1.1,1.2,1.1],expectedMinutes:84,startProbability:.94,confidence:.82,calibrationGroup:"established-pl",lowPlContinuityClub:false,anomalyCodes:[]});
+  assert.equal(quality.status,"actionable");
+  assert.equal(quality.positiveWeeks,5);
+  assert.ok(quality.gainWithoutBestWeek>0);
+  assert.ok(quality.score>=70);
+});
+
+test("transfer quality gate: the Hull-style huge gain with no PL evidence and insecure minutes is blocked",()=>{
+  const quality=evaluateTransferQuality({gain1:15,gain3:19,gain5:23.8,weeklyGains:[15,2,2,2,2.8],expectedMinutes:14,startProbability:.15,confidence:.30,calibrationGroup:"no-pl-prior",lowPlContinuityClub:true,anomalyCodes:["five-gw-gain-anomaly","low-certainty-elite-projection","high-risk-top-recommendation"]});
+  assert.equal(quality.status,"blocked");
+  assert.ok(quality.score<=39);
+  assert.ok(quality.reasons.some(reason=>reason.code==="projection-plausibility"));
+  assert.ok(quality.reasons.some(reason=>reason.code==="insufficient-start-probability"));
+  assert.ok(quality.reasons.some(reason=>reason.code==="insufficient-expected-minutes"));
+});
+
+test("transfer quality gate: one-gameweek upside is watchlist evidence, not a recommendation",()=>{
+  const quality=evaluateTransferQuality({gain1:5,gain3:4.8,gain5:4.8,weeklyGains:[5,-.2,0,0,0],expectedMinutes:86,startProbability:.95,confidence:.84,calibrationGroup:"established-pl",lowPlContinuityClub:false,anomalyCodes:[]});
+  assert.equal(quality.status,"watchlist");
+  assert.ok(quality.reasons.some(reason=>reason.code==="single-week-dependence"));
+});
+
+test("transfer quality gate: no genuine PL prior remains watchlist even with a secure projected role",()=>{
+  const quality=evaluateTransferQuality({gain1:1,gain3:3,gain5:5,weeklyGains:[1,1,1,1,1],expectedMinutes:82,startProbability:.92,confidence:.58,calibrationGroup:"no-pl-prior",lowPlContinuityClub:true,anomalyCodes:[]});
+  assert.equal(quality.status,"watchlist");
+  assert.ok(quality.reasons.some(reason=>reason.code==="no-pl-evidence"));
+  assert.ok(quality.reasons.some(reason=>reason.code==="low-club-continuity"));
+});
+
+test("transfer quality gate: blocked and watchlist rows cannot become the primary recommendation",()=>{
+  const out=makePlayer({id:1,name:"Out"}),safeIn=makePlayer({id:2,name:"Safe"}),blockedIn=makePlayer({id:3,name:"Blocked"}),watchIn=makePlayer({id:4,name:"Watch"});
+  const row=(incoming:FplPlayer,status:Transfer["qualityStatus"],rankScore:number)=>({out,incoming,qualityStatus:status,rankScore,netDifference:rankScore} as Transfer);
+  const blocked=row(blockedIn,"blocked",99),watch=row(watchIn,"watchlist",50),safe=row(safeIn,"actionable",3.1);
+  assert.deepEqual(sortTransfersByQuality([blocked,watch,safe]).map(item=>item.incoming.name),["Safe","Watch","Blocked"]);
+  assert.equal(selectPrimaryTransfer([blocked,watch,safe])?.incoming.id,safeIn.id);
+  assert.equal(selectPrimaryTransfer([blocked,watch]),null);
+});
+
+test("transfer quality gate: optimizer utility cannot lift a blocked route back into recommendation",()=>{
+  const out=makePlayer({id:1,name:"Out"}),incoming=makePlayer({id:2,name:"Blocked"});
+  const blocked={out,incoming,qualityStatus:"blocked",rankScore:0,netDifference:20} as Transfer;
+  const optimizer={evaluate:(players:FplPlayer[])=>({objective:players[0]?.id===incoming.id?100:0})} as unknown as Parameters<typeof withModelUtilityChange>[2];
+  const [adjusted]=withModelUtilityChange([blocked],[out],optimizer);
+  assert.equal(adjusted.qualityStatus,"blocked");
+  assert.ok(adjusted.rankScore<=0);
+  assert.equal(selectPrimaryTransfer([adjusted]),null);
 });
 
 test("roster PL continuity identifies low-evidence club context without hardcoding club names",()=>{
