@@ -138,6 +138,11 @@ export async function GET() {
           transfersIn: number(player.transfers_in_event),
           transfersOut: number(player.transfers_out_event),
           priceChange: number(player.cost_change_event) / 10,
+          // FPL's own first-party, end-of-day price-change forecast (price_change_projections[0]
+          // is today's offset) -- not a heuristic estimated from raw transfer counts. Positive =
+          // rise pressure, negative = fall pressure, roughly in percent-toward-whatever-threshold
+          // FPL's undisclosed algorithm uses. Signed string in the raw feed; coerced to a number.
+          priceProjectionToday: number(player.price_change_projections?.[0]?.projected_percent),
         };
       }),
       fixtures: fixtures.map((fixture: any) => ({
