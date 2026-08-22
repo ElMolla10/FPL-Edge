@@ -5,6 +5,7 @@ import {
   FplFixture,
   FplPlayer,
   attachIntegrityWarnings,
+  bestXi,
   findIdentityConflicts,
   isValidSquad,
   playerProjection,
@@ -71,7 +72,7 @@ test("regression: a near-zero-minutes player does not out-project an established
 
 test("reconciliation: every GW/3GW/5GW transfer delta returned by bestTransfers equals IN minus OUT exactly", () => {
   const out = makePlayer({ id: 2, positionId: 3, position: "Midfielder", positionShort: "MID", price: 5.5, teamId: 1, priorMinutes: 1636, priorStarts: 18, priorExpectedGoals: 1.39, priorExpectedAssists: 3.95, priorPointsPerGame: 4.1 });
-  const gkps = [1, 2].map((n) => makePlayer({ id: n, positionId: 1, position: "Goalkeeper", positionShort: "GKP", price: 4.5, teamId: 100 + n }));
+  const gkps = [1, 2].map((n) => makePlayer({ id: 100 + n, positionId: 1, position: "Goalkeeper", positionShort: "GKP", price: 4.5, teamId: 100 + n }));
   const defs = [1, 2, 3, 4, 5].map((n) => makePlayer({ id: 10 + n, positionId: 2, position: "Defender", positionShort: "DEF", price: 4.5, teamId: 110 + n }));
   const mids = [out, ...[1, 2, 3, 4].map((n) => makePlayer({ id: 20 + n, positionId: 3, position: "Midfielder", positionShort: "MID", price: 5.0, teamId: 120 + n }))];
   const fwds = [1, 2, 3].map((n) => makePlayer({ id: 30 + n, positionId: 4, position: "Forward", positionShort: "FWD", price: 5.5, teamId: 130 + n }));
@@ -113,13 +114,42 @@ test("reconciliation: every GW/3GW/5GW transfer delta returned by bestTransfers 
   const outByEvent = eventIds.map((e) => playerProjection(out, e, fixtures, 1));
   const inByEvent = eventIds.map((e) => playerProjection(incoming, e, fixtures, 1));
 
-  assert.ok(Math.abs(row!.gain1 - (inByEvent[0] - outByEvent[0])) < 1e-9, "GW1 delta must equal IN GW1 minus OUT GW1 exactly");
-  assert.ok(Math.abs(row!.gain3 - (inByEvent.slice(0, 3).reduce((a, b) => a + b, 0) - outByEvent.slice(0, 3).reduce((a, b) => a + b, 0))) < 1e-9, "3-GW delta must equal IN 3-GW minus OUT 3-GW exactly");
-  assert.ok(Math.abs(row!.gain5 - (inByEvent.reduce((a, b) => a + b, 0) - outByEvent.reduce((a, b) => a + b, 0))) < 1e-9, "5-GW delta must equal IN 5-GW minus OUT 5-GW exactly");
+  assert.ok(Math.abs(row!.individualGain1 - (inByEvent[0] - outByEvent[0])) < 1e-9, "individual GW1 delta must equal IN GW1 minus OUT GW1 exactly");
+  assert.ok(Math.abs(row!.individualGain3 - (inByEvent.slice(0, 3).reduce((a, b) => a + b, 0) - outByEvent.slice(0, 3).reduce((a, b) => a + b, 0))) < 1e-9, "individual 3-GW delta must equal IN minus OUT exactly");
+  assert.ok(Math.abs(row!.individualGain5 - (inByEvent.reduce((a, b) => a + b, 0) - outByEvent.reduce((a, b) => a + b, 0))) < 1e-9, "individual 5-GW delta must equal IN minus OUT exactly");
+
+  const swapped=squad.map(player=>player.id===out.id?incoming:player);
+  const squadDeltas=eventIds.map(event=>bestXi(swapped,event,fixtures,1).total-bestXi(squad,event,fixtures,1).total);
+  assert.ok(Math.abs(row!.gain1-squadDeltas[0])<1e-9,"ranked GW1 gain must be the whole-squad XI/captain delta");
+  assert.ok(Math.abs(row!.gain3-squadDeltas.slice(0,3).reduce((a,b)=>a+b,0))<1e-9,"ranked 3-GW gain must be the whole-squad delta");
+  assert.ok(Math.abs(row!.gain5-squadDeltas.reduce((a,b)=>a+b,0))<1e-9,"ranked 5-GW gain must be the whole-squad delta");
 
   // Same underlying raw xPts metric on both sides — not weighted, not captain-doubled, not bench-discounted.
   assert.ok(Math.abs(row!.outGw1 - outByEvent[0]) < 1e-9);
   assert.ok(Math.abs(row!.inGw1 - inByEvent[0]) < 1e-9);
+});
+
+test("regression: a promoted player with no PL prior cannot turn one live haul into elite future attacking output",()=>{
+  const promoted=makePlayer({id:586,name:"Mendy",positionShort:"DEF",positionId:2,priorSource:"position-baseline",priorMinutes:0,priorStarts:0,priorPointsPerGame:15,priorExpectedGoals:0,priorExpectedAssists:0,minutes:0,starts:0,eventMinutes:63,eventPoints:15,selectedBy:1.3,teamStrengthHome:2,teamStrengthAway:2});
+  const fixtures=[makeFixture({event:1,teamH:promoted.teamId,teamA:99,teamHDifficulty:3})];
+  const metrics=projectionMetrics(promoted,1,fixtures,1);
+  assert.ok(metrics.xPts<3,`no-PL-prior promoted defender projected ${metrics.xPts.toFixed(2)} xPts from one provisional haul`);
+  assert.ok(metrics.xG<.08&&metrics.xA<.08,`provisional points must not be converted into manufactured xG/xA; got ${metrics.xG.toFixed(2)}/${metrics.xA.toFixed(2)}`);
+});
+
+test("regression: goalkeeper PPG never manufactures attacking xG or xA",()=>{
+  const keeper=makePlayer({id:572,positionShort:"GKP",positionId:1,priorSource:"position-baseline",priorMinutes:0,priorStarts:0,priorPointsPerGame:10,minutes:0,starts:0,selectedBy:.6,teamStrengthHome:2,teamStrengthAway:2});
+  const metrics=projectionMetrics(keeper,1,[makeFixture({event:1,teamH:keeper.teamId,teamA:99,teamHDifficulty:2})],1);
+  assert.ok(metrics.xG<.01&&metrics.xA<.02,`goalkeeper received implausible attacking output: ${metrics.xG.toFixed(3)} xG / ${metrics.xA.toFixed(3)} xA`);
+});
+
+test("own-team defensive strength changes clean-sheet probability independently of opponent FDR",()=>{
+  const weak=makePlayer({id:300,positionShort:"DEF",positionId:2,teamId:1,teamStrengthHome:2,teamStrengthAway:2});
+  const strong=makePlayer({id:301,positionShort:"DEF",positionId:2,teamId:2,teamStrengthHome:5,teamStrengthAway:5});
+  const fixtures=[makeFixture({id:1,event:1,teamH:1,teamA:99,teamHDifficulty:3}),makeFixture({id:2,event:1,teamH:2,teamA:98,teamHDifficulty:3})];
+  const weakMetrics=projectionMetrics(weak,1,fixtures,1),strongMetrics=projectionMetrics(strong,1,fixtures,1);
+  assert.ok(strongMetrics.cleanSheetProbability>weakMetrics.cleanSheetProbability,"strong and weak own defences must not get the same CS probability against equal FDR");
+  assert.ok(strongMetrics.xPts>weakMetrics.xPts,"own-team strength must affect defender xPts, not merely annotate it");
 });
 
 test("determinism: identical data produces identical projections across repeated calls", () => {

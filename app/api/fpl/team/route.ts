@@ -42,6 +42,7 @@ export async function GET(request: Request) {
             multiplier: Number(pick.multiplier),
             isCaptain: Boolean(pick.is_captain),
             isViceCaptain: Boolean(pick.is_vice_captain),
+            sellingPrice: Number(pick.selling_price) ? Number(pick.selling_price) / 10 : null,
           })),
         },
         event: event.id,

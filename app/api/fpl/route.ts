@@ -1,9 +1,12 @@
 import { attachIntegrityWarnings } from "../../lib/fpl";
+import priorSeasonSnapshot from "../../data/prior-season-2025-26.json";
 
 const BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/";
 const FIXTURES_URL = "https://fantasy.premierleague.com/api/fixtures/";
 
 const number = (value: unknown) => Number(value) || 0;
+type PriorSeasonRecord = (typeof priorSeasonSnapshot.players)[number];
+const priorByPlayerId = new Map<number, PriorSeasonRecord>(priorSeasonSnapshot.players.map((player) => [player.id, player]));
 
 export async function GET() {
   try {
@@ -22,26 +25,28 @@ export async function GET() {
 
     const bootstrap = await bootstrapResponse.json();
     const fixtures = await fixturesResponse.json();
-    const activeSeasonEvents = bootstrap.events.filter((event: any) => event.is_current || event.started || event.finished);
-    const liveEventPayloads = await Promise.all(activeSeasonEvents.map(async (event: any) => {
+    const statsEvents = bootstrap.events.filter((event: any) => event.is_current || event.started || event.finished);
+    const completedEventIds = new Set<number>(bootstrap.events.filter((event: any) => event.finished && event.data_checked).map((event: any) => event.id));
+    const liveEventPayloads = await Promise.all(statsEvents.map(async (event: any) => {
       const response = await fetch(`https://fantasy.premierleague.com/api/event/${event.id}/live/`, request);
       if (!response.ok) throw new Error(`Official FPL live stats for GW${event.id} returned ${response.status}`);
       return { eventId: event.id, payload: await response.json() };
     }));
     const aggregateFields = ["total_points","goals_scored","assists","expected_goals","expected_assists","expected_goal_involvements","expected_goals_conceded","clean_sheets","goals_conceded","minutes","starts","bonus","bps","ict_index","influence","creativity","threat","saves","penalties_saved","defensive_contribution","clearances_blocks_interceptions","recoveries","tackles"];
     const seasonStats = new Map<number, any>();
+    const latestEventStats = new Map<number, any>();
     for (const { eventId, payload } of liveEventPayloads) for (const element of payload.elements) {
-      const aggregate = seasonStats.get(element.id) ?? { appearances: 0, eventPoints: 0, eventMinutes: 0 };
-      for (const field of aggregateFields) aggregate[field] = number(aggregate[field]) + number(element.stats?.[field]);
-      if (number(element.stats?.minutes) > 0) aggregate.appearances += 1;
-      aggregate.eventPoints = number(element.stats?.total_points);
-      // Same overwrite-not-sum pattern as eventPoints: minutes in the LATEST active event only, not
-      // a season total (that's the existing `minutes` field below). Needed to detect a 0-minute
-      // starter for autosub simulation -- season-cumulative minutes can't tell you if a player who
-      // started earlier gameweeks specifically played 0 minutes in *this* one.
-      aggregate.eventMinutes = number(element.stats?.minutes);
-      aggregate.latestEvent = eventId;
-      seasonStats.set(element.id, aggregate);
+      const latest = latestEventStats.get(element.id);
+      if (!latest || eventId >= latest.eventId) latestEventStats.set(element.id, { eventId, ...element.stats });
+      // Future projections must never learn from a match while it is still being played. Current
+      // event points remain available through latestEventStats for the live-scoring view, while
+      // season aggregates advance only after FPL marks the whole event finished and data-checked.
+      if (completedEventIds.has(eventId)) {
+        const aggregate = seasonStats.get(element.id) ?? { appearances: 0 };
+        for (const field of aggregateFields) aggregate[field] = number(aggregate[field]) + number(element.stats?.[field]);
+        if (number(element.stats?.minutes) > 0) aggregate.appearances += 1;
+        seasonStats.set(element.id, aggregate);
+      }
     }
     const teams = new Map(bootstrap.teams.map((team: any) => [team.id, team]));
     const positions = new Map(bootstrap.element_types.map((position: any) => [position.id, position]));
@@ -49,7 +54,7 @@ export async function GET() {
     const payload = {
       updatedAt: new Date().toISOString(),
       source: BOOTSTRAP_URL,
-      seasonStatsThrough: activeSeasonEvents.length ? Math.max(...activeSeasonEvents.map((event: any) => event.id)) : 0,
+      seasonStatsThrough: completedEventIds.size ? Math.max(...completedEventIds) : 0,
       rules: {
         budget: number(bootstrap.game_settings?.squad_total_spend) / 10,
         // squad_squadplay is the XI size (11); the draft size is the sum of the
@@ -78,12 +83,25 @@ export async function GET() {
         id: team.id,
         name: team.name,
         short: team.short_name,
+        strengthHome: number(team.strength_overall_home) || 3,
+        strengthAway: number(team.strength_overall_away) || 3,
+        attackHome: number(team.strength_attack_home) || null,
+        attackAway: number(team.strength_attack_away) || null,
+        defenceHome: number(team.strength_defence_home) || null,
+        defenceAway: number(team.strength_defence_away) || null,
       })),
       players: bootstrap.elements.map((player: any) => {
         const team: any = teams.get(player.team);
         const position: any = positions.get(player.element_type);
         const season = seasonStats.get(player.id) ?? {};
+        const latest = latestEventStats.get(player.id) ?? {};
+        const priorCandidate = priorByPlayerId.get(player.id);
+        // Element ids are stable within an FPL season, while the immutable player code is the
+        // stronger identity key. Refuse a stale snapshot row if the two ever stop agreeing.
+        const prior = priorCandidate?.code === player.code ? priorCandidate : undefined;
         const appearances = number(season.appearances);
+        const priorEquivalentMatches = prior?.minutes ? prior.minutes / 90 : 0;
+        const teamMatchesPlayed = fixtures.filter((fixture: any) => completedEventIds.has(fixture.event) && (fixture.team_h === player.team || fixture.team_a === player.team)).length;
         return {
           id: player.id,
           name: player.web_name,
@@ -100,19 +118,29 @@ export async function GET() {
           chance: player.chance_of_playing_next_round,
           epNext: number(player.ep_next),
           form: number(player.form),
-          pointsPerGame: appearances ? number(season.total_points) / appearances : number(player.points_per_game),
-          priorPointsPerGame: number(player.points_per_game),
-          priorMinutes: number(player.minutes),
-          priorStarts: number(player.starts),
-          priorExpectedGoals: number(player.expected_goals),
-          priorExpectedAssists: number(player.expected_assists),
-          priorBonus: number(player.bonus),
-          priorSaves: number(player.saves),
-          priorPenaltiesSaved: number(player.penalties_saved),
-          priorDefensiveContribution: number(player.defensive_contribution),
+          pointsPerGame: appearances ? number(season.total_points) / appearances : 0,
+          priorPointsPerGame: priorEquivalentMatches ? prior!.totalPoints / priorEquivalentMatches : 0,
+          priorMinutes: prior?.minutes ?? 0,
+          priorStarts: prior?.starts ?? 0,
+          priorExpectedGoals: prior?.expectedGoals ?? 0,
+          priorExpectedAssists: prior?.expectedAssists ?? 0,
+          priorBonus: prior?.bonus ?? 0,
+          priorSaves: prior?.saves ?? 0,
+          priorPenaltiesSaved: prior?.penaltiesSaved ?? 0,
+          priorDefensiveContribution: prior?.defensiveContribution ?? 0,
+          priorSource: prior ? "official-pl-history" : "position-baseline",
+          priorSeason: prior?.season ?? null,
+          priorCompetition: prior ? priorSeasonSnapshot.competition : null,
+          teamMatchesPlayed,
+          teamStrengthHome: number(team?.strength_overall_home) || 3,
+          teamStrengthAway: number(team?.strength_overall_away) || 3,
+          teamAttackHome: number(team?.strength_attack_home) || null,
+          teamAttackAway: number(team?.strength_attack_away) || null,
+          teamDefenceHome: number(team?.strength_defence_home) || null,
+          teamDefenceAway: number(team?.strength_defence_away) || null,
           totalPoints: number(season.total_points),
-          eventPoints: number(season.eventPoints),
-          eventMinutes: number(season.eventMinutes),
+          eventPoints: number(latest.total_points),
+          eventMinutes: number(latest.minutes),
           goals: number(season.goals_scored),
           assists: number(season.assists),
           expectedGoals: number(season.expected_goals),

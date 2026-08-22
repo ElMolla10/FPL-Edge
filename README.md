@@ -50,6 +50,8 @@ Generated dependencies and caches are intentionally not included: `node_modules`
 
 The server routes fetch the public official Fantasy Premier League API under `https://fantasy.premierleague.com/api`. No FPL API key is required. Responses are cached for five minutes where appropriate, while the client requests fresh application data without using demo rosters.
 
+Current-season totals are rebuilt from official, finished and data-checked gameweeks; the active gameweek is kept separate for live scoring. The projection prior is the checked-in `app/data/prior-season-2025-26.json` snapshot generated from each current player's official `history_past` record. Players without a genuine 2025/26 Premier League record—including promoted-club players—use a conservative position baseline instead of another competition's stats.
+
 The app persists locally to browser `localStorage` first, and syncs to D1 in the background when signed in (`app/lib/persistence.ts`) -- localStorage stays the source of truth every component reads; the server copy exists for cross-device access and to survive a cleared browser. Public FPL Team IDs are imported server-side using the official entry and picks endpoints.
 
 D1 is active (`.openai/hosting.json` has `"d1": "DB"`). For local dev, `@cloudflare/vite-plugin` auto-provisions a local D1 sqlite file the first time `npm run dev` runs, but does **not** auto-apply migrations to it. After a fresh `npm run dev` start (or whenever `drizzle/*.sql` changes), apply the migration once:
@@ -92,7 +94,8 @@ npm run dev
 | `npm run dev` | Start the Vite/Vinext development server |
 | `npm run build` | Run the bounded production Vinext build |
 | `npm run start` | Start the built app locally |
-| `npm test` | Build, then run the rendered HTML test suite |
+| `npm test` | Build, then run rendered HTML and every TSX test |
+| `npm run data:prior` | Refresh the official 2025/26 Premier League prior snapshot |
 | `npm run lint` | Run ESLint while excluding generated output |
 | `npm run db:generate` | Generate Drizzle migrations from `db/schema.ts` |
 | `npm run install:ci` | Run the guarded, integrity-checked dependency install |
@@ -141,6 +144,7 @@ If you move the app to another Cloudflare account or hosting system, provision e
 - The official FPL API is contacted from server routes to avoid exposing a separate data credential.
 - Manager squad/history import works only for data the official FPL API makes public; before the first deadline, the current squad may not yet be available.
 - The optimizer and projections are application models, not an official FPL forecast.
+- Re-run `npm run data:prior` if the official current-season player list changes materially; commit the regenerated snapshot with the source change.
 - Keep `package-lock.json` committed and use `npm ci` for deterministic dependency installation.
 - Do not commit local `.env*` files, Wrangler state, or runtime caches.
 
