@@ -13,6 +13,10 @@ export type FplEvent = { id:number; name:string; deadline:string; current:boolea
 export type PositionRule = { id:number; name:string; short:string; squad:number; minPlay:number; maxPlay:number };
 export type FplData = { updatedAt:string; source:string; seasonStatsThrough:number; players:FplPlayer[]; fixtures:FplFixture[]; events:FplEvent[]; teams:{id:number;name:string;short:string;strengthHome?:number;strengthAway?:number;attackHome?:number|null;attackAway?:number|null;defenceHome?:number|null;defenceAway?:number|null}[]; rules:{budget:number;squadSize:number;teamLimit:number;positions:PositionRule[]}; dataIntegrityWarnings?:string[] };
 
+// Bump whenever projection or ranking semantics change. Deadline receipts persist this value so
+// later accuracy reports never compare outcomes from different model generations as one system.
+export const PROJECTION_MODEL_VERSION="fpl-edge-2026.08.22-r1";
+
 const difficultyFactor:Record<number,number>={1:1.24,2:1.12,3:1,4:.88,5:.76};
 export const availability=(player:FplPlayer)=>player.chance!==null?Math.max(0,player.chance/100):player.status==="a"?1:player.status==="d"?.72:.2;
 // No grace window past an event's own deadline: once locked, there's nothing left to plan for it,

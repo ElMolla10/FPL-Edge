@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
-import { FplData, FplEvent, FplFixture, FplPlayer, ProjectionMetrics, bestXi, fetchFplData, futureEvents, isValidSquad, playerProjection, projectionMetrics, savedSquad, simulateAutosubs } from "../lib/fpl";
+import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, ProjectionMetrics, bestXi, fetchFplData, futureEvents, isValidSquad, playerProjection, projectionMetrics, savedSquad, simulateAutosubs } from "../lib/fpl";
 import { createOptimizer } from "../lib/optimizer";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
@@ -34,6 +34,7 @@ const titles:Record<View,string>={overview:"Your gameweek command centre",team:"
 const fmt=(n:number|null|undefined)=>n?Math.round(n).toLocaleString():"—";
 const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
 const readIds=(key:string)=>{try{return JSON.parse(localStorage.getItem(key)||"[]") as number[]}catch{return[]}};
+const readFreeTransfers=()=>{try{const value=Number(localStorage.getItem("fpl-edge-free-transfers"));return Number.isInteger(value)&&value>=0&&value<=5?value:1}catch{return 1}};
 const certainty=(p:FplPlayer)=>p.status!=="a"?"CONFIRMED":projectionMetrics(p,0,[],0).startProbability>.72?"LIKELY":"UNCERTAIN";
 
 export function opponent(player:FplPlayer,eventId:number,data:FplData){const games=data.fixtures.filter(f=>f.event===eventId&&(f.teamH===player.teamId||f.teamA===player.teamId));if(!games.length)return"BLANK";return games.map(fixture=>{const home=fixture.teamH===player.teamId;const id=home?fixture.teamA:fixture.teamH;return`${data.teams.find(t=>t.id===id)?.short??"—"} ${home?"H":"A"}`}).join(", ")}
@@ -559,7 +560,7 @@ export function transferHoldNote(nearestDoubles:DoubleGameweek[],rollRecommended
 
 function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
-  const[meta]=useManager();const[tab,setTab]=useState<"moves"|"watchlist">("moves");const[fts,setFts]=useState(1);
+  const[meta]=useManager();const[tab,setTab]=useState<"moves"|"watchlist">("moves");const[fts,setFts]=useState(readFreeTransfers);
   const[watchIds,setWatchIds]=useState<number[]>([]);useEffect(()=>setWatchIds(readIds("fpl-edge-watchlist")),[]);
   const[expanded,setExpanded]=useState<Set<string>>(new Set());
   const a=analysis(data,squad);
@@ -573,7 +574,7 @@ function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:n
   const setWatch=(id:number)=>{const next=watchIds.includes(id)?watchIds.filter(x=>x!==id):[...watchIds,id];setWatchIds(next);persist("fpl-edge-watchlist",JSON.stringify(next))};
   const toggleExpand=(key:string)=>setExpanded(x=>{const next=new Set(x);next.has(key)?next.delete(key):next.add(key);return next});
   return <div className="coach-page">
-    <section className="transfer-tabs"><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Transfer centre</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>setFts(Number(e.target.value))}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select></label></section>
+    <section className="transfer-tabs"><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Transfer centre</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select></label></section>
     {tab==="moves"?<>
       <section className={`recommended-move ${best&&best.reviewRequired?"needs-review":""}`}>
         <div className="call-label"><span>RECOMMENDED MOVE</span><b>{roll?"LIKELY":best?.reviewRequired?"REVIEW REQUIRED":"MODEL EDGE"}</b></div>
@@ -728,7 +729,45 @@ function Rank({title,rows,keyName,bad}:{title:string;rows:any[];keyName:string;b
 
 function News({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const squad=useMemo(()=>savedSquad(data),[data,revision]);const watch=readIds("fpl-edge-watchlist");const owned=new Set(squad.map(p=>p.id)),watched=new Set(watch);const[filter,setFilter]=useState("PRIORITY");const items=data.players.filter(p=>p.news||p.status!=="a").map(p=>({p,priority:owned.has(p.id)?0:watched.has(p.id)?1:p.selectedBy>=10?2:3})).filter(x=>filter==="ALL"||filter==="PRIORITY"&&x.priority<3||filter==="SQUAD"&&owned.has(x.p.id)||filter==="WATCHLIST"&&watched.has(x.p.id)).sort((a,b)=>a.priority-b.priority||(b.p.newsAdded?Date.parse(b.p.newsAdded):0)-(a.p.newsAdded?Date.parse(a.p.newsAdded):0));const tag=(p:FplPlayer)=>p.status==="s"?"SUSPENSION":p.status==="i"||p.status==="d"?"INJURY":p.news.toLowerCase().includes("transfer")?"TRANSFER":p.news.toLowerCase().includes("international")?"LINEUP":"PRESS CONFERENCE";const impact=(p:FplPlayer)=>{if(owned.has(p.id))return p.status!=="a"?`Your player is officially flagged. Review ${p.name}'s start probability and bench cover before transferring.`:`Your squad is affected. Recheck the player panel before lock-in.`;if(watched.has(p.id))return`Watchlist target: ${p.status!=="a"?"do not buy until availability improves":"keep monitoring role and expected minutes before buying"}.`;return`High-ownership FPL relevance. This update does not automatically create a transfer recommendation.`};return <div className="coach-page"><section className="news-lead"><div><span>PERSONALISED NEWS</span><h2>{items.filter(x=>x.priority<2).length} updates affect your squad or watchlist.</h2><p>Official FPL status only. No invented quotes, predicted lineups or unsupported rumours.</p></div><button onClick={()=>go("deadline")}>See deadline impact →</button></section><div className="news-tabs">{["PRIORITY","SQUAD","WATCHLIST","ALL"].map(x=><button className={filter===x?"active":""} onClick={()=>setFilter(x)} key={x}>{x}</button>)}</div><section className="impact-news">{items.length?items.map(({p,priority})=><article key={p.id}><header><div><span className="news-tag">{tag(p)}</span><span className={`certainty ${p.status!=="a"?"confirmed":priority<2?"likely":"uncertain"}`}>{p.status!=="a"?"CONFIRMED":priority<2?"LIKELY":"UNCERTAIN"}</span></div><time>{p.newsAdded?new Date(p.newsAdded).toLocaleString():"No official timestamp"}</time></header><h3>{p.name} · {p.teamShort}</h3><p>{p.news||"Official FPL flag has no published detail."}</p><aside><span>FPL IMPACT</span><b>{impact(p)}</b></aside><footer><span>{owned.has(p.id)?"MY SQUAD":watched.has(p.id)?"WATCHLIST":`${p.selectedBy.toFixed(1)}% OWNED`}</span><span>{p.transfersOut.toLocaleString()} transfers out</span></footer></article>):<div className="empty-watch"><b>No official updates match this filter.</b><p>That is good news. We will not manufacture a story to fill the page.</p></div>}</section></div>}
 
-export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];captainId:number;viceId:number};
+// Tuple encoding keeps a full-season receipt archive inside practical browser-storage limits.
+// Field order: id, price, status, prior source, current-event xPts, expected minutes, start
+// probability, confidence, xG, xA, clean-sheet probability. Player identity/display fields are
+// resolved from the official id at evaluation time; repeating 600 names and clubs in all 38
+// receipts would waste roughly half the browser's storage budget without improving calibration.
+export type ProjectionReceiptPlayer=[number,number,string,FplPlayer["priorSource"]|null,number,number,number,number,number,number,number];
+export type ProjectionReceiptTransfer={
+  rank:number;outId:number;outName:string;incomingId:number;incomingName:string;
+  gain1:number;gain3:number;gain5:number;individualGain5:number;rankScore:number;
+  netDifference:number;hitCost:number;startProbability:number;confidence:number;
+  risk:Transfer["risk"];reviewRequired:boolean;anomalyCodes:string[];
+};
+export type ProjectionReceipt={
+  schemaVersion:1;receiptId:string;modelVersion:string;event:number;eventIds:number[];
+  deadline:string;capturedAt:string;dataUpdatedAt:string;dataSource:string;seasonStatsThrough:number;
+  assumptions:{bank:number;freeTransfers:number;transferHorizon:number};
+  squad:{squadIds:number[];xiIds:number[];captainId:number;viceId:number;predictedTotal:number;captainXPts:number;viceXPts:number};
+  playerEncoding:"tuple-v1";players:ProjectionReceiptPlayer[];transfers:ProjectionReceiptTransfer[];
+};
+type ReceiptTransferInput=Pick<Transfer,"gain1"|"gain3"|"gain5"|"individualGain5"|"rankScore"|"netDifference"|"hitCost"|"startProbIn"|"confidenceIn"|"risk"|"reviewRequired"|"anomalies">&{out:Pick<FplPlayer,"id"|"name">;incoming:Pick<FplPlayer,"id"|"name">};
+const receiptNumber=(value:number,places=3)=>Number(value.toFixed(places));
+
+// Pure, explicit and deliberately complete enough for later calibration. It snapshots every
+// official player, not only the chosen squad, so future model-vs-reality work can evaluate the
+// full prediction population without reconstructing what the model "must have meant" later.
+export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad,xiIds,captainId,viceId,bank,freeTransfers,transferRows}:{data:FplData;eventIds:number[];deadline:string;capturedAt:string;squad:FplPlayer[];xiIds:number[];captainId:number;viceId:number;bank:number;freeTransfers:number;transferRows:ReceiptTransferInput[]}):ProjectionReceipt{
+  if(!eventIds.length)throw new Error("A projection receipt requires at least one future event.");
+  if(Date.parse(capturedAt)>=Date.parse(deadline))throw new Error("The deadline has passed; this receipt cannot be labelled pre-deadline.");
+  const horizon=eventIds.slice(0,5),first=horizon[0];
+  const players=data.players.map(player=>{const metrics=projectionMetrics(player,first,data.fixtures,first);return[player.id,receiptNumber(player.price,1),player.status,player.priorSource??null,receiptNumber(metrics.xPts),receiptNumber(metrics.expectedMinutes),receiptNumber(metrics.startProbability),receiptNumber(metrics.confidence),receiptNumber(metrics.xG),receiptNumber(metrics.xA),receiptNumber(metrics.cleanSheetProbability)] satisfies ProjectionReceiptPlayer}).sort((a,b)=>a[0]-b[0]);
+  const byId=new Map(data.players.map(player=>[player.id,player]));
+  const projected=(id:number)=>{const player=byId.get(id);return player?playerProjection(player,first,data.fixtures,first):0};
+  const captainXPts=projected(captainId),viceXPts=projected(viceId);
+  const predictedTotal=xiIds.reduce((sum,id)=>sum+projected(id),0)+captainXPts;
+  const transfers=transferRows.slice(0,20).map((row,index)=>({rank:index+1,outId:row.out.id,outName:row.out.name,incomingId:row.incoming.id,incomingName:row.incoming.name,gain1:receiptNumber(row.gain1),gain3:receiptNumber(row.gain3),gain5:receiptNumber(row.gain5),individualGain5:receiptNumber(row.individualGain5),rankScore:receiptNumber(row.rankScore),netDifference:receiptNumber(row.netDifference),hitCost:row.hitCost,startProbability:receiptNumber(row.startProbIn),confidence:receiptNumber(row.confidenceIn),risk:row.risk,reviewRequired:row.reviewRequired,anomalyCodes:row.anomalies.map(flag=>flag.code)}));
+  return{schemaVersion:1,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v1",players,transfers};
+}
+
+export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];captainId:number;viceId:number;receipt?:ProjectionReceipt};
 export type LockStatus="none"|"matches"|"mismatch";
 // Pure so the mismatch detection is directly unit-testable (tests/finalcheck.test.mts) without
 // rendering. Order-independent on xiIds since bestXi's internal ordering isn't semantically meaningful.
@@ -813,8 +852,10 @@ export function captaincyRiskFraming(candidates:CaptainCandidate[],defaultCaptai
 
 function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
+  const[meta]=useManager();
   const a=analysis(data,squad);
   const[lockVersion,setLockVersion]=useState(0);
+  const[lockError,setLockError]=useState("");
   const players=a?.xi.players??[];
   const ranked=[...players].sort((x,y)=>a?playerProjection(y,a.first,data.fixtures,a.first)-playerProjection(x,a.first,data.fixtures,a.first):0);
   const captaincy=useCaptaincy(players,a?.first??0,a?.xi.captain??ranked[0],ranked[1]);
@@ -827,7 +868,20 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
   const existingLock=existingLocks.find(l=>l.event===a.first);
   const lockStatus=reconcileLock(existingLock,{xiIds,captainId:captain.id,viceId:vice.id});
   const locked=lockStatus==="matches";
-  const lock=()=>{const record:LockRecord={event:a.first,lockedAt:new Date().toISOString(),dataUpdatedAt:data.updatedAt,predicted:Number(predicted.toFixed(2)),squadIds:squad.map(p=>p.id),xiIds,captainId:captain.id,viceId:vice.id};persist("fpl-edge-locks",JSON.stringify([...existingLocks.filter(x=>x.event!==a.first),record]));setLockVersion(v=>v+1)};
+  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
+  const lock=()=>{
+    setLockError("");
+    const event=data.events.find(item=>item.id===a.first),capturedAt=new Date().toISOString();
+    if(!event||Date.parse(capturedAt)>=Date.parse(event.deadline)){setLockError("The official deadline has passed. A pre-deadline receipt was not created.");return}
+    try{
+      const freeTransfers=readFreeTransfers(),bank=meta?.bank??a.bank;
+      const baseRows=bestTransfers(data,squad,bank,freeTransfers,60,sellingPricesFor(meta));
+      const transferRows=withModelUtilityChange(baseRows,squad,createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"));
+      const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows});
+      const record:LockRecord={event:a.first,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:squad.map(p=>p.id),xiIds,captainId:captain.id,viceId:vice.id,receipt};
+      persist("fpl-edge-locks",JSON.stringify([...existingLocks.filter(item=>item.event!==a.first),record]));setLockVersion(v=>v+1);
+    }catch(error){setLockError(error instanceof Error?error.message:"Could not create the projection receipt.")}
+  };
   const modelCaptain=a.xi.captain;
   const captainDisagreement=modelCaptain&&modelCaptain.id!==captain.id?modelCaptain:null;
   const riskNote=captainRiskNote(captain,vice,startPct(captain,a.first,data),startPct(vice,a.first,data),playerProjection(captain,a.first,data.fixtures,a.first),playerProjection(vice,a.first,data.fixtures,a.first));
@@ -849,7 +903,8 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
     </div>
     <section className="deadline-grid"><article><span>LATEST TEAM NEWS</span>{squad.filter(p=>p.news||p.status!=="a").length?squad.filter(p=>p.news||p.status!=="a").map(p=><p key={p.id}><b>{p.name}</b> · {p.news||"Officially flagged"}</p>):<p>No official squad-specific news.</p>}</article><article><span>RISK FLAGS</span>{a.issues.length?a.issues.map(p=><p key={p.id}><b>{p.name}</b> · {startPct(p,a.first,data)}% start probability</p>):<p>No player is below the 68% start threshold.</p>}</article></section>
     <CaptainCompare xi={a.xi.players} captain={captain} vice={vice} data={data} event={a.first}/>
-    <button className={`lock-button ${locked?"locked":""}`} onClick={lock}>{locked?"TEAM LOCKED ✓":"LOCK THIS TEAM"}<small>{locked?"Projection snapshot saved for Model vs Reality.":"Save this XI, captain and projection for evaluation."}</small></button>
+    {lockError&&<p className="lock-error">{lockError}</p>}
+    <button className={`lock-button ${fullReceiptSaved?"locked":""}`} onClick={lock}>{fullReceiptSaved?"FULL RECEIPT SAVED ✓":locked?"REFRESH FULL RECEIPT":"LOCK THIS TEAM"}<small>{fullReceiptSaved?`${existingLock!.receipt!.players.length} player projections · ${existingLock!.receipt!.transfers.length} ranked routes · ${existingLock!.receipt!.modelVersion}`:"Save the XI, captaincy, every player projection and ranked transfer routes before the deadline."}</small></button>
   </div>;
 }
 function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:FplPlayer;vice:FplPlayer;data:FplData;event:number}){
@@ -878,6 +933,11 @@ function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:Fpl
 
 function PointsModel({data}:{data:FplData}){const events=futureEvents(data,5),first=events[0]?.id;const[q,setQ]=useState("");const[selected,setSelected]=useState<number|null>(null);const[technical,setTechnical]=useState(false);const players=data.players.filter(p=>(`${p.name} ${p.teamName}`).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>b.epNext-a.epNext).slice(0,10),p=data.players.find(x=>x.id===(selected??players[0]?.id))??data.players[0],m=projectionMetrics(p,first,data.fixtures,first);const appearance=(1-m.sixtyProbability)*m.startProbability+m.sixtyProbability*2,goalPts=m.xG*(p.positionShort==="FWD"?4:p.positionShort==="MID"?5:6),assistPts=m.xA*3,cleanPts=m.cleanSheetProbability*(p.positionShort==="MID"?1:["GKP","DEF"].includes(p.positionShort)?4:0)*m.sixtyProbability,other=Math.max(0,m.xPts-appearance-goalPts-assistPts-cleanPts-m.bonus);const confidence=m.startProbability>.82?"High":m.startProbability>.62?"Medium":"Low";let locks:any[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}return <div className="coach-page"><section className="model-trust"><div><span>HOW PROJECTIONS WORK</span><h2>Transparent by default. Technical when you want it.</h2><p>Expected points combine expected minutes, team and opponent strength, xG/xA, penalties and set pieces, clean-sheet probability, defensive contributions, home advantage, role and official availability.</p></div><button onClick={()=>setTechnical(x=>!x)}>{technical?"Hide technical detail":"Open technical detail"}</button>{technical&&<div className="technical-note"><b>Technical method</b><p>Current-season performance is blended with prior-season rates while the new sample is small. Each fixture applies venue and difficulty adjustments. Availability discounts both starting probability and 60-minute probability. Component outcomes are summed, then lightly blended with the official next-event expectation when available.</p><p>Uncertainty is driven mainly by start probability, role flags and sample size. Missing inputs are not invented.</p></div>}</section><section className="model-picker"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a player…"/><div>{players.map(x=><button className={x.id===p.id?"active":""} onClick={()=>setSelected(x.id)} key={x.id}>{x.name}<small>{x.teamShort}</small></button>)}</div></section><section className="projection-explainer"><header><div><span>{p.teamName} · {p.position} · £{p.price.toFixed(1)}m</span><h2>{p.name} — {m.xPts.toFixed(1)} xPts</h2></div><b className={confidence.toLowerCase()}>Confidence: {confidence}</b></header><div>{[["Appearance",appearance],["Goals",goalPts],["Assists",assistPts],["Clean sheet",cleanPts],["Bonus",m.bonus],["Other",other]].map(([label,value])=><article key={String(label)}><span>{label}</span><b>{Number(value).toFixed(2)}</b><i><em style={{width:`${clamp(Number(value)/Math.max(.1,m.xPts)*100)}%`}}/></i></article>)}</div><footer><span>{Math.round(m.expectedMinutes)} xMins</span><span>{Math.round(m.startProbability*100)}% start</span><span>{m.penaltyRole?"Penalties":"No confirmed pens"}</span><span>{m.setPieceRole?"Set pieces":"No confirmed set pieces"}</span></footer></section><section className="model-reality"><header><div><span>MODEL VS REALITY</span><h2>Every locked plan becomes an audit trail.</h2></div><strong>{locks.length}<small>projection snapshots</small></strong></header>{locks.length?<div>{locks.slice(-5).reverse().map((l:any)=><article key={l.event}><b>GW{l.event}</b><span>Projected {l.predicted} pts</span><em>Actual result appears after the gameweek is finished</em></article>)}</div>:<p>Lock a team in Final Check to start tracking projected points, actual points, error and rolling model accuracy. No backtest numbers are fabricated.</p>}</section></div>}
 
-function DecisionSnapshots(){const[rows,setRows]=useState<{event:number;predicted:number;actual:number|null;error:number|null;captain:string;lockedAt:string}[]>([]);const[mae,setMae]=useState<number|null>(null);useEffect(()=>{let cancelled=false;const run=async()=>{let locks:any[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}const entry=localStorage.getItem("fpl-edge-entry");let weeks:any[]=[];if(entry)try{const response=await fetch(`/api/fpl/history?entry=${entry}`,{cache:"no-store"});if(response.ok)weeks=(await response.json()).weeks||[]}catch{}const mapped=locks.map(lock=>{const week=weeks.find(w=>w.event===lock.event);const actual=week?Number(week.points):null;return{event:Number(lock.event),predicted:Number(lock.predicted),actual,error:actual===null?null:Math.abs(actual-Number(lock.predicted)),captain:String(lock.captainId||"Saved captain"),lockedAt:String(lock.lockedAt)}}).sort((a,b)=>b.event-a.event);const errors=mapped.filter(x=>x.error!==null).map(x=>x.error as number);if(!cancelled){setRows(mapped);setMae(errors.length?errors.reduce((a,b)=>a+b,0)/errors.length:null)}};run();return()=>{cancelled=true}},[]);return <section className="decision-snapshots"><header><div><span>MODEL VS REALITY</span><h2>Projection accuracy, without fake backtests.</h2><p>Snapshots are created only when you press Lock This Team before a deadline.</p></div><strong>{mae===null?"—":mae.toFixed(1)}<small>rolling MAE</small></strong></header>{rows.length?<div>{rows.map(r=><article key={r.event}><b>GW{r.event}</b><span>Projected <strong>{r.predicted.toFixed(1)}</strong></span><span>Actual <strong>{r.actual??"Pending"}</strong></span><span>Error <strong>{r.error===null?"Pending":r.error.toFixed(1)}</strong></span><em>{new Date(r.lockedAt).toLocaleString()}</em></article>)}</div>:<div className="history-empty"><b>No projection snapshots yet.</b><p>Use Final Check and lock your team. After the gameweek finishes, this page will compare projected and actual points automatically.</p></div>}</section>}
+function DecisionSnapshots(){
+  const[rows,setRows]=useState<{event:number;predicted:number;actual:number|null;error:number|null;lockedAt:string;modelVersion:string|null;playerCount:number;transferCount:number}[]>([]);
+  const[mae,setMae]=useState<number|null>(null);
+  useEffect(()=>{let cancelled=false;const run=async()=>{let locks:LockRecord[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}const entry=localStorage.getItem("fpl-edge-entry");let weeks:any[]=[];if(entry)try{const response=await fetch(`/api/fpl/history?entry=${entry}`,{cache:"no-store"});if(response.ok)weeks=(await response.json()).weeks||[]}catch{}const mapped=locks.map(lock=>{const week=weeks.find(w=>w.event===lock.event),actual=week?Number(week.points):null;return{event:Number(lock.event),predicted:Number(lock.predicted),actual,error:actual===null?null:Math.abs(actual-Number(lock.predicted)),lockedAt:String(lock.lockedAt),modelVersion:lock.receipt?.modelVersion??null,playerCount:lock.receipt?.players.length??0,transferCount:lock.receipt?.transfers.length??0}}).sort((a,b)=>b.event-a.event);const errors=mapped.filter(row=>row.error!==null).map(row=>row.error as number);if(!cancelled){setRows(mapped);setMae(errors.length?errors.reduce((a,b)=>a+b,0)/errors.length:null)}};run();return()=>{cancelled=true}},[]);
+  return <section className="decision-snapshots"><header><div><span>MODEL VS REALITY</span><h2>Projection receipts, frozen before the deadline.</h2><p>Every full receipt preserves the model version, all-player forecast population, chosen captaincy and ranked transfer evidence.</p></div><strong>{mae===null?"—":mae.toFixed(1)}<small>rolling MAE</small></strong></header>{rows.length?<div>{rows.map(row=><article key={row.event}><b>GW{row.event}</b><span>Projected <strong>{row.predicted.toFixed(1)}</strong></span><span>Actual <strong>{row.actual??"Pending"}</strong></span><span>Error <strong>{row.error===null?"Pending":row.error.toFixed(1)}</strong></span><em>{row.modelVersion?`${row.modelVersion} · ${row.playerCount} players · ${row.transferCount} routes`:`Legacy snapshot · lock again before the next deadline`} · {new Date(row.lockedAt).toLocaleString()}</em></article>)}</div>:<div className="history-empty"><b>No projection receipts yet.</b><p>Use Final Check and lock your team before the deadline. The full model state will then be available for honest post-gameweek evaluation.</p></div>}</section>
+}
 
 function CoachDock({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const[open,setOpen]=useState(false);const squad=useMemo(()=>savedSquad(data),[data,revision]),a=analysis(data,squad);let title="Connect your team to activate the coach.",detail="Once connected, I will summarise the strongest action using the same live data as every page.",target:View="team";let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}if(a){const moves=bestTransfers(data,squad,manager?.bank??a.bank,1,12,sellingPricesFor(manager)),move=moves[0];if(a.issues.length){title=`Your biggest concern is ${a.issues[0].name}.`;detail=`${startPct(a.issues[0],a.first,data)}% modelled start probability. Review late news before acting.`;target="deadline"}else if(move&&!move.reviewRequired&&move.rankScore>=2.2){title=`${move.out.name} → ${move.incoming.name} is your leading route.`;detail=`+${move.gain5.toFixed(1)} projected squad points over five gameweeks, before any hit cost.`;target="transfers"}else{title="You do not need to force a transfer.";detail="No risk-adjusted squad move currently clears the action threshold. Rolling preserves flexibility.";target="transfers"}}return <aside className={`coach-dock ${open?"open":""}`}><button className="coach-orb" onClick={()=>setOpen(x=>!x)}><i>E</i><span>FPL Coach</span></button>{open&&<div><span>FPL COACH · LIVE SUMMARY</span><h3>{title}</h3><p>{detail}</p><button onClick={()=>{go(target);setOpen(false)}}>Inspect the evidence →</button></div>}</aside>}

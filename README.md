@@ -54,6 +54,8 @@ Current-season totals are rebuilt from official, finished and data-checked gamew
 
 The app persists locally to browser `localStorage` first, and syncs to D1 in the background when signed in (`app/lib/persistence.ts`) -- localStorage stays the source of truth every component reads; the server copy exists for cross-device access and to survive a cleared browser. Public FPL Team IDs are imported server-side using the official entry and picks endpoints.
 
+Pressing **Lock This Team** before a deadline creates a versioned projection receipt inside the saved lock: the selected squad/XI/captaincy, all official players' current-event xPts plus expected-minutes/confidence inputs, and the ranked multi-gameweek transfer evidence and assumptions used at capture time. Player rows use the documented `tuple-v1` encoding in `CoachApp.tsx` so a full 38-gameweek archive remains practical in browser storage; signed-in accounts sync the same receipts through the existing D1-backed `locks` field.
+
 D1 is active (`.openai/hosting.json` has `"d1": "DB"`). For local dev, `@cloudflare/vite-plugin` auto-provisions a local D1 sqlite file the first time `npm run dev` runs, but does **not** auto-apply migrations to it. After a fresh `npm run dev` start (or whenever `drizzle/*.sql` changes), apply the migration once:
 
 ```bash

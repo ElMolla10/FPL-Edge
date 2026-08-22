@@ -4,6 +4,7 @@ import {
   FplData,
   FplFixture,
   FplPlayer,
+  PROJECTION_MODEL_VERSION,
   attachIntegrityWarnings,
   bestXi,
   findIdentityConflicts,
@@ -11,7 +12,7 @@ import {
   playerProjection,
   projectionMetrics,
 } from "../app/lib/fpl.ts";
-import { analysis, bestTransfers, Transfer } from "../app/components/CoachApp.tsx";
+import { analysis, bestTransfers, createProjectionReceipt, Transfer } from "../app/components/CoachApp.tsx";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -68,6 +69,35 @@ test("regression: a near-zero-minutes player does not out-project an established
     tinyMetrics.xPts < 4,
     `2-minute-sample player projected ${tinyMetrics.xPts.toFixed(2)} xPts in one gameweek — per-90 rates must shrink toward a sane baseline, not extrapolate from a tiny sample`,
   );
+});
+
+test("projection receipt freezes every player, selected captaincy and ranked transfer evidence",()=>{
+  const captain=makePlayer({id:11,name:"Captain",teamId:1,teamShort:"ONE",priorSource:"official-pl-history"});
+  const target=makePlayer({id:22,name:"Target",teamId:2,teamShort:"TWO",price:6.5,priorSource:"position-baseline",priorMinutes:0,priorStarts:0});
+  const capturedAt="2026-08-22T10:00:00.000Z",deadline="2026-08-23T10:00:00.000Z";
+  const data:FplData={updatedAt:"2026-08-22T09:55:00.000Z",source:"official-test",seasonStatsThrough:1,players:[target,captain],fixtures:[makeFixture({id:1,event:2,teamH:1,teamA:2}),makeFixture({id:2,event:3,teamH:2,teamA:1})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false},{id:3,name:"Gameweek 3",deadline:"2026-08-30T10:00:00.000Z",finished:false,current:false,next:false,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
+  const transferRows=[{out:captain,incoming:target,gain1:1.2345,gain3:2.3456,gain5:3.4567,individualGain5:4.5678,rankScore:2.2222,netDifference:3.4567,hitCost:0,startProbIn:.6543,confidenceIn:.4321,risk:"Medium" as const,reviewRequired:true,anomalies:[{code:"test-warning",message:"Test"}]}];
+  const receipt=createProjectionReceipt({data,eventIds:[2,3],deadline,capturedAt,squad:[captain],xiIds:[captain.id],captainId:captain.id,viceId:target.id,bank:1.5,freeTransfers:2,transferRows});
+  assert.equal(receipt.schemaVersion,1);
+  assert.equal(receipt.modelVersion,PROJECTION_MODEL_VERSION);
+  assert.equal(receipt.playerEncoding,"tuple-v1");
+  assert.deepEqual(receipt.players.map(player=>player[0]),[11,22],"every official player is captured in deterministic id order");
+  assert.equal(receipt.players[1][3],"position-baseline");
+  assert.deepEqual(receipt.eventIds,[2,3]);
+  assert.equal(receipt.squad.captainId,11);
+  assert.equal(receipt.squad.viceId,22);
+  assert.equal(receipt.assumptions.freeTransfers,2);
+  assert.equal(receipt.transfers[0].rank,1);
+  assert.equal(receipt.transfers[0].incomingId,22);
+  assert.equal(receipt.transfers[0].rankScore,2.222);
+  assert.deepEqual(receipt.transfers[0].anomalyCodes,["test-warning"]);
+});
+
+test("projection receipt refuses to label a post-deadline capture as pre-deadline",()=>{
+  const player=makePlayer({id:1});
+  const deadline="2026-08-23T10:00:00.000Z";
+  const data:FplData={updatedAt:deadline,source:"test",seasonStatsThrough:0,players:[player],fixtures:[],events:[],teams:[{id:1,name:"One",short:"ONE"}],rules:makeRules()};
+  assert.throws(()=>createProjectionReceipt({data,eventIds:[2],deadline,capturedAt:deadline,squad:[player],xiIds:[1],captainId:1,viceId:1,bank:0,freeTransfers:1,transferRows:[]}),/deadline has passed/i);
 });
 
 test("reconciliation: every GW/3GW/5GW transfer delta returned by bestTransfers equals IN minus OUT exactly", () => {
