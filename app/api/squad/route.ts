@@ -8,7 +8,7 @@ export async function GET() {
     const user = await getCurrentUser();
     if (!user) return Response.json({ error: "Not signed in." }, { status: 401 });
 
-    const db = getDb();
+    const db = await getDb();
     const [row] = await db.select().from(squadData).where(eq(squadData.userId, user.id)).limit(1);
     return Response.json({
       squadIds: row ? JSON.parse(row.squadIds) : [],
@@ -41,7 +41,7 @@ export async function PUT(request: Request) {
       manager?: unknown | null;
     };
 
-    const db = getDb();
+    const db = await getDb();
     const now = new Date().toISOString();
     const values = {
       squadIds: JSON.stringify(body.squadIds ?? []),

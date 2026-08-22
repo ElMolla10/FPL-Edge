@@ -1,8 +1,12 @@
-import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 
-export function getDb() {
+// Dynamic, not top-level: this bundles into the single worker entry that fronts every route,
+// so a static import here would force *any* route (including ones that never touch the
+// database) to resolve `cloudflare:workers` just by being loaded -- which plain Node can't do
+// outside the Workers runtime and broke tests/rendered-html.test.mjs for the unrelated `/` route.
+export async function getDb() {
+  const { env } = await import("cloudflare:workers");
   if (!env.DB) {
     throw new Error(
       "Cloudflare D1 binding `DB` is unavailable. Set the `d1` field in .openai/hosting.json to `DB` or let your control plane inject the real binding values before using the database."

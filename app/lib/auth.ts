@@ -16,16 +16,18 @@ export { AuthError, hashPassword, verifyPassword } from "./auth-core";
 export type { UserRecord, UserRepo } from "./auth-core";
 
 export function makeD1UserRepo(): UserRepo {
-  const db = getDb();
   return {
     async findByEmail(email) {
+      const db = await getDb();
       const [row] = await db.select().from(users).where(eq(users.email, email)).limit(1);
       return row ?? null;
     },
     async insert(user) {
+      const db = await getDb();
       await db.insert(users).values(user);
     },
     async update(id, patch) {
+      const db = await getDb();
       await db.update(users).set(patch).where(eq(users.id, id));
     },
   };
@@ -41,7 +43,7 @@ export const SESSION_COOKIE = "fpl_edge_session";
 const SESSION_DAYS = 30;
 
 export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
-  const db = getDb();
+  const db = await getDb();
   const token = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 86400000);
   await db.insert(sessions).values({ id: token, userId, expiresAt: expiresAt.toISOString() });
@@ -49,7 +51,7 @@ export async function createSession(userId: string): Promise<{ token: string; ex
 }
 
 export async function getUserBySessionToken(token: string): Promise<UserRecord | null> {
-  const db = getDb();
+  const db = await getDb();
   const [session] = await db.select().from(sessions).where(eq(sessions.id, token)).limit(1);
   if (!session) return null;
   if (new Date(session.expiresAt).getTime() < Date.now()) {
@@ -61,7 +63,7 @@ export async function getUserBySessionToken(token: string): Promise<UserRecord |
 }
 
 export async function deleteSessionByToken(token: string): Promise<void> {
-  const db = getDb();
+  const db = await getDb();
   await db.delete(sessions).where(eq(sessions.id, token));
 }
 
