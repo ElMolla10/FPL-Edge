@@ -8,8 +8,11 @@ import {
   attachIntegrityWarnings,
   bestXi,
   findIdentityConflicts,
+  isLowPlContinuity,
   isValidSquad,
+  playerCalibrationProfile,
   playerProjection,
+  plRosterContinuity,
   projectionMetrics,
 } from "../app/lib/fpl.ts";
 import { HistoryWeek, LockRecord, ProjectionPlayerEvaluationRow, ProjectionTransferEvaluation, aggregateAccuracy, aggregateTransferAccuracy, analysis, bestTransfers, createProjectionReceipt, evaluateProjectionReceipt, projectionConfidenceBand, Transfer } from "../app/components/CoachApp.tsx";
@@ -78,13 +81,15 @@ test("projection receipt freezes every player, selected captaincy and ranked tra
   const data:FplData={updatedAt:"2026-08-22T09:55:00.000Z",source:"official-test",seasonStatsThrough:1,players:[target,captain],fixtures:[makeFixture({id:1,event:2,teamH:1,teamA:2}),makeFixture({id:2,event:3,teamH:2,teamA:1})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false},{id:3,name:"Gameweek 3",deadline:"2026-08-30T10:00:00.000Z",finished:false,current:false,next:false,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
   const transferRows=[{out:captain,incoming:target,gain1:1.2345,gain3:2.3456,gain5:3.4567,individualGain1:1.1111,individualGain3:3.3333,individualGain5:4.5678,rankScore:2.2222,netDifference:3.4567,hitCost:0,startProbIn:.6543,confidenceIn:.4321,risk:"Medium" as const,reviewRequired:true,anomalies:[{code:"test-warning",message:"Test"}]}];
   const receipt=createProjectionReceipt({data,eventIds:[2,3],deadline,capturedAt,squad:[captain],xiIds:[captain.id],captainId:captain.id,viceId:target.id,bank:1.5,freeTransfers:2,transferRows});
-  assert.equal(receipt.schemaVersion,3);
+  assert.equal(receipt.schemaVersion,4);
   assert.equal(receipt.modelVersion,PROJECTION_MODEL_VERSION);
-  assert.equal(receipt.playerEncoding,"tuple-v3");
+  assert.equal(receipt.playerEncoding,"tuple-v4");
   assert.deepEqual(receipt.players.map(player=>player[0]),[11,22],"every official player is captured in deterministic id order");
   assert.equal(receipt.players[0][11]?.length,2,"each player freezes the full evaluation horizon");
   assert.equal(receipt.players[0][12],1,"team identity is frozen at prediction time");
   assert.equal(receipt.players[0][13],"MID","position is frozen at prediction time");
+  assert.equal(receipt.players[0][14],"established-pl","the historical evidence class is frozen with the forecast");
+  assert.equal(receipt.players[1][14],"no-pl-prior");
   assert.equal(receipt.players[1][3],"position-baseline");
   assert.deepEqual(receipt.eventIds,[2,3]);
   assert.equal(receipt.squad.captainId,11);
@@ -119,6 +124,7 @@ test("post-GW evaluation grades a matching official plan, player calibration and
   assert.equal(result.captain?.officialContribution,10);
   assert.equal(result.playerRows.length,2,"the dashboard receives one-step-ahead rows, not hindsight-weighted future rows");
   assert.deepEqual({teamId:result.playerRows[0].teamId,position:result.playerRows[0].positionShort,band:result.playerRows[0].confidenceBand},{teamId:1,position:"MID",band:projectionConfidenceBand(result.playerRows[0].confidence)});
+  assert.deepEqual(result.playerRows.map(row=>row.calibrationGroup),["established-pl","no-pl-prior"],"accuracy rows retain the evidence class that existed when the forecast was made");
   assert.equal(result.transfers[0].actualPlayerSwing,4,"actual route swing is IN minus OUT across completed events");
   assert.equal(result.transfers[0].actualNetAfterHit,4);
 });
@@ -173,9 +179,9 @@ test("projection receipt refuses to label a post-deadline capture as pre-deadlin
 
 test("accuracy aggregation computes xPts, minutes and probability calibration without mixing denominators",()=>{
   const rows:ProjectionPlayerEvaluationRow[]=[
-    {event:2,playerId:1,teamId:1,positionShort:"DEF",projectedPoints:4,actualPoints:6,error:2,signedError:2,expectedMinutes:80,actualMinutes:90,startProbability:.8,started:true,confidence:.8,confidenceBand:"High"},
-    {event:2,playerId:2,teamId:1,positionShort:"DEF",projectedPoints:.2,actualPoints:0,error:.2,signedError:-.2,expectedMinutes:10,actualMinutes:0,startProbability:.2,started:false,confidence:.4,confidenceBand:"Low"},
-    {event:2,playerId:3,teamId:2,positionShort:"MID",projectedPoints:3,actualPoints:0,error:3,signedError:-3,expectedMinutes:70,actualMinutes:0,startProbability:.7,started:false,confidence:.6,confidenceBand:"Medium"},
+    {event:2,playerId:1,teamId:1,positionShort:"DEF",projectedPoints:4,actualPoints:6,error:2,signedError:2,expectedMinutes:80,actualMinutes:90,startProbability:.8,started:true,confidence:.8,confidenceBand:"High",calibrationGroup:"established-pl",lowPlContinuityClub:false},
+    {event:2,playerId:2,teamId:1,positionShort:"DEF",projectedPoints:.2,actualPoints:0,error:.2,signedError:-.2,expectedMinutes:10,actualMinutes:0,startProbability:.2,started:false,confidence:.4,confidenceBand:"Low",calibrationGroup:"no-pl-prior",lowPlContinuityClub:false},
+    {event:2,playerId:3,teamId:2,positionShort:"MID",projectedPoints:3,actualPoints:0,error:3,signedError:-3,expectedMinutes:70,actualMinutes:0,startProbability:.7,started:false,confidence:.6,confidenceBand:"Medium",calibrationGroup:"limited-pl",lowPlContinuityClub:true},
   ];
   const metric=aggregateAccuracy(rows);
   assert.equal(metric.rows,3);
@@ -269,6 +275,33 @@ test("regression: a promoted player with no PL prior cannot turn one live haul i
   const metrics=projectionMetrics(promoted,1,fixtures,1);
   assert.ok(metrics.xPts<3,`no-PL-prior promoted defender projected ${metrics.xPts.toFixed(2)} xPts from one provisional haul`);
   assert.ok(metrics.xG<.08&&metrics.xA<.08,`provisional points must not be converted into manufactured xG/xA; got ${metrics.xG.toFixed(2)}/${metrics.xA.toFixed(2)}`);
+});
+
+test("calibration groups distinguish established, limited, absent and newly established PL evidence",()=>{
+  assert.equal(playerCalibrationProfile(makePlayer({priorSource:"official-pl-history",priorMinutes:1800})).group,"established-pl");
+  assert.equal(playerCalibrationProfile(makePlayer({priorSource:"official-pl-history",priorMinutes:63})).group,"limited-pl");
+  assert.equal(playerCalibrationProfile(makePlayer({priorSource:"position-baseline",priorMinutes:0,minutes:200})).group,"no-pl-prior");
+  assert.equal(playerCalibrationProfile(makePlayer({priorSource:"position-baseline",priorMinutes:0,minutes:900})).group,"current-pl-established");
+});
+
+test("roster PL continuity identifies low-evidence club context without hardcoding club names",()=>{
+  const returning=plRosterContinuity([1800,1800,1800,0]);
+  const low=plRosterContinuity([1800,0,0,0]);
+  assert.equal(returning,.75);
+  assert.equal(low,.25);
+  assert.equal(isLowPlContinuity(returning),false);
+  assert.equal(isLowPlContinuity(low),true);
+});
+
+test("low-PL-continuity context lowers the confidence ceiling for the same limited-prior player",()=>{
+  const base=makePlayer({priorSource:"official-pl-history",priorMinutes:899,priorStarts:12,minutes:900,starts:10,teamMatchesPlayed:10,selectedBy:30});
+  const fixtures=[makeFixture({event:1,teamH:base.teamId,teamA:99,teamHDifficulty:3})];
+  const establishedContext=projectionMetrics({...base,lowPlContinuityClub:false},1,fixtures,1);
+  const lowContinuityContext=projectionMetrics({...base,lowPlContinuityClub:true},1,fixtures,1);
+  assert.equal(establishedContext.calibrationGroup,"limited-pl");
+  assert.equal(establishedContext.confidenceCap,.72);
+  assert.equal(lowContinuityContext.confidenceCap,.64);
+  assert.ok(lowContinuityContext.confidence<establishedContext.confidence,"promoted/low-continuity context must influence model confidence, not merely add a warning");
 });
 
 test("regression: goalkeeper PPG never manufactures attacking xG or xA",()=>{

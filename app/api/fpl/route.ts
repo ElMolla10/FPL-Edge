@@ -1,4 +1,4 @@
-import { attachIntegrityWarnings } from "../../lib/fpl";
+import { attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile } from "../../lib/fpl";
 import priorSeasonSnapshot from "../../data/prior-season-2025-26.json";
 
 const BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/";
@@ -50,6 +50,19 @@ export async function GET() {
     }
     const teams = new Map(bootstrap.teams.map((team: any) => [team.id, team]));
     const positions = new Map(bootstrap.element_types.map((position: any) => [position.id, position]));
+    const matchedPriorByPlayerId = new Map<number, PriorSeasonRecord>();
+    const priorMinutesByTeam = new Map<number, number[]>();
+    for (const player of bootstrap.elements) {
+      const candidate = priorByPlayerId.get(player.id);
+      const prior = candidate?.code === player.code ? candidate : undefined;
+      if (prior) matchedPriorByPlayerId.set(player.id, prior);
+      priorMinutesByTeam.set(player.team, [...(priorMinutesByTeam.get(player.team) ?? []), prior?.minutes ?? 0]);
+    }
+    const teamPriorProfiles = new Map<number, { coverage: number; low: boolean }>();
+    for (const [teamId, minutes] of priorMinutesByTeam) {
+      const coverage = plRosterContinuity(minutes);
+      teamPriorProfiles.set(teamId, { coverage, low: isLowPlContinuity(coverage) });
+    }
 
     const payload = {
       updatedAt: new Date().toISOString(),
@@ -89,20 +102,22 @@ export async function GET() {
         attackAway: number(team.strength_attack_away) || null,
         defenceHome: number(team.strength_defence_home) || null,
         defenceAway: number(team.strength_defence_away) || null,
+        plPriorCoverage: teamPriorProfiles.get(team.id)?.coverage ?? 0,
+        lowPlContinuity: teamPriorProfiles.get(team.id)?.low ?? true,
       })),
       players: bootstrap.elements.map((player: any) => {
         const team: any = teams.get(player.team);
         const position: any = positions.get(player.element_type);
         const season = seasonStats.get(player.id) ?? {};
         const latest = latestEventStats.get(player.id) ?? {};
-        const priorCandidate = priorByPlayerId.get(player.id);
         // Element ids are stable within an FPL season, while the immutable player code is the
         // stronger identity key. Refuse a stale snapshot row if the two ever stop agreeing.
-        const prior = priorCandidate?.code === player.code ? priorCandidate : undefined;
+        const prior = matchedPriorByPlayerId.get(player.id);
         const appearances = number(season.appearances);
         const priorEquivalentMatches = prior?.minutes ? prior.minutes / 90 : 0;
         const teamMatchesPlayed = fixtures.filter((fixture: any) => completedEventIds.has(fixture.event) && (fixture.team_h === player.team || fixture.team_a === player.team)).length;
-        return {
+        const priorProfile = teamPriorProfiles.get(player.team) ?? { coverage: 0, low: true };
+        const record = {
           id: player.id,
           name: player.web_name,
           firstName: player.first_name,
@@ -128,9 +143,11 @@ export async function GET() {
           priorSaves: prior?.saves ?? 0,
           priorPenaltiesSaved: prior?.penaltiesSaved ?? 0,
           priorDefensiveContribution: prior?.defensiveContribution ?? 0,
-          priorSource: prior ? "official-pl-history" : "position-baseline",
+          priorSource: prior ? "official-pl-history" as const : "position-baseline" as const,
           priorSeason: prior?.season ?? null,
           priorCompetition: prior ? priorSeasonSnapshot.competition : null,
+          teamPlPriorCoverage: priorProfile.coverage,
+          lowPlContinuityClub: priorProfile.low,
           teamMatchesPlayed,
           teamStrengthHome: number(team?.strength_overall_home) || 3,
           teamStrengthAway: number(team?.strength_overall_away) || 3,
@@ -179,6 +196,7 @@ export async function GET() {
           // FPL's undisclosed algorithm uses. Signed string in the raw feed; coerced to a number.
           priceProjectionToday: number(player.price_change_projections?.[0]?.projected_percent),
         };
+        return { ...record, calibrationGroup: playerCalibrationProfile(record).group };
       }),
       fixtures: fixtures.map((fixture: any) => ({
         id: fixture.id,

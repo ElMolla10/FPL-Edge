@@ -1,4 +1,4 @@
-import { FplPlayer, ProjectionMetrics } from "./fpl";
+import { FplPlayer, ProjectionMetrics, playerCalibrationProfile } from "./fpl";
 
 export type AnomalyFlag = { code: string; message: string };
 
@@ -7,6 +7,21 @@ const PRICE_TYPICAL_DEF = 6.0;
 
 export function playerAnomalies(player: FplPlayer, gw1: ProjectionMetrics): AnomalyFlag[] {
   const flags: AnomalyFlag[] = [];
+  const calibration = playerCalibrationProfile(player);
+  if (calibration.group === "limited-pl" || calibration.group === "no-pl-prior") {
+    flags.push({
+      code: "limited-pl-evidence",
+      message: calibration.group === "no-pl-prior"
+        ? "No genuine prior-season Premier League sample is available. Current-season output is learned conservatively from a position baseline until enough top-flight minutes accumulate."
+        : `Only ${player.priorMinutes} prior-season Premier League minutes are available. Rates receive stronger shrinkage and confidence is capped until current-season evidence grows.`,
+    });
+  }
+  if (calibration.lowPlContinuityClub) {
+    flags.push({
+      code: "low-pl-continuity-club",
+      message: `Only ${Math.round((player.teamPlPriorCoverage ?? 0) * 100)}% of this club's roster-level prior evidence is established Premier League minutes. Team context and player confidence are treated conservatively.`,
+    });
+  }
   if (player.positionShort === "MID" && player.price <= PRICE_BUDGET_MID && gw1.xPts > 7) {
     flags.push({
       code: "budget-mid-overprojection",

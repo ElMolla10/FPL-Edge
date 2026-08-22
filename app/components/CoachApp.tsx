@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
-import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, ProjectionMetrics, bestXi, fetchFplData, futureEvents, isValidSquad, playerProjection, projectionMetrics, savedSquad, simulateAutosubs } from "../lib/fpl";
+import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, bestXi, fetchFplData, futureEvents, isValidSquad, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs } from "../lib/fpl";
 import { createOptimizer } from "../lib/optimizer";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
@@ -738,10 +738,11 @@ function News({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number
 
 // Tuple encoding keeps a full-season receipt archive inside practical browser-storage limits.
 // Field order: id, price, status, prior source, current-event xPts, expected minutes, start
-// probability, confidence, xG, xA, clean-sheet probability, horizon xPts[], team id, position.
+// probability, confidence, xG, xA, clean-sheet probability, horizon xPts[], team id, position,
+// evidence group and low-PL-continuity-club flag.
 // The first eleven fields preserve tuple-v1 compatibility; tuple-v2 appends the projection path;
-// tuple-v3 freezes team and position so historical calibration is not rewritten after a transfer.
-export type ProjectionReceiptPlayer=[number,number,string,FplPlayer["priorSource"]|null,number,number,number,number,number,number,number,number[]?,number?,string?];
+// tuple-v3 freezes team/position; tuple-v4 freezes evidence class and club-continuity context.
+export type ProjectionReceiptPlayer=[number,number,string,FplPlayer["priorSource"]|null,number,number,number,number,number,number,number,number[]?,number?,string?,PlayerCalibrationGroup?,boolean?];
 export type ProjectionReceiptTransfer={
   rank:number;outId:number;outName:string;incomingId:number;incomingName:string;
   gain1:number;gain3:number;gain5:number;individualGain1?:number;individualGain3?:number;individualGain5:number;rankScore:number;
@@ -749,11 +750,11 @@ export type ProjectionReceiptTransfer={
   risk:Transfer["risk"];reviewRequired:boolean;anomalyCodes:string[];
 };
 export type ProjectionReceipt={
-  schemaVersion:1|2|3;receiptId:string;modelVersion:string;event:number;eventIds:number[];
+  schemaVersion:1|2|3|4;receiptId:string;modelVersion:string;event:number;eventIds:number[];
   deadline:string;capturedAt:string;dataUpdatedAt:string;dataSource:string;seasonStatsThrough:number;
   assumptions:{bank:number;freeTransfers:number;transferHorizon:number};
   squad:{squadIds:number[];xiIds:number[];captainId:number;viceId:number;predictedTotal:number;captainXPts:number;viceXPts:number};
-  playerEncoding:"tuple-v1"|"tuple-v2"|"tuple-v3";players:ProjectionReceiptPlayer[];transfers:ProjectionReceiptTransfer[];
+  playerEncoding:"tuple-v1"|"tuple-v2"|"tuple-v3"|"tuple-v4";players:ProjectionReceiptPlayer[];transfers:ProjectionReceiptTransfer[];
 };
 type ReceiptTransferInput=Pick<Transfer,"gain1"|"gain3"|"gain5"|"individualGain1"|"individualGain3"|"individualGain5"|"rankScore"|"netDifference"|"hitCost"|"startProbIn"|"confidenceIn"|"risk"|"reviewRequired"|"anomalies">&{out:Pick<FplPlayer,"id"|"name">;incoming:Pick<FplPlayer,"id"|"name">};
 const receiptNumber=(value:number,places=3)=>Number(value.toFixed(places));
@@ -765,13 +766,13 @@ export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad
   if(!eventIds.length)throw new Error("A projection receipt requires at least one future event.");
   if(Date.parse(capturedAt)>=Date.parse(deadline))throw new Error("The deadline has passed; this receipt cannot be labelled pre-deadline.");
   const horizon=eventIds.slice(0,5),first=horizon[0];
-  const players=data.players.map(player=>{const metrics=projectionMetrics(player,first,data.fixtures,first),path=horizon.map(eventId=>receiptNumber(playerProjection(player,eventId,data.fixtures,first)));return[player.id,receiptNumber(player.price,1),player.status,player.priorSource??null,receiptNumber(metrics.xPts),receiptNumber(metrics.expectedMinutes),receiptNumber(metrics.startProbability),receiptNumber(metrics.confidence),receiptNumber(metrics.xG),receiptNumber(metrics.xA),receiptNumber(metrics.cleanSheetProbability),path,player.teamId,player.positionShort] satisfies ProjectionReceiptPlayer}).sort((a,b)=>a[0]-b[0]);
+  const players=data.players.map(player=>{const metrics=projectionMetrics(player,first,data.fixtures,first),path=horizon.map(eventId=>receiptNumber(playerProjection(player,eventId,data.fixtures,first))),calibration=playerCalibrationProfile(player);return[player.id,receiptNumber(player.price,1),player.status,player.priorSource??null,receiptNumber(metrics.xPts),receiptNumber(metrics.expectedMinutes),receiptNumber(metrics.startProbability),receiptNumber(metrics.confidence),receiptNumber(metrics.xG),receiptNumber(metrics.xA),receiptNumber(metrics.cleanSheetProbability),path,player.teamId,player.positionShort,calibration.group,calibration.lowPlContinuityClub] satisfies ProjectionReceiptPlayer}).sort((a,b)=>a[0]-b[0]);
   const byId=new Map(data.players.map(player=>[player.id,player]));
   const projected=(id:number)=>{const player=byId.get(id);return player?playerProjection(player,first,data.fixtures,first):0};
   const captainXPts=projected(captainId),viceXPts=projected(viceId);
   const predictedTotal=xiIds.reduce((sum,id)=>sum+projected(id),0)+captainXPts;
   const transfers=transferRows.slice(0,20).map((row,index)=>({rank:index+1,outId:row.out.id,outName:row.out.name,incomingId:row.incoming.id,incomingName:row.incoming.name,gain1:receiptNumber(row.gain1),gain3:receiptNumber(row.gain3),gain5:receiptNumber(row.gain5),individualGain1:receiptNumber(row.individualGain1),individualGain3:receiptNumber(row.individualGain3),individualGain5:receiptNumber(row.individualGain5),rankScore:receiptNumber(row.rankScore),netDifference:receiptNumber(row.netDifference),hitCost:row.hitCost,startProbability:receiptNumber(row.startProbIn),confidence:receiptNumber(row.confidenceIn),risk:row.risk,reviewRequired:row.reviewRequired,anomalyCodes:row.anomalies.map(flag=>flag.code)}));
-  return{schemaVersion:3,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v3",players,transfers};
+  return{schemaVersion:4,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v4",players,transfers};
 }
 
 export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];captainId:number;viceId:number;receipt?:ProjectionReceipt};
@@ -794,7 +795,7 @@ export type ProjectionPlayerEvaluationRow={
   event:number;playerId:number;teamId:number|null;positionShort:string|null;
   projectedPoints:number;actualPoints:number;error:number;signedError:number;
   expectedMinutes:number;actualMinutes:number;startProbability:number;started:boolean;
-  confidence:number;confidenceBand:ProjectionConfidenceBand;
+  confidence:number;confidenceBand:ProjectionConfidenceBand;calibrationGroup:PlayerCalibrationGroup|null;lowPlContinuityClub:boolean|null;
 };
 export type ProjectionEvaluation={
   event:number;status:"pending"|"unavailable"|"legacy"|"evaluated";completedEvents:number;horizonEvents:number;
@@ -866,7 +867,7 @@ export function evaluateProjectionReceipt(lock:LockRecord,weeks:HistoryWeek[]):P
     const stats=historyPlayerStats(firstWeek,player[0]);
     if(!stats)return[];
     const projected=player[4],actual=stats.points,confidence=player[7];
-    return[{event:receipt.event,playerId:player[0],teamId:player[12]??null,positionShort:player[13]??null,projectedPoints:projected,actualPoints:actual,error:receiptNumber(Math.abs(actual-projected)),signedError:receiptNumber(actual-projected),expectedMinutes:player[5],actualMinutes:stats.minutes,startProbability:player[6],started:stats.starts>0,confidence,confidenceBand:projectionConfidenceBand(confidence)}];
+    return[{event:receipt.event,playerId:player[0],teamId:player[12]??null,positionShort:player[13]??null,projectedPoints:projected,actualPoints:actual,error:receiptNumber(Math.abs(actual-projected)),signedError:receiptNumber(actual-projected),expectedMinutes:player[5],actualMinutes:stats.minutes,startProbability:player[6],started:stats.starts>0,confidence,confidenceBand:projectionConfidenceBand(confidence),calibrationGroup:player[14]??null,lowPlContinuityClub:player[15]??null}];
   });
 
   const transfers=receipt.transfers.slice(0,5).map(row=>{
@@ -989,7 +990,7 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
   const existingLock=existingLocks.find(l=>l.event===a.first);
   const lockStatus=reconcileLock(existingLock,{xiIds,captainId:captain.id,viceId:vice.id});
   const locked=lockStatus==="matches";
-  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===3&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
+  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===4&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
   const lock=()=>{
     setLockError("");
     const event=data.events.find(item=>item.id===a.first),capturedAt=new Date().toISOString();
@@ -1052,7 +1053,19 @@ function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:Fpl
   </section>;
 }
 
-function PointsModel({data}:{data:FplData}){const events=futureEvents(data,5),first=events[0]?.id;const[q,setQ]=useState("");const[selected,setSelected]=useState<number|null>(null);const[technical,setTechnical]=useState(false);const players=data.players.filter(p=>(`${p.name} ${p.teamName}`).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>b.epNext-a.epNext).slice(0,10),p=data.players.find(x=>x.id===(selected??players[0]?.id))??data.players[0],m=projectionMetrics(p,first,data.fixtures,first);const appearance=(1-m.sixtyProbability)*m.startProbability+m.sixtyProbability*2,goalPts=m.xG*(p.positionShort==="FWD"?4:p.positionShort==="MID"?5:6),assistPts=m.xA*3,cleanPts=m.cleanSheetProbability*(p.positionShort==="MID"?1:["GKP","DEF"].includes(p.positionShort)?4:0)*m.sixtyProbability,other=Math.max(0,m.xPts-appearance-goalPts-assistPts-cleanPts-m.bonus);const confidence=m.startProbability>.82?"High":m.startProbability>.62?"Medium":"Low";let locks:any[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}return <div className="coach-page"><section className="model-trust"><div><span>HOW PROJECTIONS WORK</span><h2>Transparent by default. Technical when you want it.</h2><p>Expected points combine expected minutes, team and opponent strength, xG/xA, penalties and set pieces, clean-sheet probability, defensive contributions, home advantage, role and official availability.</p></div><button onClick={()=>setTechnical(x=>!x)}>{technical?"Hide technical detail":"Open technical detail"}</button>{technical&&<div className="technical-note"><b>Technical method</b><p>Current-season performance is blended with prior-season rates while the new sample is small. Each fixture applies venue and difficulty adjustments. Availability discounts both starting probability and 60-minute probability. Component outcomes are summed, then lightly blended with the official next-event expectation when available.</p><p>Uncertainty is driven mainly by start probability, role flags and sample size. Missing inputs are not invented.</p></div>}</section><section className="model-picker"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a player…"/><div>{players.map(x=><button className={x.id===p.id?"active":""} onClick={()=>setSelected(x.id)} key={x.id}>{x.name}<small>{x.teamShort}</small></button>)}</div></section><section className="projection-explainer"><header><div><span>{p.teamName} · {p.position} · £{p.price.toFixed(1)}m</span><h2>{p.name} — {m.xPts.toFixed(1)} xPts</h2></div><b className={confidence.toLowerCase()}>Confidence: {confidence}</b></header><div>{[["Appearance",appearance],["Goals",goalPts],["Assists",assistPts],["Clean sheet",cleanPts],["Bonus",m.bonus],["Other",other]].map(([label,value])=><article key={String(label)}><span>{label}</span><b>{Number(value).toFixed(2)}</b><i><em style={{width:`${clamp(Number(value)/Math.max(.1,m.xPts)*100)}%`}}/></i></article>)}</div><footer><span>{Math.round(m.expectedMinutes)} xMins</span><span>{Math.round(m.startProbability*100)}% start</span><span>{m.penaltyRole?"Penalties":"No confirmed pens"}</span><span>{m.setPieceRole?"Set pieces":"No confirmed set pieces"}</span></footer></section><section className="model-reality"><header><div><span>MODEL VS REALITY</span><h2>Every locked plan becomes an audit trail.</h2></div><strong>{locks.length}<small>projection snapshots</small></strong></header>{locks.length?<div>{locks.slice(-5).reverse().map((l:any)=><article key={l.event}><b>GW{l.event}</b><span>Projected {l.predicted} pts</span><em>Actual result appears after the gameweek is finished</em></article>)}</div>:<p>Lock a team in Final Check to start tracking projected points, actual points, error and rolling model accuracy. No backtest numbers are fabricated.</p>}</section></div>}
+function PointsModel({data}:{data:FplData}){
+  const events=futureEvents(data,5),first=events[0]?.id;const[q,setQ]=useState("");const[selected,setSelected]=useState<number|null>(null);const[technical,setTechnical]=useState(false);
+  const players=data.players.filter(p=>(`${p.name} ${p.teamName}`).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>b.epNext-a.epNext).slice(0,10),p=data.players.find(x=>x.id===(selected??players[0]?.id))??data.players[0],m=projectionMetrics(p,first,data.fixtures,first),calibration=playerCalibrationProfile(p);
+  const appearance=(1-m.sixtyProbability)*m.startProbability+m.sixtyProbability*2,goalPts=m.xG*(p.positionShort==="FWD"?4:p.positionShort==="MID"?5:6),assistPts=m.xA*3,cleanPts=m.cleanSheetProbability*(p.positionShort==="MID"?1:["GKP","DEF"].includes(p.positionShort)?4:0)*m.sixtyProbability,other=Math.max(0,m.xPts-appearance-goalPts-assistPts-cleanPts-m.bonus),confidence=projectionConfidenceBand(m.confidence);
+  let locks:any[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
+  return <div className="coach-page">
+    <section className="model-trust"><div><span>HOW PROJECTIONS WORK</span><h2>Transparent by default. Technical when you want it.</h2><p>Expected points combine expected minutes, team and opponent strength, xG/xA, penalties and set pieces, clean-sheet probability, defensive contributions, home advantage, role and official availability.</p></div><button onClick={()=>setTechnical(x=>!x)}>{technical?"Hide technical detail":"Open technical detail"}</button>{technical&&<div className="technical-note"><b>Technical method</b><p>Players are assigned to an explicit Premier League evidence group. Established PL history uses normal shrinkage; limited history receives stronger shrinkage; players with no genuine PL prior start from a position baseline and learn more slowly from early current-season matches.</p><p>Club-level PL continuity lowers the confidence ceiling when a roster has little proven top-flight evidence. It never substitutes Championship output as Premier League data.</p></div>}</section>
+    <section className="model-picker"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a player…"/><div>{players.map(x=><button className={x.id===p.id?"active":""} onClick={()=>setSelected(x.id)} key={x.id}>{x.name}<small>{x.teamShort}</small></button>)}</div></section>
+    <section className="projection-explainer"><header><div><span>{p.teamName} · {p.position} · £{p.price.toFixed(1)}m</span><h2>{p.name} — {m.xPts.toFixed(1)} xPts</h2></div><b className={confidence.toLowerCase()}>Confidence: {confidence}</b></header><div>{[["Appearance",appearance],["Goals",goalPts],["Assists",assistPts],["Clean sheet",cleanPts],["Bonus",m.bonus],["Other",other]].map(([label,value])=><article key={String(label)}><span>{label}</span><b>{Number(value).toFixed(2)}</b><i><em style={{width:`${clamp(Number(value)/Math.max(.1,m.xPts)*100)}%`}}/></i></article>)}</div><footer><span>{Math.round(m.expectedMinutes)} xMins</span><span>{Math.round(m.startProbability*100)}% start</span><span>{m.penaltyRole?"Penalties":"No confirmed pens"}</span><span>{m.setPieceRole?"Set pieces":"No confirmed set pieces"}</span></footer></section>
+    <section className="calibration-card"><header><div><span>PLAYER EVIDENCE CLASS</span><h2>{calibration.label}</h2></div><b>{Math.round(m.confidence*100)}% confidence</b></header><div><p><span>Prior PL sample</span><b>{p.priorMinutes.toLocaleString()} min</b><small>{calibration.hasPremierLeaguePrior?`${p.priorSeason??"Prior season"} · ${p.priorCompetition??"Premier League"}`:"No non-PL statistics substituted"}</small></p><p><span>Current PL sample</span><b>{p.minutes.toLocaleString()} min</b><small>{Math.round((m.currentEvidenceWeight??0)*100)}% current-rate weight</small></p><p><span>Confidence ceiling</span><b>{Math.round((m.confidenceCap??1)*100)}%</b><small>rises only when real PL evidence supports it</small></p><p><span>Club PL continuity</span><b>{Math.round((p.teamPlPriorCoverage??0)*100)}%</b><small>{calibration.lowPlContinuityClub?"Promoted / low-continuity context":"Established roster context"}</small></p></div>{calibration.group!=="established-pl"&&<footer>This player is deliberately prevented from receiving established-player certainty. The transfer rank consumes the lower confidence; warnings explain the evidence gap.</footer>}</section>
+    <section className="model-reality"><header><div><span>MODEL VS REALITY</span><h2>Every locked plan becomes an audit trail.</h2></div><strong>{locks.length}<small>projection snapshots</small></strong></header>{locks.length?<div>{locks.slice(-5).reverse().map((l:any)=><article key={l.event}><b>GW{l.event}</b><span>Projected {l.predicted} pts</span><em>Actual result appears after the gameweek is finished</em></article>)}</div>:<p>Lock a team in Final Check to start tracking projected points, actual points, error and rolling model accuracy. No backtest numbers are fabricated.</p>}</section>
+  </div>;
+}
 
 type EvaluationRow={lock:LockRecord;evaluation:ProjectionEvaluation};
 function ModelAudit({data,revision}:{data:FplData;revision:number}){
@@ -1078,6 +1091,8 @@ function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
   };
   const byPosition=grouped(row=>row.positionShort??"LEGACY",key=>key==="LEGACY"?"Legacy / unknown":key).sort((a,b)=>["GKP","DEF","MID","FWD","LEGACY"].indexOf(a.key)-["GKP","DEF","MID","FWD","LEGACY"].indexOf(b.key));
   const byConfidence=grouped(row=>row.confidenceBand,key=>key).sort((a,b)=>["High","Medium","Low"].indexOf(a.key)-["High","Medium","Low"].indexOf(b.key));
+  const calibrationLabels:Record<string,string>={"established-pl":"Established PL prior","limited-pl":"Limited PL prior","no-pl-prior":"No genuine PL prior","current-pl-established":"Established this PL season","LEGACY":"Legacy / unknown"};
+  const byCalibration=grouped(row=>row.calibrationGroup??"LEGACY",key=>calibrationLabels[key]??key).sort((a,b)=>["established-pl","limited-pl","no-pl-prior","current-pl-established","LEGACY"].indexOf(a.key)-["established-pl","limited-pl","no-pl-prior","current-pl-established","LEGACY"].indexOf(b.key));
   const teamName=new Map(data.teams.map(team=>[String(team.id),team.name]));
   const byClub=grouped(row=>row.teamId===null?"LEGACY":String(row.teamId),key=>key==="LEGACY"?"Legacy / unknown":teamName.get(key)??`Team ${key}`).sort((a,b)=>b.metric.activeRows-a.metric.activeRows||((b.metric.pointsMae??0)-(a.metric.pointsMae??0)));
   const byEvent=grouped(row=>String(row.event),key=>`GW${key}`).sort((a,b)=>Number(a.key)-Number(b.key));
@@ -1096,6 +1111,7 @@ function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
       </div>
       {evaluated.length<5&&<p className="accuracy-warning"><b>Small sample:</b> {evaluated.length} evaluated gameweek{evaluated.length===1?"":"s"}. Treat these measurements as early calibration evidence, not proof of long-run accuracy.</p>}
       <SliceTable title="GAMEWEEK TREND" items={byEvent}/>
+      <SliceTable title="BY PRIOR-EVIDENCE GROUP" items={byCalibration}/>
       <div className="accuracy-breakdowns"><SliceTable title="BY POSITION" items={byPosition}/><SliceTable title="BY CONFIDENCE" items={byConfidence}/></div>
       <SliceTable title="BY CLUB" items={byClub}/>
       <section className="accuracy-transfer"><header><div><span>TRANSFER RECOMMENDATION GAINS</span><h3>Frozen routes through completed horizon weeks</h3></div><small>Recommendations are evaluated as scenarios, not claimed as transfers the manager made.</small></header><div><p><span>All-route forecast</span><b>{transfer.projectedAverage===null?"—":`${transfer.projectedAverage>=0?"+":""}${transfer.projectedAverage.toFixed(2)}`}</b></p><p><span>All-route actual</span><b>{transfer.actualAverage===null?"—":`${transfer.actualAverage>=0?"+":""}${transfer.actualAverage.toFixed(2)}`}</b></p><p><span>After-hit actual</span><b>{transfer.netAfterHitAverage===null?"—":`${transfer.netAfterHitAverage>=0?"+":""}${transfer.netAfterHitAverage.toFixed(2)}`}</b></p><p><span>Top-route positive</span><b>{topTransfer.positivePct===null?"—":`${topTransfer.positivePct.toFixed(1)}%`}</b></p></div></section>

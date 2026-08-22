@@ -6,16 +6,17 @@ export type FplPlayer = {
   expectedGoalInvolvements:number; expectedGoalsConceded:number; cleanSheets:number; goalsConceded:number; minutes:number;
   starts:number; bonus:number; bps:number; ictIndex:number; influence:number; creativity:number; threat:number;saves:number;penaltiesSaved:number;defensiveContribution:number;clearancesBlocksInterceptions:number;recoveries:number;tackles:number;penaltiesOrder:number|null;directFreekicksOrder:number|null;cornersOrder:number|null;scoutRisks:string[];news:string; newsAdded:string|null;
   priorSource?:"official-pl-history"|"position-baseline";priorSeason?:string|null;priorCompetition?:string|null;
+  calibrationGroup?:PlayerCalibrationGroup;teamPlPriorCoverage?:number;lowPlContinuityClub?:boolean;
   teamMatchesPlayed?:number;teamStrengthHome?:number;teamStrengthAway?:number;teamAttackHome?:number|null;teamAttackAway?:number|null;teamDefenceHome?:number|null;teamDefenceAway?:number|null;
 };
 export type FplFixture = { id:number; event:number|null; teamH:number; teamA:number; teamHDifficulty:number; teamADifficulty:number; finished:boolean; kickoff:string|null; started:boolean; teamHScore:number|null; teamAScore:number|null };
 export type FplEvent = { id:number; name:string; deadline:string; current:boolean; next:boolean; finished:boolean; dataChecked:boolean };
 export type PositionRule = { id:number; name:string; short:string; squad:number; minPlay:number; maxPlay:number };
-export type FplData = { updatedAt:string; source:string; seasonStatsThrough:number; players:FplPlayer[]; fixtures:FplFixture[]; events:FplEvent[]; teams:{id:number;name:string;short:string;strengthHome?:number;strengthAway?:number;attackHome?:number|null;attackAway?:number|null;defenceHome?:number|null;defenceAway?:number|null}[]; rules:{budget:number;squadSize:number;teamLimit:number;positions:PositionRule[]}; dataIntegrityWarnings?:string[] };
+export type FplData = { updatedAt:string; source:string; seasonStatsThrough:number; players:FplPlayer[]; fixtures:FplFixture[]; events:FplEvent[]; teams:{id:number;name:string;short:string;strengthHome?:number;strengthAway?:number;attackHome?:number|null;attackAway?:number|null;defenceHome?:number|null;defenceAway?:number|null;plPriorCoverage?:number;lowPlContinuity?:boolean}[]; rules:{budget:number;squadSize:number;teamLimit:number;positions:PositionRule[]}; dataIntegrityWarnings?:string[] };
 
 // Bump whenever projection or ranking semantics change. Deadline receipts persist this value so
 // later accuracy reports never compare outcomes from different model generations as one system.
-export const PROJECTION_MODEL_VERSION="fpl-edge-2026.08.22-r1";
+export const PROJECTION_MODEL_VERSION="fpl-edge-2026.08.23-r2";
 
 const difficultyFactor:Record<number,number>={1:1.24,2:1.12,3:1,4:.88,5:.76};
 export const availability=(player:FplPlayer)=>player.chance!==null?Math.max(0,player.chance/100):player.status==="a"?1:player.status==="d"?.72:.2;
@@ -25,6 +26,25 @@ export const availability=(player:FplPlayer)=>player.chance!==null?Math.max(0,pl
 export const futureEvents=(data:FplData,count=8)=>data.events.filter(event=>!event.finished&&new Date(event.deadline).getTime()>Date.now()).slice(0,count);
 
 const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
+
+export type PlayerCalibrationGroup="established-pl"|"limited-pl"|"no-pl-prior"|"current-pl-established";
+export type PlayerCalibrationProfile={group:PlayerCalibrationGroup;label:string;hasPremierLeaguePrior:boolean;lowPlContinuityClub:boolean;priorShrinkageMinutes:number;currentLearningMinutes:number;currentWeightCap:number;confidenceCap:number;rolePriorMatches:number};
+export const LOW_PL_CONTINUITY_THRESHOLD=.35;
+// Each roster place contributes at most 1,800 prior PL minutes. This measures how much genuine
+// top-flight evidence exists across a current club without guessing promotion status from names.
+export function plRosterContinuity(priorMinutes:number[]):number{return priorMinutes.length?clamp(priorMinutes.reduce((sum,minutes)=>sum+Math.min(1800,Math.max(0,minutes)),0)/(priorMinutes.length*1800),0,1):0}
+export const isLowPlContinuity=(coverage:number)=>coverage<LOW_PL_CONTINUITY_THRESHOLD;
+export function playerCalibrationProfile(player:FplPlayer):PlayerCalibrationProfile{
+  const hasPremierLeaguePrior=(player.priorSource==="official-pl-history"||player.priorSource===undefined)&&player.priorMinutes>0;
+  const lowPlContinuityClub=player.lowPlContinuityClub===true;
+  let group:PlayerCalibrationGroup,label:string,priorShrinkageMinutes:number,currentLearningMinutes:number,currentWeightCap:number,confidenceCap:number,rolePriorMatches:number;
+  if(hasPremierLeaguePrior&&player.priorMinutes>=900){group="established-pl";label="Established PL prior";priorShrinkageMinutes=450;currentLearningMinutes=900;currentWeightCap=.75;confidenceCap=1;rolePriorMatches=8}
+  else if(hasPremierLeaguePrior){group="limited-pl";label="Limited PL prior";priorShrinkageMinutes=900;currentLearningMinutes=1200;currentWeightCap=.68;confidenceCap=.72;rolePriorMatches=3}
+  else if(player.minutes>=900){group="current-pl-established";label="Established this PL season";priorShrinkageMinutes=1350;currentLearningMinutes=1350;currentWeightCap=.82;confidenceCap=.82;rolePriorMatches=2}
+  else{group="no-pl-prior";label="No genuine PL prior";priorShrinkageMinutes=1350;currentLearningMinutes=1350;currentWeightCap=.58;confidenceCap=.58;rolePriorMatches=3}
+  if(lowPlContinuityClub)confidenceCap=Math.max(.35,confidenceCap-.08);
+  return{group,label,hasPremierLeaguePrior,lowPlContinuityClub,priorShrinkageMinutes,currentLearningMinutes,currentWeightCap,confidenceCap,rolePriorMatches};
+}
 
 // Position-average per-90 goal/assist-involvement rates. Used as a shrinkage prior so a tiny
 // prior-season minutes sample (e.g. a single late substitute appearance) regresses toward a
@@ -47,33 +67,33 @@ const ownDefenceFactor:Record<number,number>={1:.72,2:.85,3:1,4:1.12,5:1.24};
 const logFactorial=(n:number)=>{let s=0;for(let i=2;i<=n;i++)s+=Math.log(i);return s};
 const poissonAtLeast=(lambda:number,threshold:number)=>{if(lambda<=0)return 0;let cdf=0;for(let k=0;k<threshold;k++)cdf+=Math.exp(-lambda+k*Math.log(lambda)-logFactorial(k));return clamp(1-cdf,0,1)};
 
-export type ProjectionMetrics={xPts:number;expectedMinutes:number;startProbability:number;sixtyProbability:number;rotationRisk:number;xG:number;xA:number;xG90:number;xA90:number;cleanSheetProbability:number;bonus:number;defensiveContribution:number;saves:number;penaltyRole:boolean;setPieceRole:boolean;confidence:number};
+export type ProjectionMetrics={xPts:number;expectedMinutes:number;startProbability:number;sixtyProbability:number;rotationRisk:number;xG:number;xA:number;xG90:number;xA90:number;cleanSheetProbability:number;bonus:number;defensiveContribution:number;saves:number;penaltyRole:boolean;setPieceRole:boolean;confidence:number;calibrationGroup?:PlayerCalibrationGroup;confidenceCap?:number;currentEvidenceWeight?:number};
 export function projectionMetrics(player:FplPlayer,eventId:number,fixtures:FplFixture[],firstEvent:number):ProjectionMetrics{
   const games=fixtures.filter(f=>f.event===eventId&&(f.teamH===player.teamId||f.teamA===player.teamId));
   const available=availability(player);
   // Older persisted/test fixtures predate explicit provenance and already represent real PL priors;
   // production API payloads always set priorSource, so a promoted/new player can never enter this
   // branch merely because a current-season bootstrap total happens to be non-zero.
-  const hasPremierLeaguePrior=(player.priorSource==="official-pl-history"||player.priorSource===undefined)&&player.priorMinutes>0;
+  const calibration=playerCalibrationProfile(player),hasPremierLeaguePrior=calibration.hasPremierLeaguePrior;
   const roleBaseline=clamp(.42+player.selectedBy/100,.35,.82);
   const historicalStartRate=hasPremierLeaguePrior?clamp(player.priorStarts/38,.08,.98):roleBaseline;
   const completedMatches=Math.max(0,player.teamMatchesPlayed??player.starts);
-  const rolePriorMatches=hasPremierLeaguePrior?8:3;
+  const rolePriorMatches=calibration.rolePriorMatches;
   const observedStarts=Math.min(player.starts,completedMatches);
   const blendedStartRate=(historicalStartRate*rolePriorMatches+observedStarts)/Math.max(1,rolePriorMatches+completedMatches);
   const roleRisk=player.scoutRisks?.length?Math.min(.18,player.scoutRisks.length*.05):0;
   const startProbability=clamp(blendedStartRate*available-roleRisk,.03,.99);
   const historicalMinutesPerStart=hasPremierLeaguePrior&&player.priorStarts?clamp(player.priorMinutes/player.priorStarts,58,90):72;
   const currentMinutesPerStart=player.starts?clamp(player.minutes/player.starts,58,90):historicalMinutesPerStart;
-  const currentSampleWeight=clamp(player.minutes/(player.minutes+900),0,.75);
+  const currentSampleWeight=clamp(player.minutes/(player.minutes+calibration.currentLearningMinutes),0,calibration.currentWeightCap);
   const minutesPerStart=historicalMinutesPerStart*(1-currentSampleWeight)+currentMinutesPerStart*currentSampleWeight;
   const expectedMinutes=clamp(startProbability*minutesPerStart+(1-startProbability)*12,4,90);
   const sixtyProbability=clamp(startProbability*(minutesPerStart>=72?.94:.72),.02,.98);
   const baseline=baselineRates[player.positionShort]??baselineRates.MID;
-  const priorXG90=hasPremierLeaguePrior?shrinkPer90(player.priorExpectedGoals,player.priorMinutes,baseline.xG90):baseline.xG90;
-  const priorXA90=hasPremierLeaguePrior?shrinkPer90(player.priorExpectedAssists,player.priorMinutes,baseline.xA90):baseline.xA90;
-  const currentXG90=player.minutes?shrinkPer90(player.expectedGoals,player.minutes,baseline.xG90,900):baseline.xG90;
-  const currentXA90=player.minutes?shrinkPer90(player.expectedAssists,player.minutes,baseline.xA90,900):baseline.xA90;
+  const priorXG90=hasPremierLeaguePrior?shrinkPer90(player.priorExpectedGoals,player.priorMinutes,baseline.xG90,calibration.priorShrinkageMinutes):baseline.xG90;
+  const priorXA90=hasPremierLeaguePrior?shrinkPer90(player.priorExpectedAssists,player.priorMinutes,baseline.xA90,calibration.priorShrinkageMinutes):baseline.xA90;
+  const currentXG90=player.minutes?shrinkPer90(player.expectedGoals,player.minutes,baseline.xG90,calibration.currentLearningMinutes):baseline.xG90;
+  const currentXA90=player.minutes?shrinkPer90(player.expectedAssists,player.minutes,baseline.xA90,calibration.currentLearningMinutes):baseline.xA90;
   const xG90=priorXG90*(1-currentSampleWeight)+currentXG90*currentSampleWeight;
   const xA90=priorXA90*(1-currentSampleWeight)+currentXA90*currentSampleWeight;
   const penaltyRole=player.penaltiesOrder===1;const setPieceRole=player.directFreekicksOrder===1||player.cornersOrder===1;
@@ -87,7 +107,7 @@ export function projectionMetrics(player:FplPlayer,eventId:number,fixtures:FplFi
   const dcThreshold=player.positionShort==="DEF"?10:12;
   let totals={xPts:0,xG:0,xA:0,cleanSheetProbability:0,bonus:0,defensiveContribution:0,saves:0};
   for(const game of games){const home=game.teamH===player.teamId;const difficulty=home?game.teamHDifficulty:game.teamADifficulty;const overallStrength=home?(player.teamStrengthHome??3):(player.teamStrengthAway??3);const attackStrength=home?(player.teamAttackHome??overallStrength):(player.teamAttackAway??overallStrength);const defenceStrength=home?(player.teamDefenceHome??overallStrength):(player.teamDefenceAway??overallStrength);const attackFactor=(difficultyFactor[difficulty]??1)*(home?1.08:.95)*(ownAttackFactor[attackStrength]??1);const csBase:Record<number,number>={1:.52,2:.42,3:.31,4:.21,5:.13};const csProb=clamp((csBase[difficulty]??.3)*(home?1.05:.94)*(ownDefenceFactor[defenceStrength]??1),.05,.68);const appearance=(1-sixtyProbability)*startProbability+sixtyProbability*2;const roleBoost=(penaltyRole?.09:0)+(setPieceRole?.035:0);const expectedXG=Math.max(0,xG90*expectedMinutes/90*attackFactor+roleBoost*startProbability);const expectedXA=Math.max(0,xA90*expectedMinutes/90*attackFactor+(setPieceRole?.035:0)*startProbability);const goalPoints=player.positionShort==="FWD"?4:player.positionShort==="MID"?5:6;const cleanSheetPoints=player.positionShort==="MID"?1:["GKP","DEF"].includes(player.positionShort)?4:0;const bonus=clamp(bonusPerStart*startProbability*attackFactor+(expectedXG+expectedXA)*.45,0,1.6);const dcLambda=dcPerStart*(expectedMinutes/90);const dc=["DEF","MID","FWD"].includes(player.positionShort)?poissonAtLeast(dcLambda,dcThreshold)*2:0;let savePoints=0,penaltySave=0,saves=0;if(player.positionShort==="GKP"){const priorSavesPerStart=hasPremierLeaguePrior?shrinkPerStart(player.priorSaves,player.priorStarts,2.6):2.6;const currentSavesPerStart=player.starts?shrinkPerStart(player.saves,player.starts,2.6,8):2.6;const savesPerStart=priorSavesPerStart*(1-currentSampleWeight)+currentSavesPerStart*currentSampleWeight;saves=savesPerStart*(difficulty>=4?1.18:difficulty<=2?.85:1)*startProbability;savePoints=saves/3;const priorPenaltiesSavedPerStart=hasPremierLeaguePrior?shrinkPerStart(player.priorPenaltiesSaved,player.priorStarts,.03):.03;penaltySave=priorPenaltiesSavedPerStart*.22*5}const fixturePts=appearance+expectedXG*goalPoints+expectedXA*3+csProb*cleanSheetPoints*sixtyProbability+bonus+dc+savePoints+penaltySave;totals.xPts+=fixturePts;totals.xG+=expectedXG;totals.xA+=expectedXA;totals.cleanSheetProbability+=csProb;totals.bonus+=bonus;totals.defensiveContribution+=dc;totals.saves+=saves}
-  const officialNext=eventId===firstEvent?player.epNext:0;const componentTotal=totals.xPts;const blended=officialNext>0?componentTotal*.82+officialNext*.18:componentTotal;const historicalConfidence=hasPremierLeaguePrior?clamp(player.priorMinutes/1800,0,1):0;const currentConfidence=clamp(player.minutes/900,0,1);const confidence=clamp(historicalConfidence*.5+currentConfidence*.25+startProbability*.25,.05,1);return{xPts:games.length?clamp(blended,0,16*Math.max(1,games.length)):0,expectedMinutes,startProbability,sixtyProbability,rotationRisk:1-startProbability,xG:totals.xG,xA:totals.xA,xG90,xA90,cleanSheetProbability:games.length?totals.cleanSheetProbability/games.length:0,bonus:totals.bonus,defensiveContribution:totals.defensiveContribution,saves:totals.saves,penaltyRole,setPieceRole,confidence};
+  const officialNext=eventId===firstEvent?player.epNext:0;const componentTotal=totals.xPts;const blended=officialNext>0?componentTotal*.82+officialNext*.18:componentTotal;const historicalConfidence=hasPremierLeaguePrior?clamp(player.priorMinutes/1800,0,1):0;const currentConfidence=clamp(player.minutes/900,0,1);const confidence=clamp(historicalConfidence*.5+currentConfidence*.25+startProbability*.25,.05,calibration.confidenceCap);return{xPts:games.length?clamp(blended,0,16*Math.max(1,games.length)):0,expectedMinutes,startProbability,sixtyProbability,rotationRisk:1-startProbability,xG:totals.xG,xA:totals.xA,xG90,xA90,cleanSheetProbability:games.length?totals.cleanSheetProbability/games.length:0,bonus:totals.bonus,defensiveContribution:totals.defensiveContribution,saves:totals.saves,penaltyRole,setPieceRole,confidence,calibrationGroup:calibration.group,confidenceCap:calibration.confidenceCap,currentEvidenceWeight:currentSampleWeight};
 }
 export const playerProjection=(player:FplPlayer,eventId:number,fixtures:FplFixture[],firstEvent:number)=>projectionMetrics(player,eventId,fixtures,firstEvent).xPts;
 
