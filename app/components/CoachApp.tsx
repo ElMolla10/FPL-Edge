@@ -10,7 +10,8 @@ import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib
 import { persist, syncWithServer } from "../lib/persistence";
 
 type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
-type ManagerMeta={id:number;name:string;teamName:string;overallPoints:number;overallRank:number;gameweekPoints:number;gameweekRank:number;squadValue:number|null;bank:number|null;transfersMade:number;transferCost:number;captainId:number|null;viceCaptainId:number|null;chip:string|null};
+export type OfficialPick={elementId:number;position:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean};
+type ManagerMeta={id:number;name:string;teamName:string;overallPoints:number;overallRank:number;gameweekPoints:number;gameweekRank:number;squadValue:number|null;bank:number|null;transfersMade:number;transferCost:number;captainId:number|null;viceCaptainId:number|null;chip:string|null;event?:number;picks?:OfficialPick[]};
 export type Transfer={
   out:FplPlayer;incoming:FplPlayer;
   gain1:number;gain3:number;gain5:number;
@@ -212,7 +213,7 @@ function useCaptaincy(players:FplPlayer[],event:number,modelCaptain:FplPlayer|un
   return{captain:players.find(p=>p.id===captainId)??modelCaptain??players[0],vice:players.find(p=>p.id===viceId)??modelVice??players.find(p=>p.id!==(captainId??modelCaptain?.id))??players[0],chooseCaptain,chooseVice};
 }
 
-function CaptaincyPicker({players,captain,vice,onCaptain,onVice,event,data}:{players:FplPlayer[];captain:FplPlayer;vice:FplPlayer;onCaptain:(id:number)=>void;onVice:(id:number)=>void;event:number;data:FplData}){return <section className="captaincy-picker"><div><span>CAPTAIN</span><select value={captain.id} onChange={e=>onCaptain(Number(e.target.value))}>{players.map(p=><option key={p.id} value={p.id}>{p.name} · {playerProjection(p,event,data.fixtures,event).toFixed(1)} xPts</option>)}</select><small>Scores double if they play.</small></div><i>↔</i><div><span>VICE-CAPTAIN</span><select value={vice.id} onChange={e=>onVice(Number(e.target.value))}>{players.map(p=><option key={p.id} value={p.id}>{p.name} · {playerProjection(p,event,data.fixtures,event).toFixed(1)} xPts</option>)}</select><small>Takes over if your captain does not play.</small></div><strong>Saved automatically for GW{event}</strong></section>}
+function CaptaincyPicker({players,captain,vice,onCaptain,onVice,event,data,readOnly=false,status}:{players:FplPlayer[];captain:FplPlayer;vice:FplPlayer;onCaptain:(id:number)=>void;onVice:(id:number)=>void;event:number;data:FplData;readOnly?:boolean;status?:string}){return <section className={`captaincy-picker ${readOnly?"locked":""}`}><div><span>CAPTAIN</span><select value={captain.id} onChange={e=>onCaptain(Number(e.target.value))} disabled={readOnly}>{players.map(p=><option key={p.id} value={p.id}>{p.name} · {playerProjection(p,event,data.fixtures,event).toFixed(1)} xPts</option>)}</select><small>{readOnly?"Official selection from FPL.":"Scores double if they play."}</small></div><i>↔</i><div><span>VICE-CAPTAIN</span><select value={vice.id} onChange={e=>onVice(Number(e.target.value))} disabled={readOnly}>{players.map(p=><option key={p.id} value={p.id}>{p.name} · {playerProjection(p,event,data.fixtures,event).toFixed(1)} xPts</option>)}</select><small>Takes over if your captain does not play.</small></div><strong>{status??`Saved automatically for GW${event}`}</strong></section>}
 
 // --- Gameweek navigator: past/current/future squad views on the Team page ---
 
@@ -268,16 +269,28 @@ export function resolvePastGameweek(players:FplPlayer[],historyWeek:HistoryWeek|
   return null;
 }
 
-export type CurrentXiResolution={xi:FplPlayer[];bench:FplPlayer[];modelCaptain:FplPlayer|undefined;modelVice:FplPlayer|undefined;source:"locked"|"model"};
+export type CurrentXiResolution={xi:FplPlayer[];bench:FplPlayer[];modelCaptain:FplPlayer|undefined;modelVice:FplPlayer|undefined;source:"official"|"locked"|"model"};
 
-// If this event was locked in Final Check, that recorded XI is what actually got played --
-// bestXi() re-derives its OWN pick from today's projections, which can drift from what was really
-// locked in (bench-order/model changes since lock time). Preferring the lock here mirrors
+// Official post-deadline picks are authoritative when available. Otherwise, if this event was
+// locked in Final Check, that recorded XI is what actually got planned -- bestXi() re-derives its
+// OWN pick from today's projections, which can drift from the saved selection. Preferring those
+// real sources over the model mirrors
 // resolvePastGameweek's locked-prediction branch and useCaptaincy's stored-choice precedence:
 // without it, live points would silently sum eventPoints for players who were never actually in
 // the real starting XI that week -- the same class of silent disagreement the Final Check
 // locks-reconciliation fix exists to prevent. Only falls back to bestXi() when no lock exists.
-export function resolveCurrentXi(squad:FplPlayer[],players:FplPlayer[],eventId:number,fixtures:FplFixture[],lock:LockRecord|undefined):CurrentXiResolution{
+export function resolveCurrentXi(squad:FplPlayer[],players:FplPlayer[],eventId:number,fixtures:FplFixture[],lock:LockRecord|undefined,officialPicks?:OfficialPick[]):CurrentXiResolution{
+  if(officialPicks?.length===15){
+    const byId=(id:number)=>players.find(p=>p.id===id);
+    const ordered=officialPicks.map(pick=>({pick,player:byId(pick.elementId)})).filter(row=>row.player) as {pick:OfficialPick;player:FplPlayer}[];
+    const xi=ordered.filter(row=>row.pick.position<=11).sort((a,b)=>a.pick.position-b.pick.position).map(row=>row.player);
+    const bench=ordered.filter(row=>row.pick.position>11).sort((a,b)=>a.pick.position-b.pick.position).map(row=>row.player);
+    if(xi.length===11&&bench.length===4){
+      const captainPick=ordered.find(row=>row.pick.isCaptain);
+      const vicePick=ordered.find(row=>row.pick.isViceCaptain);
+      return{xi,bench,modelCaptain:captainPick?.player??xi[0],modelVice:vicePick?.player??xi[1],source:"official"};
+    }
+  }
   if(lock){
     const byId=(id:number)=>players.find(p=>p.id===id);
     const xi=lock.xiIds.map(byId).filter(Boolean) as FplPlayer[];
@@ -299,6 +312,47 @@ export function resolveBenchDisplay(bench:FplPlayer[],xi:FplPlayer[],effectiveXi
   return[...bench,...xi].filter(p=>!effectiveXi.some(e=>e.id===p.id));
 }
 
+export type OfficialScoringAuthority={event:number;captainId:number|null;viceCaptainId:number|null;chip:string|null};
+export type LiveScoringResult={
+  effectiveXi:FplPlayer[];displayedBench:FplPlayer[];effectiveCaptainId:number|null;
+  captainId:number;viceId:number;captainMultiplier:number;activeChip:string|null;
+  captainBonus:number;benchBoostPoints:number;liveTotal:number;
+  armbandPassedToVice:boolean;captaincyLost:boolean;captaincySource:"official"|"local";
+  swaps:{outId:number;outName:string;inId:number;inName:string}[];
+};
+
+// The official FPL code for Triple Captain is "3xc". A missing or unrelated chip must never be
+// guessed up to x3; an armband holder defaults honestly to standard captaincy, while a week where
+// both captain and vice fail to play has no multiplier at all.
+export function resolveCaptainMultiplier(isArmbandHolder:boolean,activeChip:string|null):number{
+  if(!isArmbandHolder)return 1;
+  return activeChip==="3xc"?3:2;
+}
+
+// Single source of truth for every live-scoring consumer. Official captaincy/chip data is used only
+// after the deadline and only when it explicitly belongs to this event. Otherwise the local picks
+// remain a clearly labelled estimate. This prevents a stale chip or a post-deadline local edit from
+// silently changing the official live total.
+export function resolveLiveScoring({xi,bench,localCaptainId,localViceId,eventId,deadlinePassed,official,finalizeAutosubs}:{xi:FplPlayer[];bench:FplPlayer[];localCaptainId:number;localViceId:number;eventId:number;deadlinePassed:boolean;official:OfficialScoringAuthority|null;finalizeAutosubs:boolean}):LiveScoringResult{
+  const validXi=(id:number|null|undefined):id is number=>!!id&&xi.some(p=>p.id===id);
+  const officialForEvent=deadlinePassed&&official?.event===eventId?official:null;
+  const officialCaptaincy=!!officialForEvent&&validXi(officialForEvent.captainId)&&validXi(officialForEvent.viceCaptainId)&&officialForEvent.captainId!==officialForEvent.viceCaptainId;
+  const captainId=officialCaptaincy?officialForEvent!.captainId!:validXi(localCaptainId)?localCaptainId:xi[0]?.id??0;
+  let viceId=officialCaptaincy?officialForEvent!.viceCaptainId!:validXi(localViceId)?localViceId:xi.find(p=>p.id!==captainId)?.id??captainId;
+  if(viceId===captainId)viceId=xi.find(p=>p.id!==captainId)?.id??captainId;
+  const activeChip=officialForEvent?.chip??null;
+  const autosub=finalizeAutosubs&&xi.length===11?simulateAutosubs(xi,bench,captainId,viceId):null;
+  const effectiveXi=autosub?.effectiveXi??xi;
+  const displayedBench=resolveBenchDisplay(bench,xi,effectiveXi);
+  const effectiveCaptainId=autosub?autosub.effectiveCaptainId:captainId||null;
+  const armbandHolder=effectiveXi.find(p=>p.id===effectiveCaptainId);
+  const captainMultiplier=resolveCaptainMultiplier(!!armbandHolder,activeChip);
+  const captainBonus=(armbandHolder?.eventPoints??0)*(captainMultiplier-1);
+  const benchBoostPoints=activeChip==="bboost"?displayedBench.reduce((sum,p)=>sum+p.eventPoints,0):0;
+  const liveTotal=effectiveXi.reduce((sum,p)=>sum+p.eventPoints,0)+captainBonus+benchBoostPoints;
+  return{effectiveXi,displayedBench,effectiveCaptainId,captainId,viceId,captainMultiplier,activeChip,captainBonus,benchBoostPoints,liveTotal,armbandPassedToVice:autosub?.armbandPassedToVice??false,captaincyLost:autosub?.doubleLost??false,captaincySource:officialCaptaincy?"official":"local",swaps:autosub?.swaps??[]};
+}
+
 function GameweekNav({event,branch,onBack,onForward,canBack,canForward}:{event:FplEvent;branch:"past"|"current"|"future";onBack:()=>void;onForward:()=>void;canBack:boolean;canForward:boolean}){
   return <section className="gw-nav">
     <button onClick={onBack} disabled={!canBack} aria-label="Previous gameweek">←</button>
@@ -311,7 +365,27 @@ function GameweekNav({event,branch,onBack,onForward,canBack,canForward}:{event:F
 }
 
 function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
-  const squad=useMemo(()=>savedSquad(data),[data,revision]);
+  const[manager,setManager]=useManager();
+  let entry:string|null=null;
+  try{entry=localStorage.getItem("fpl-edge-entry")}catch{}
+  useEffect(()=>{
+    if(!entry)return;
+    let cancelled=false;
+    fetch(`/api/fpl/team?entry=${entry}`,{cache:"no-store"}).then(async response=>{
+      if(!response.ok)return null;
+      return response.json();
+    }).then(json=>{
+      if(cancelled||!json?.manager)return;
+      const ids=(json.playerIds as number[]).filter(id=>data.players.some(p=>p.id===id));
+      if(ids.length!==15)return;
+      persist("fpl-edge-squad",JSON.stringify(ids));
+      persist("fpl-edge-manager",JSON.stringify(json.manager));
+      localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());
+      setManager(json.manager as ManagerMeta);
+    }).catch(()=>{});
+    return()=>{cancelled=true};
+  },[entry,data.updatedAt]);
+  const squad=useMemo(()=>savedSquad(data),[data,revision,manager]);
   const a=analysis(data,squad);
 
   // Critical: the LIVE/in-progress gameweek is data.events.find(e=>e.current), NOT
@@ -335,8 +409,6 @@ function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number
   // prematurely read as "past" partway through.
   const branch:"past"|"current"|"future"=!event?"future":event.finished?"past":(currentAnchor&&event.id===currentAnchor.id)?"current":"future";
 
-  let entry:string|null=null;
-  try{entry=localStorage.getItem("fpl-edge-entry")}catch{}
   const history=useGameweekHistory(entry);
 
   // Hooks run unconditionally every render regardless of which branch is displayed -- the "current"
@@ -344,7 +416,8 @@ function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number
   let locks:LockRecord[]=[];
   try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
   const currentLock=currentAnchor?locks.find(l=>l.event===currentAnchor.id):undefined;
-  const currentResolution=useMemo(()=>currentAnchor?resolveCurrentXi(squad,data.players,currentAnchor.id,data.fixtures,currentLock):null,[squad,data,currentAnchor,currentLock]);
+  const currentOfficialPicks=currentAnchor&&manager?.event===currentAnchor.id?manager.picks:undefined;
+  const currentResolution=useMemo(()=>currentAnchor?resolveCurrentXi(squad,data.players,currentAnchor.id,data.fixtures,currentLock,currentOfficialPicks):null,[squad,data,currentAnchor,currentLock,currentOfficialPicks]);
   const currentXi=currentResolution?.xi??[];
   const currentBench=currentResolution?.bench??[];
   const currentCaptaincy=useCaptaincy(currentXi,currentAnchor?.id??0,currentResolution?.modelCaptain,currentResolution?.modelVice);
@@ -357,7 +430,7 @@ function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number
   return <div className="coach-page">
     <GameweekNav event={event} branch={branch} onBack={goBack} onForward={goForward} canBack={event.id>backwardBoundId} canForward={event.id<forwardBoundId}/>
     {branch==="past"&&<PastGameweekView data={data} event={event} history={history}/>}
-    {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go}/>}
+    {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} manager={manager} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go}/>}
     {branch==="future"&&<FutureGameweekView data={data} event={event} squad={squad} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank}/>}
   </div>;
 }
@@ -391,8 +464,8 @@ function PastGameweekView({data,event,history}:{data:FplData;event:FplEvent;hist
   </div>;
 }
 
-function CurrentGameweekView({data,event,squad,xi,bench,captaincy,tab,setTab,selected,setSelected,bank,go}:{data:FplData;event:FplEvent;squad:FplPlayer[];xi:FplPlayer[];bench:FplPlayer[];captaincy:{captain:FplPlayer;vice:FplPlayer;chooseCaptain:(id:number)=>void;chooseVice:(id:number)=>void};tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number;go:(v:View)=>void}){
-  const{captain,vice,chooseCaptain,chooseVice}=captaincy;
+function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,setTab,selected,setSelected,bank,go}:{data:FplData;event:FplEvent;squad:FplPlayer[];xi:FplPlayer[];bench:FplPlayer[];captaincy:{captain:FplPlayer;vice:FplPlayer;chooseCaptain:(id:number)=>void;chooseVice:(id:number)=>void};manager:ManagerMeta|null;tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number;go:(v:View)=>void}){
+  const{chooseCaptain,chooseVice}=captaincy;
   const gwFixtures=data.fixtures.filter(f=>f.event===event.id);
   const hasStarted=gwFixtures.some(f=>f.started);
   // A 0-minute reading mid-gameweek doesn't mean a player won't play -- they may just not have been
@@ -400,28 +473,42 @@ function CurrentGameweekView({data,event,squad,xi,bench,captaincy,tab,setTab,sel
   // fixture in the gameweek has actually finished (which can be true before the event-level
   // `finished`/`data_checked` flags catch up, since those wait on bonus-point confirmation too).
   const allFixturesFinished=gwFixtures.length>0&&gwFixtures.every(f=>f.finished);
-  const autosub=allFixturesFinished&&xi.length===11?simulateAutosubs(xi,bench,captain.id,vice.id):null;
-  const effectiveXi=autosub?autosub.effectiveXi:xi;
-  const armbandHolderId=autosub?autosub.effectiveCaptainId:captain.id;
-  const armbandHolder=effectiveXi.find(p=>p.id===armbandHolderId);
-  const liveTotal=effectiveXi.reduce((s,p)=>s+p.eventPoints,0)+(armbandHolder?.eventPoints??0);
+  const deadlinePassed=Date.parse(event.deadline)<=Date.now();
+  const official:OfficialScoringAuthority|null=manager?.event?{event:manager.event,captainId:manager.captainId,viceCaptainId:manager.viceCaptainId,chip:manager.chip}:null;
+  const scoring=resolveLiveScoring({xi,bench,localCaptainId:captaincy.captain.id,localViceId:captaincy.vice.id,eventId:event.id,deadlinePassed,official,finalizeAutosubs:allFixturesFinished});
+  const captain=xi.find(p=>p.id===scoring.captainId)??captaincy.captain;
+  const vice=xi.find(p=>p.id===scoring.viceId)??captaincy.vice;
+  const officialLocked=scoring.captaincySource==="official";
+  const captaincyStatus=officialLocked?"Official locked captaincy":deadlinePassed?"Local estimate · connect your FPL Team ID for the official locked captaincy":`Saved automatically for GW${event.id}`;
+  const multiplierWord=scoring.captainMultiplier===3?"tripled":"doubled";
   const replacement=bestTransfers(data,squad,bank).filter(x=>selected&&x.out.id===selected.id).slice(0,3);
   const planningFirst=futureEvents(data,5)[0]?.id??event.id;
 
   return <div className="gw-current">
-    <section className="team-toolbar"><div><span>FORMATION</span><b>{formation(xi)}</b></div><div><span>{hasStarted?"LIVE POINTS":"KICKOFF PENDING"}</span><b>{hasStarted?liveTotal:"—"}</b></div><div className="segmented">{(["Pitch","List"] as const).map(x=><button className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div><button onClick={()=>go("draft")}>Edit squad</button></section>
+    <section className="team-toolbar"><div><span>FORMATION</span><b>{formation(scoring.effectiveXi)}</b></div><div><span>{hasStarted?"LIVE POINTS":"KICKOFF PENDING"}</span><b>{hasStarted?scoring.liveTotal:"—"}</b></div>{scoring.activeChip&&<div><span>ACTIVE CHIP</span><b>{scoring.activeChip==="3xc"?"Triple Captain":scoring.activeChip==="bboost"?"Bench Boost":scoring.activeChip}</b></div>}<div className="segmented">{(["Pitch","List"] as const).map(x=><button className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div><button onClick={()=>go("draft")}>Edit squad</button></section>
     {!hasStarted&&<p className="gw-pending-note">{event.name}'s matches haven't kicked off yet -- live points will appear here once they do.</p>}
     {hasStarted&&!allFixturesFinished&&<p className="gw-pending-note">Some of this gameweek's matches are still in progress -- a player showing 0 minutes may not have played yet. Final XI and automatic substitutions appear once every match finishes.</p>}
     {allFixturesFinished&&!event.dataChecked&&<p className="gw-pending-note">Bonus points aren't final yet -- FPL confirms them a few hours after the last match of the gameweek.</p>}
-    {autosub&&autosub.swaps.length>0&&<section className="gw-autosub-note"><span>AUTOMATIC SUBSTITUTIONS</span>{autosub.swaps.map((s,i)=><p key={i}><b>{s.inName}</b> came on for <b>{s.outName}</b> (0 minutes)</p>)}</section>}
-    {autosub&&autosub.armbandPassedToVice&&<p className="gw-armband-note">{captain.name} didn't play -- the armband passed to {vice.name} ({vice.name}'s score is doubled).</p>}
-    {autosub&&autosub.doubleLost&&<p className="gw-armband-note">Neither {captain.name} nor {vice.name} played -- no double applies this week.</p>}
-    <CaptaincyPicker players={xi} captain={captain} vice={vice} onCaptain={chooseCaptain} onVice={chooseVice} event={event.id} data={data}/>
-    {tab==="Pitch"&&<><section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{effectiveXi.filter(p=>p.positionShort===pos).map(p=>{const isArmband=p.id===armbandHolderId;const wasSubbedIn=autosub?.swaps.some(s=>s.inId===p.id);return <button key={p.id} className={p.status!=="a"?"flagged":""} onClick={()=>setSelected(p)}><i>{pos}{wasSubbedIn?" · AUTO":""}</i><b>{p.name}{p.id===captain.id&&<em>C</em>}{p.id===vice.id&&<em>V</em>}</b><span>{hasStarted?`${p.eventPoints}${isArmband?" × 2":""} pts`:opponent(p,event.id,data)}</span><small>{hasStarted?`${p.eventMinutes} mins`:""}</small></button>})}</div>)}</section>
-    <section className="coach-bench"><span>BENCH</span>{resolveBenchDisplay(bench,xi,effectiveXi).map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><i>{i+1}</i><b>{p.name}</b><small>{hasStarted?`${p.eventPoints} pts · ${p.eventMinutes} mins`:opponent(p,event.id,data)}</small></button>)}</section></>}
-    {tab==="List"&&<section className="team-list"><header><span>PLAYER</span><span>FIXTURE</span><span>PTS</span><span>MINS</span><span>STATUS</span></header>{[...effectiveXi,...bench].map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><b>{i<11?"XI":"BENCH"} · {p.name}{p.id===captain.id?" (C)":p.id===vice.id?" (V)":""}<small>{p.teamShort} · {p.positionShort}</small></b><span>{opponent(p,event.id,data)}</span><strong>{p.eventPoints}{p.id===armbandHolderId?" × 2":""}</strong><span>{p.eventMinutes}</span><em className={p.status==="a"?"ok":"risk"}>{p.status==="a"?"LIKELY":"FLAGGED"}</em></button>)}</section>}
-    {selected&&<PlayerPanel player={selected} data={data} first={planningFirst} replacements={replacement} close={()=>setSelected(null)}/>}
+    {scoring.swaps.length>0&&<section className="gw-autosub-note"><span>AUTOMATIC SUBSTITUTIONS</span>{scoring.swaps.map((s,i)=><p key={i}><b>{s.inName}</b> came on for <b>{s.outName}</b> (0 minutes)</p>)}</section>}
+    {scoring.armbandPassedToVice&&<p className="gw-armband-note">{captain.name} didn't play -- the armband passed to {vice.name} ({vice.name}'s score is {multiplierWord}).</p>}
+    {scoring.captaincyLost&&<p className="gw-armband-note">Neither {captain.name} nor {vice.name} played -- no captain multiplier applies this week.</p>}
+    {scoring.activeChip==="bboost"&&<p className="gw-chip-note">Bench Boost is active · {scoring.benchBoostPoints} bench points are included in the live total.</p>}
+    <CaptaincyPicker players={xi} captain={captain} vice={vice} onCaptain={chooseCaptain} onVice={chooseVice} event={event.id} data={data} readOnly={officialLocked} status={captaincyStatus}/>
+    {tab==="Pitch"&&<><section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{scoring.effectiveXi.filter(p=>p.positionShort===pos).map(p=>{const isArmband=p.id===scoring.effectiveCaptainId;const wasSubbedIn=scoring.swaps.some(s=>s.inId===p.id);return <button key={p.id} className={p.status!=="a"?"flagged":""} onClick={()=>setSelected(p)}><i>{pos}{wasSubbedIn?" · AUTO":""}</i><b>{p.name}{isArmband&&<em>C</em>}{p.id===scoring.viceId&&!isArmband&&<em>V</em>}</b><span>{hasStarted?`${p.eventPoints}${isArmband&&scoring.captainMultiplier>1?` × ${scoring.captainMultiplier}`:""} pts`:opponent(p,event.id,data)}</span><small>{hasStarted?`${p.eventMinutes} mins`:""}</small></button>})}</div>)}</section>
+    <section className="coach-bench"><span>{scoring.activeChip==="bboost"?"BENCH BOOST":"BENCH"}</span>{scoring.displayedBench.map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><i>{i+1}</i><b>{p.name}</b><small>{hasStarted?`${p.eventPoints} pts · ${p.eventMinutes} mins${scoring.activeChip==="bboost"?" · COUNTED":""}`:opponent(p,event.id,data)}</small></button>)}</section></>}
+    {tab==="List"&&<section className="team-list"><header><span>PLAYER</span><span>FIXTURE</span><span>PTS</span><span>MINS</span><span>STATUS</span></header>{[...scoring.effectiveXi,...scoring.displayedBench].map((p,i)=>{const isArmband=p.id===scoring.effectiveCaptainId;return <button key={p.id} onClick={()=>setSelected(p)}><b>{i<scoring.effectiveXi.length?"XI":"BENCH"} · {p.name}{isArmband?" (C)":p.id===scoring.viceId?" (V)":""}<small>{p.teamShort} · {p.positionShort}</small></b><span>{opponent(p,event.id,data)}</span><strong>{p.eventPoints}{isArmband&&scoring.captainMultiplier>1?` × ${scoring.captainMultiplier}`:""}</strong><span>{p.eventMinutes}</span><em className={p.status==="a"?"ok":"risk"}>{i>=scoring.effectiveXi.length&&scoring.activeChip==="bboost"?"COUNTED":p.status==="a"?"LIKELY":"FLAGGED"}</em></button>})}</section>}
+    {selected&&hasStarted&&<LivePointsPanel player={selected} scoring={scoring} close={()=>setSelected(null)}/>}
+    {selected&&!hasStarted&&<PlayerPanel player={selected} data={data} first={planningFirst} replacements={replacement} close={()=>setSelected(null)}/>}
   </div>;
+}
+
+function LivePointsPanel({player,scoring,close}:{player:FplPlayer;scoring:LiveScoringResult;close:()=>void}){
+  const inXi=scoring.effectiveXi.some(p=>p.id===player.id);
+  const onBoostedBench=scoring.activeChip==="bboost"&&scoring.displayedBench.some(p=>p.id===player.id);
+  const multiplier=player.id===scoring.effectiveCaptainId?scoring.captainMultiplier:1;
+  const counted=inXi||onBoostedBench;
+  const countedPoints=counted?player.eventPoints*multiplier:0;
+  return <div className="player-panel-backdrop" onClick={close}><aside className="player-panel live-points-panel" onClick={e=>e.stopPropagation()}><button className="panel-close" onClick={close}>×</button><span>OFFICIAL LIVE POINTS</span><h2>{player.name}</h2><div className="panel-price">{countedPoints} counted points <small>{player.eventMinutes} minutes</small></div><div className="panel-stats"><p><span>Official raw points</span><b>{player.eventPoints}</b></p><p><span>Multiplier</span><b>×{multiplier}</b></p><p><span>Captain bonus</span><b>+{player.id===scoring.effectiveCaptainId?scoring.captainBonus:0}</b></p><p><span>Squad role</span><b>{inXi?"Starting XI":onBoostedBench?"Bench Boost":"Bench"}</b></p><p><span>Active chip</span><b>{scoring.activeChip==="3xc"?"Triple Captain":scoring.activeChip==="bboost"?"Bench Boost":"None"}</b></p><p><span>Included in total</span><b>{counted?"Yes":"No"}</b></p></div><section><span>COUNTING RULE</span><p>{player.id===scoring.effectiveCaptainId?`${player.eventPoints} raw points × ${multiplier} = ${countedPoints}.`:onBoostedBench?`${player.eventPoints} bench points are included because Bench Boost is active.`:inXi?`${player.eventPoints} official points count once in the starting XI.`:"This bench player's points are not included without Bench Boost or an automatic substitution."}</p></section></aside></div>;
 }
 
 function FutureGameweekView({data,event,squad,tab,setTab,selected,setSelected,bank}:{data:FplData;event:FplEvent;squad:FplPlayer[];tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number}){

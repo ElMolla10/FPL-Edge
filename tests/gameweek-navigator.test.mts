@@ -98,6 +98,24 @@ test("resolveCurrentXi: falls back to bestXi() when no lock exists for this even
   assert.ok(!resolution.xi.some((p) => p.id === 7), "without a lock, the weak defender should not be selected");
 });
 
+test("resolveCurrentXi: official post-deadline picks outrank both a saved lock and today's model", () => {
+  const officialXiIds=[101,3,4,5,6,108,109,110,111,113,114];
+  const officialBenchIds=[102,7,112,115];
+  const officialPicks=[...officialXiIds,...officialBenchIds].map((elementId,index)=>({
+    elementId,position:index+1,multiplier:elementId===109?2:elementId===110?0:1,
+    isCaptain:elementId===109,isViceCaptain:elementId===110,
+  }));
+  const conflictingLock:LockRecord={event:1,lockedAt:new Date().toISOString(),dataUpdatedAt:new Date().toISOString(),predicted:40,squadIds:lockSquad.map(p=>p.id),xiIds:[101,3,4,5,7,108,109,110,111,113,114],captainId:108,viceId:109};
+
+  const resolution=resolveCurrentXi(lockSquad,lockSquad,1,lockFixtures,conflictingLock,officialPicks);
+
+  assert.equal(resolution.source,"official");
+  assert.deepEqual(resolution.xi.map(p=>p.id),officialXiIds);
+  assert.deepEqual(resolution.bench.map(p=>p.id),officialBenchIds);
+  assert.equal(resolution.modelCaptain?.id,109);
+  assert.equal(resolution.modelVice?.id,110);
+});
+
 test("resolveBenchDisplay: no autosub (effectiveXi === xi) -- returns exactly the original bench, unchanged", () => {
   const xi = [makePlayer({ id: 1, name: "Starter1" }), makePlayer({ id: 2, name: "Starter2" })];
   const bench = [makePlayer({ id: 3, name: "Bench1" }), makePlayer({ id: 4, name: "Bench2" })];
