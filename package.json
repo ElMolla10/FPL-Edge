@@ -10,7 +10,7 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "build": "bash scripts/build-verified.sh",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs && node --import tsx --test tests/projection-engine.test.mts tests/optimizer-engine.test.mts tests/auth.test.mts tests/watchlist.test.mts",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs && node --import tsx --test tests/projection-engine.test.mts tests/optimizer-engine.test.mts tests/auth.test.mts tests/watchlist.test.mts tests/finalcheck.test.mts",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },
