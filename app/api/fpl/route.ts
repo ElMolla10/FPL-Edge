@@ -1,4 +1,5 @@
 import { attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile } from "../../lib/fpl";
+import { buildTeamQualityProfiles } from "../../lib/team-quality";
 import priorSeasonSnapshot from "../../data/prior-season-2025-26.json";
 
 const BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/";
@@ -63,6 +64,14 @@ export async function GET() {
       const coverage = plRosterContinuity(minutes);
       teamPriorProfiles.set(teamId, { coverage, low: isLowPlContinuity(coverage) });
     }
+    const completedFixtures=fixtures.filter((fixture:any)=>completedEventIds.has(fixture.event)&&fixture.finished);
+    const teamQualityInputs=bootstrap.teams.map((team:any)=>{
+      const home=completedFixtures.filter((fixture:any)=>fixture.team_h===team.id),away=completedFixtures.filter((fixture:any)=>fixture.team_a===team.id);
+      const expectedGoalsFor=bootstrap.elements.filter((player:any)=>player.team===team.id).reduce((sum:number,player:any)=>sum+number(seasonStats.get(player.id)?.expected_goals),0);
+      const profile=teamPriorProfiles.get(team.id)??{coverage:0,low:true};
+      return{id:team.id,name:team.name,short:team.short_name,officialAttackHome:number(team.strength_attack_home),officialAttackAway:number(team.strength_attack_away),officialDefenceHome:number(team.strength_defence_home),officialDefenceAway:number(team.strength_defence_away),plPriorCoverage:profile.coverage,lowPlContinuity:profile.low,matches:home.length+away.length,homeMatches:home.length,awayMatches:away.length,goalsForHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),goalsForAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),expectedGoalsFor};
+    });
+    const teamQualityProfiles=new Map(buildTeamQualityProfiles(teamQualityInputs).map(profile=>[profile.id,profile]));
 
     const payload = {
       updatedAt: new Date().toISOString(),
@@ -104,6 +113,7 @@ export async function GET() {
         defenceAway: number(team.strength_defence_away) || null,
         plPriorCoverage: teamPriorProfiles.get(team.id)?.coverage ?? 0,
         lowPlContinuity: teamPriorProfiles.get(team.id)?.low ?? true,
+        quality: teamQualityProfiles.get(team.id),
       })),
       players: bootstrap.elements.map((player: any) => {
         const team: any = teams.get(player.team);
@@ -117,6 +127,7 @@ export async function GET() {
         const priorEquivalentMatches = prior?.minutes ? prior.minutes / 90 : 0;
         const teamMatchesPlayed = fixtures.filter((fixture: any) => completedEventIds.has(fixture.event) && (fixture.team_h === player.team || fixture.team_a === player.team)).length;
         const priorProfile = teamPriorProfiles.get(player.team) ?? { coverage: 0, low: true };
+        const teamQuality=teamQualityProfiles.get(player.team);
         const record = {
           id: player.id,
           name: player.web_name,
@@ -155,6 +166,11 @@ export async function GET() {
           teamAttackAway: number(team?.strength_attack_away) || null,
           teamDefenceHome: number(team?.strength_defence_home) || null,
           teamDefenceAway: number(team?.strength_defence_away) || null,
+          teamQualityAttackHome: teamQuality?.effectiveAttackHome ?? 1,
+          teamQualityAttackAway: teamQuality?.effectiveAttackAway ?? 1,
+          teamQualityDefenceHome: teamQuality?.effectiveDefenceHome ?? 1,
+          teamQualityDefenceAway: teamQuality?.effectiveDefenceAway ?? 1,
+          teamQualityConfidence: teamQuality?.confidence ?? .25,
           totalPoints: number(season.total_points),
           eventPoints: number(latest.total_points),
           eventMinutes: number(latest.minutes),
@@ -210,6 +226,10 @@ export async function GET() {
         started: fixture.started,
         teamHScore: fixture.team_h_score,
         teamAScore: fixture.team_a_score,
+        teamHAttackQuality: teamQualityProfiles.get(fixture.team_h)?.effectiveAttackHome ?? 1,
+        teamHDefenceQuality: teamQualityProfiles.get(fixture.team_h)?.effectiveDefenceHome ?? 1,
+        teamAAttackQuality: teamQualityProfiles.get(fixture.team_a)?.effectiveAttackAway ?? 1,
+        teamADefenceQuality: teamQualityProfiles.get(fixture.team_a)?.effectiveDefenceAway ?? 1,
       })),
     };
 
