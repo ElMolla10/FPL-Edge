@@ -12,7 +12,7 @@ import {
   playerProjection,
   projectionMetrics,
 } from "../app/lib/fpl.ts";
-import { analysis, bestTransfers, createProjectionReceipt, Transfer } from "../app/components/CoachApp.tsx";
+import { HistoryWeek, LockRecord, analysis, bestTransfers, createProjectionReceipt, evaluateProjectionReceipt, Transfer } from "../app/components/CoachApp.tsx";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -76,12 +76,13 @@ test("projection receipt freezes every player, selected captaincy and ranked tra
   const target=makePlayer({id:22,name:"Target",teamId:2,teamShort:"TWO",price:6.5,priorSource:"position-baseline",priorMinutes:0,priorStarts:0});
   const capturedAt="2026-08-22T10:00:00.000Z",deadline="2026-08-23T10:00:00.000Z";
   const data:FplData={updatedAt:"2026-08-22T09:55:00.000Z",source:"official-test",seasonStatsThrough:1,players:[target,captain],fixtures:[makeFixture({id:1,event:2,teamH:1,teamA:2}),makeFixture({id:2,event:3,teamH:2,teamA:1})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false},{id:3,name:"Gameweek 3",deadline:"2026-08-30T10:00:00.000Z",finished:false,current:false,next:false,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
-  const transferRows=[{out:captain,incoming:target,gain1:1.2345,gain3:2.3456,gain5:3.4567,individualGain5:4.5678,rankScore:2.2222,netDifference:3.4567,hitCost:0,startProbIn:.6543,confidenceIn:.4321,risk:"Medium" as const,reviewRequired:true,anomalies:[{code:"test-warning",message:"Test"}]}];
+  const transferRows=[{out:captain,incoming:target,gain1:1.2345,gain3:2.3456,gain5:3.4567,individualGain1:1.1111,individualGain3:3.3333,individualGain5:4.5678,rankScore:2.2222,netDifference:3.4567,hitCost:0,startProbIn:.6543,confidenceIn:.4321,risk:"Medium" as const,reviewRequired:true,anomalies:[{code:"test-warning",message:"Test"}]}];
   const receipt=createProjectionReceipt({data,eventIds:[2,3],deadline,capturedAt,squad:[captain],xiIds:[captain.id],captainId:captain.id,viceId:target.id,bank:1.5,freeTransfers:2,transferRows});
-  assert.equal(receipt.schemaVersion,1);
+  assert.equal(receipt.schemaVersion,2);
   assert.equal(receipt.modelVersion,PROJECTION_MODEL_VERSION);
-  assert.equal(receipt.playerEncoding,"tuple-v1");
+  assert.equal(receipt.playerEncoding,"tuple-v2");
   assert.deepEqual(receipt.players.map(player=>player[0]),[11,22],"every official player is captured in deterministic id order");
+  assert.equal(receipt.players[0][11]?.length,2,"each player freezes the full evaluation horizon");
   assert.equal(receipt.players[1][3],"position-baseline");
   assert.deepEqual(receipt.eventIds,[2,3]);
   assert.equal(receipt.squad.captainId,11);
@@ -91,6 +92,72 @@ test("projection receipt freezes every player, selected captaincy and ranked tra
   assert.equal(receipt.transfers[0].incomingId,22);
   assert.equal(receipt.transfers[0].rankScore,2.222);
   assert.deepEqual(receipt.transfers[0].anomalyCodes,["test-warning"]);
+});
+
+test("post-GW evaluation grades a matching official plan, player calibration and transfer-route outcomes",()=>{
+  const captain=makePlayer({id:11,name:"Captain",teamId:1,teamShort:"ONE",priorSource:"official-pl-history"});
+  const target=makePlayer({id:22,name:"Target",teamId:2,teamShort:"TWO",price:6.5,priorSource:"position-baseline",priorMinutes:0,priorStarts:0});
+  const deadline="2026-08-23T10:00:00.000Z",capturedAt="2026-08-22T10:00:00.000Z";
+  const data:FplData={updatedAt:"2026-08-22T09:55:00.000Z",source:"official-test",seasonStatsThrough:1,players:[captain,target],fixtures:[makeFixture({id:1,event:2,teamH:1,teamA:2}),makeFixture({id:2,event:3,teamH:2,teamA:1})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false},{id:3,name:"Gameweek 3",deadline:"2026-08-30T10:00:00.000Z",finished:false,current:false,next:false,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
+  const transferRows=[{out:captain,incoming:target,gain1:1,gain3:2,gain5:3,individualGain1:1,individualGain3:2,individualGain5:3,rankScore:2,netDifference:3,hitCost:0,startProbIn:.7,confidenceIn:.6,risk:"Medium" as const,reviewRequired:false,anomalies:[]}];
+  const receipt=createProjectionReceipt({data,eventIds:[2,3],deadline,capturedAt,squad:[captain,target],xiIds:[captain.id],captainId:captain.id,viceId:target.id,bank:1,freeTransfers:1,transferRows});
+  const lock:LockRecord={event:2,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:[11,22],xiIds:[11],captainId:11,viceId:22,receipt};
+  const weeks:HistoryWeek[]=[
+    {event:2,points:6,transferCost:4,captainId:11,viceCaptainId:22,captainContribution:10,chip:null,squad:[{elementId:11,position:1,multiplier:2,isCaptain:true,isViceCaptain:false,elementType:3},{elementId:22,position:12,multiplier:0,isCaptain:false,isViceCaptain:true,elementType:3}],playerStats:{"11":{points:5,minutes:90,starts:1,goals:1,assists:0,cleanSheets:0,bonus:2},"22":{points:2,minutes:30,starts:0,goals:0,assists:0,cleanSheets:0,bonus:0}}},
+    {event:3,points:7,playerStats:{"11":{points:1,minutes:90,starts:1,goals:0,assists:0,cleanSheets:0,bonus:0},"22":{points:8,minutes:90,starts:1,goals:1,assists:1,cleanSheets:0,bonus:1}}},
+  ];
+  const result=evaluateProjectionReceipt(lock,weeks);
+  assert.equal(result.status,"evaluated");
+  assert.equal(result.officialPlanMatch,true);
+  assert.equal(result.managerActual,6,"official net points stay visible");
+  assert.equal(result.actualBeforeHits,10,"projection accuracy is graded against scoring output before transfer-cost accounting");
+  assert.equal(result.completedEvents,2);
+  assert.ok(result.population&&result.population.rows===4,"both players across both completed events are calibrated");
+  assert.equal(result.captain?.actualRaw,5);
+  assert.equal(result.captain?.officialContribution,10);
+  assert.equal(result.transfers[0].actualPlayerSwing,4,"actual route swing is IN minus OUT across completed events");
+  assert.equal(result.transfers[0].actualNetAfterHit,4);
+});
+
+test("post-GW evaluation refuses to grade squad-total accuracy when the official submitted captain differs",()=>{
+  const captain=makePlayer({id:11,name:"Captain"}),vice=makePlayer({id:22,name:"Vice",teamId:2});
+  const deadline="2026-08-23T10:00:00.000Z",capturedAt="2026-08-22T10:00:00.000Z";
+  const data:FplData={updatedAt:capturedAt,source:"test",seasonStatsThrough:0,players:[captain,vice],fixtures:[makeFixture({event:2})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
+  const receipt=createProjectionReceipt({data,eventIds:[2],deadline,capturedAt,squad:[captain,vice],xiIds:[11],captainId:11,viceId:22,bank:0,freeTransfers:1,transferRows:[]});
+  const lock:LockRecord={event:2,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:[11,22],xiIds:[11],captainId:11,viceId:22,receipt};
+  const week:HistoryWeek={event:2,points:20,captainId:22,viceCaptainId:11,captainContribution:16,chip:null,squad:[{elementId:11,position:1,multiplier:1,isCaptain:false,isViceCaptain:true,elementType:3},{elementId:22,position:12,multiplier:2,isCaptain:true,isViceCaptain:false,elementType:3}],playerStats:{"11":{points:4,minutes:90,starts:1,goals:0,assists:0,cleanSheets:0,bonus:0},"22":{points:8,minutes:90,starts:1,goals:1,assists:1,cleanSheets:0,bonus:1}}};
+  const result=evaluateProjectionReceipt(lock,[week]);
+  assert.equal(result.officialPlanMatch,false);
+  assert.equal(result.managerActual,20,"official result remains visible for context");
+  assert.equal(result.signedSquadError,null,"a different official plan must not be used to grade the frozen plan");
+  assert.equal(result.absoluteSquadError,null);
+});
+
+test("post-GW evaluation adjusts the frozen team forecast for an official scoring chip",()=>{
+  const captain=makePlayer({id:11,name:"Captain"}),bench=makePlayer({id:22,name:"Bench",teamId:2});
+  const deadline="2026-08-23T10:00:00.000Z",capturedAt="2026-08-22T10:00:00.000Z";
+  const data:FplData={updatedAt:capturedAt,source:"test",seasonStatsThrough:0,players:[captain,bench],fixtures:[makeFixture({event:2})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
+  const receipt=createProjectionReceipt({data,eventIds:[2],deadline,capturedAt,squad:[captain,bench],xiIds:[11],captainId:11,viceId:22,bank:0,freeTransfers:1,transferRows:[]});
+  const lock:LockRecord={event:2,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:[11,22],xiIds:[11],captainId:11,viceId:22,receipt};
+  const baseWeek={event:2,points:0,captainId:11,viceCaptainId:22,captainContribution:0,squad:[{elementId:11,position:1,multiplier:2,isCaptain:true,isViceCaptain:false,elementType:3},{elementId:22,position:12,multiplier:0,isCaptain:false,isViceCaptain:true,elementType:3}],playerStats:{"11":{points:0,minutes:90,starts:1,goals:0,assists:0,cleanSheets:0,bonus:0},"22":{points:0,minutes:90,starts:1,goals:0,assists:0,cleanSheets:0,bonus:0}}};
+  const triple=evaluateProjectionReceipt(lock,[{...baseWeek,chip:"3xc"}]);
+  const boost=evaluateProjectionReceipt(lock,[{...baseWeek,chip:"bboost"}]);
+  assert.equal(triple.adjustedProjectedTotal,Number((receipt.squad.predictedTotal+receipt.squad.captainXPts).toFixed(3)));
+  assert.equal(boost.adjustedProjectedTotal,Number((receipt.squad.predictedTotal+(receipt.players.find(player=>player[0]===22)?.[4]??0)).toFixed(3)));
+});
+
+test("post-GW evaluation keeps tuple-v1 receipts readable without inventing missing horizon forecasts",()=>{
+  const out=makePlayer({id:11,name:"Out"}),incoming=makePlayer({id:22,name:"In",teamId:2});
+  const deadline="2026-08-23T10:00:00.000Z",capturedAt="2026-08-22T10:00:00.000Z";
+  const data:FplData={updatedAt:capturedAt,source:"test",seasonStatsThrough:0,players:[out,incoming],fixtures:[makeFixture({event:2}),makeFixture({id:2,event:3,teamH:2,teamA:1})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false},{id:3,name:"Gameweek 3",deadline:"2026-08-30T10:00:00.000Z",finished:false,current:false,next:false,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
+  const receipt=createProjectionReceipt({data,eventIds:[2,3],deadline,capturedAt,squad:[out,incoming],xiIds:[11],captainId:11,viceId:22,bank:0,freeTransfers:1,transferRows:[{out,incoming,gain1:1,gain3:2,gain5:3,individualGain1:1,individualGain3:2,individualGain5:3,rankScore:2,netDifference:3,hitCost:0,startProbIn:.8,confidenceIn:.7,risk:"Low",reviewRequired:false,anomalies:[]}]});
+  const legacyReceipt={...receipt,schemaVersion:1 as const,playerEncoding:"tuple-v1" as const,players:receipt.players.map(player=>player.slice(0,11) as typeof player)};
+  const lock:LockRecord={event:2,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:legacyReceipt.squad.predictedTotal,squadIds:[11,22],xiIds:[11],captainId:11,viceId:22,receipt:legacyReceipt};
+  const stats=(outPoints:number,inPoints:number)=>({"11":{points:outPoints,minutes:90,starts:1,goals:0,assists:0,cleanSheets:0,bonus:0},"22":{points:inPoints,minutes:90,starts:1,goals:0,assists:0,cleanSheets:0,bonus:0}});
+  const result=evaluateProjectionReceipt(lock,[{event:2,points:4,captainId:11,viceCaptainId:22,squad:[{elementId:11,position:1,multiplier:2,isCaptain:true,isViceCaptain:false,elementType:3},{elementId:22,position:12,multiplier:0,isCaptain:false,isViceCaptain:true,elementType:3}],playerStats:stats(2,4)},{event:3,points:5,playerStats:stats(1,6)}]);
+  assert.equal(result.status,"evaluated");
+  assert.equal(result.transfers[0].actualPlayerSwing,7);
+  assert.equal(result.transfers[0].projectedPlayerSwing,null,"v1 did not capture event-by-event horizon forecasts, so the evaluator must not fabricate one");
 });
 
 test("projection receipt refuses to label a post-deadline capture as pre-deadline",()=>{

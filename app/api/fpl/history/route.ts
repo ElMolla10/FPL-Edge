@@ -21,7 +21,16 @@ export async function GET(request: Request) {
       ]);
       if (!picksResponse.ok || !liveResponse.ok) return { ...week, unavailable: true };
       const [picks, live] = await Promise.all([picksResponse.json(), liveResponse.json()]);
-      const points = new Map(live.elements.map((element: any) => [element.id, Number(element.stats?.total_points) || 0]));
+      const eventPlayerStats = Object.fromEntries(live.elements.map((element: any) => [element.id, {
+        points: Number(element.stats?.total_points) || 0,
+        minutes: Number(element.stats?.minutes) || 0,
+        starts: Number(element.stats?.starts) || 0,
+        goals: Number(element.stats?.goals_scored) || 0,
+        assists: Number(element.stats?.assists) || 0,
+        cleanSheets: Number(element.stats?.clean_sheets) || 0,
+        bonus: Number(element.stats?.bonus) || 0,
+      }]));
+      const points = new Map(Object.entries(eventPlayerStats).map(([id, stats]: [string, any]) => [Number(id), stats.points]));
       const captain = picks.picks.find((pick: any) => pick.is_captain);
       const vice = picks.picks.find((pick: any) => pick.is_vice_captain);
       const captainRaw = Number(points.get(captain?.element)) || 0;
@@ -37,9 +46,11 @@ export async function GET(request: Request) {
         value: week.value / 10,
         bank: week.bank / 10,
         captain: playerNames.get(captain?.element) || "—",
+        captainId: captain?.element ?? null,
         captainRawPoints: captainRaw,
         captainContribution: captainRaw * (captain?.multiplier || 0),
         viceCaptain: playerNames.get(vice?.element) || "—",
+        viceCaptainId: vice?.element ?? null,
         chip: picks.active_chip || null,
         // Full historical reconstruction for the gameweek navigator's past-week view: the exact
         // squad/XI/bench (position 1-11 = starting XI in formation order, 12-15 = bench order),
@@ -55,6 +66,7 @@ export async function GET(request: Request) {
           elementType: pick.element_type,
         })),
         playerPoints: Object.fromEntries(points),
+        playerStats: eventPlayerStats,
         automaticSubs: (picks.automatic_subs || []).map((sub: any) => ({
           elementIn: sub.element_in,
           elementOut: sub.element_out,
