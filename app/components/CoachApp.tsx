@@ -701,30 +701,56 @@ function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,se
   </section>;
 }
 
-function TransferBreakdown({r}:{r:Transfer}){return <div className="transfer-breakdown">
-  <div><span>OUT GW1 (individual)</span><b>{r.outGw1.toFixed(2)}</b></div><div><span>IN GW1 (individual)</span><b>{r.inGw1.toFixed(2)}</b></div><div><span>GW1 squad Δ</span><b>{r.gain1.toFixed(2)}</b></div>
-  <div><span>OUT 3-GW (individual)</span><b>{r.outGw3.toFixed(2)}</b></div><div><span>IN 3-GW (individual)</span><b>{r.inGw3.toFixed(2)}</b></div><div><span>3-GW squad Δ</span><b>{r.gain3.toFixed(2)}</b></div>
-  <div><span>OUT 5-GW (individual)</span><b>{r.outGw5.toFixed(2)}</b></div><div><span>IN 5-GW (individual)</span><b>{r.inGw5.toFixed(2)}</b></div><div><span>5-GW squad Δ</span><b>{r.gain5.toFixed(2)}</b></div>
-  <div><span>Individual IN−OUT Δ</span><b>{r.individualGain1.toFixed(2)} / {r.individualGain3.toFixed(2)} / {r.individualGain5.toFixed(2)}</b></div>
-  <div><span>xMins OUT/IN</span><b>{Math.round(r.expectedMinutesOut)} / {Math.round(r.expectedMinutesIn)}</b></div>
-  <div><span>Start% OUT/IN</span><b>{Math.round(r.startProbOut*100)}% / {Math.round(r.startProbIn*100)}%</b></div>
-  <div><span>DC OUT/IN</span><b>{r.dcOut.toFixed(2)} / {r.dcIn.toFixed(2)}</b></div>
-  <div><span>Attacking OUT/IN</span><b>{r.attackingOut.toFixed(2)} / {r.attackingIn.toFixed(2)}</b></div>
-  <div><span>Fixture adj. (IN, avg FDR)</span><b>{r.fixtureAdjustmentIn.toFixed(1)}</b></div>
-  <div><span>Team ATK / opponent DEF</span><b>{r.teamAttackIn.toFixed(2)} / {r.opponentDefenceIn.toFixed(2)}</b></div>
-  <div><span>Team DEF / opponent ATK</span><b>{r.teamDefenceIn.toFixed(2)} / {r.opponentAttackIn.toFixed(2)}</b></div>
-  <div><span>Quality multipliers ATK / DEF</span><b>×{r.fixtureAttackMultiplierIn.toFixed(2)} / ×{r.fixtureDefenceMultiplierIn.toFixed(2)}</b></div>
-  <div><span>Confidence OUT/IN</span><b>{Math.round(r.confidenceOut*100)}% / {Math.round(r.confidenceIn*100)}%</b></div>
-  <div><span>Transfer hit</span><b>{r.hitCost?`−${r.hitCost}`:"None"}</b></div>
-  <div><span>Net (after hit)</span><b>{r.netDifference.toFixed(2)}</b></div>
-  <div><span>Model utility Δ</span><b>{r.utilityChange===null?"—":r.utilityChange.toFixed(2)}</b></div>
-  <div><span>Risk-adjusted rank score</span><b>{r.rankScore.toFixed(2)}</b></div>
-  <div><span>Quality gate</span><b>{r.qualityStatus.toUpperCase()} · {r.qualityScore}/100</b></div>
-  <div><span>Positive GWs</span><b>{r.positiveWeeks}/{r.weeklyGains.length}</b></div>
-  <div><span>Gain without best GW</span><b>{r.gainWithoutBestWeek>=0?"+":""}{r.gainWithoutBestWeek.toFixed(2)}</b></div>
-  {r.qualityReasons.length>0&&<div className="breakdown-anomalies quality-reasons"><span>Quality-gate reasons</span>{r.qualityReasons.map(reason=><p key={reason.code}>• {reason.message}</p>)}</div>}
-  {r.anomalies.length>0&&<div className="breakdown-anomalies"><span>Anomaly flags</span>{r.anomalies.map(f=><p key={f.code}>⚠ {f.message}</p>)}</div>}
-</div>}
+function TransferBreakdown({r}:{r:Transfer}){
+  const horizons=[
+    {label:"NEXT GAMEWEEK",out:r.outGw1,incoming:r.inGw1,gain:r.gain1,individual:r.individualGain1},
+    {label:"NEXT 3 GWs",out:r.outGw3,incoming:r.inGw3,gain:r.gain3,individual:r.individualGain3},
+    {label:"NEXT 5 GWs",out:r.outGw5,incoming:r.inGw5,gain:r.gain5,individual:r.individualGain5},
+  ];
+  const statusCopy=r.qualityStatus==="actionable"?"The role, evidence and multi-week upside are strong enough to act on.":r.qualityStatus==="watchlist"?"The upside is interesting, but at least one signal needs more evidence.":"This route failed a hard plausibility or role-security check.";
+  const signed=(value:number,places=1)=>`${value>=0?"+":""}${value.toFixed(places)}`;
+  return <div className={`transfer-detail ${r.qualityStatus}`}>
+    <header className="transfer-detail-head">
+      <div><span>MODEL VERDICT</span><h3>{r.out.name} <i>→</i> {r.incoming.name}</h3><p>{statusCopy}</p></div>
+      <strong><small>{r.qualityStatus.toUpperCase()}</small>{r.qualityScore}<em>/100</em></strong>
+    </header>
+
+    <section className="transfer-horizons">{horizons.map(horizon=><article key={horizon.label}>
+      <span>{horizon.label}</span>
+      <div><p><small>KEEP {r.out.name.toUpperCase()}</small><b>{horizon.out.toFixed(1)}</b></p><i>vs</i><p><small>BUY {r.incoming.name.toUpperCase()}</small><b>{horizon.incoming.toFixed(1)}</b></p></div>
+      <footer><b>{signed(horizon.gain)} squad pts</b><small>{signed(horizon.individual)} individual edge</small></footer>
+    </article>)}</section>
+
+    <div className="transfer-detail-columns">
+      <section className="player-signal-card">
+        <header><span>PLAYER SIGNALS</span><b>{r.out.name}</b><b>{r.incoming.name}</b></header>
+        <p><span>Expected minutes</span><b>{Math.round(r.expectedMinutesOut)}</b><strong>{Math.round(r.expectedMinutesIn)}</strong></p>
+        <p><span>Start probability</span><b>{Math.round(r.startProbOut*100)}%</b><strong>{Math.round(r.startProbIn*100)}%</strong></p>
+        <p><span>Attacking threat</span><b>{r.attackingOut.toFixed(2)}</b><strong>{r.attackingIn.toFixed(2)}</strong></p>
+        <p><span>Defensive contribution</span><b>{r.dcOut.toFixed(2)}</b><strong>{r.dcIn.toFixed(2)}</strong></p>
+        <p><span>Model confidence</span><b>{Math.round(r.confidenceOut*100)}%</b><strong>{Math.round(r.confidenceIn*100)}%</strong></p>
+      </section>
+
+      <section className="fixture-context-card">
+        <header><span>INCOMING PLAYER CONTEXT</span><small>1.00 = league average</small></header>
+        <div><p><span>Team attack</span><b>×{r.teamAttackIn.toFixed(2)}</b></p><p><span>Opponent defence</span><b>×{r.opponentDefenceIn.toFixed(2)}</b></p><p className="accent"><span>Attack matchup</span><b>×{r.fixtureAttackMultiplierIn.toFixed(2)}</b></p><p><span>Team defence</span><b>×{r.teamDefenceIn.toFixed(2)}</b></p><p><span>Opponent attack</span><b>×{r.opponentAttackIn.toFixed(2)}</b></p><p className="accent"><span>Defence matchup</span><b>×{r.fixtureDefenceMultiplierIn.toFixed(2)}</b></p></div>
+        <footer><span>Average fixture difficulty</span><b>{r.fixtureAdjustmentIn.toFixed(1)} / 5</b></footer>
+      </section>
+    </div>
+
+    <section className="transfer-decision-math">
+      <p><span>After transfer hit</span><b>{signed(r.netDifference)} pts</b><small>{r.hitCost?`${r.hitCost}-point cost included`:"No hit required"}</small></p>
+      <p><span>Risk-adjusted score</span><b>{r.rankScore.toFixed(1)}</b><small>{r.risk} minutes risk</small></p>
+      <p><span>Multi-week robustness</span><b>{r.positiveWeeks}/{r.weeklyGains.length} positive</b><small>{signed(r.gainWithoutBestWeek)} without best GW</small></p>
+      <p><span>Squad utility change</span><b>{r.utilityChange===null?"—":signed(r.utilityChange)}</b><small>structure, bench and flexibility</small></p>
+    </section>
+
+    {(r.qualityReasons.length>0||r.anomalies.length>0)&&<section className="transfer-detail-warnings">
+      <span>{r.qualityStatus==="blocked"?"WHY THIS ROUTE IS BLOCKED":"WHAT TO WATCH"}</span>
+      {[...r.qualityReasons.map(reason=>({key:`quality-${reason.code}`,message:reason.message})),...r.anomalies.map(flag=>({key:`anomaly-${flag.code}`,message:flag.message}))].map(item=><p key={item.key}>{item.message}</p>)}
+    </section>}
+  </div>;
+}
 
 function TransferDebugTable({rows}:{rows:Transfer[]}){return <section className="transfer-debug-table"><header><span>DEV ONLY · TRANSFER ENGINE DEBUG</span><h2>Every number, traceable to its components.</h2></header><div className="debug-table-scroll"><table><thead><tr><th>OUT</th><th>IN</th><th>OUT GW1</th><th>IN GW1</th><th>GW1 Δ</th><th>OUT 3GW</th><th>IN 3GW</th><th>3GW Δ</th><th>OUT 5GW</th><th>IN 5GW</th><th>5GW Δ</th><th>xMins OUT/IN</th><th>Start% OUT/IN</th><th>Risk OUT/IN</th><th>Fixture adj.</th><th>DC IN</th><th>Attacking IN</th><th>Confidence IN</th><th>Utility Δ</th></tr></thead><tbody>{rows.map(r=><tr key={`${r.out.id}-${r.incoming.id}`}><td>{r.out.name}</td><td>{r.incoming.name}</td><td>{r.outGw1.toFixed(2)}</td><td>{r.inGw1.toFixed(2)}</td><td>{r.gain1.toFixed(2)}</td><td>{r.outGw3.toFixed(2)}</td><td>{r.inGw3.toFixed(2)}</td><td>{r.gain3.toFixed(2)}</td><td>{r.outGw5.toFixed(2)}</td><td>{r.inGw5.toFixed(2)}</td><td>{r.gain5.toFixed(2)}</td><td>{Math.round(r.expectedMinutesOut)}/{Math.round(r.expectedMinutesIn)}</td><td>{Math.round(r.startProbOut*100)}%/{Math.round(r.startProbIn*100)}%</td><td>{Math.round((1-r.startProbOut)*100)}%/{Math.round((1-r.startProbIn)*100)}%</td><td>{r.fixtureAdjustmentIn.toFixed(1)}</td><td>{r.dcIn.toFixed(2)}</td><td>{r.attackingIn.toFixed(2)}</td><td>{Math.round(r.confidenceIn*100)}%</td><td>{r.utilityChange===null?"—":r.utilityChange.toFixed(2)}</td></tr>)}</tbody></table></div></section>}
 
