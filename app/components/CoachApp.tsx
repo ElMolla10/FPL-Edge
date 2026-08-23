@@ -210,6 +210,10 @@ export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTra
       const inByEvent=events.map(e=>projected(incoming,e.id));
       const inGw1=inByEvent[0]||0,inGw3=inByEvent.slice(0,3).reduce((a,b)=>a+b,0),inGw5=inByEvent.reduce((a,b)=>a+b,0);
       const individualGain1=inGw1-outGw1,individualGain3=inGw3-outGw3,individualGain5=inGw5-outGw5;
+      // Standing decision (reviewed ac6a221): rank by the whole-squad re-optimized delta
+      // (best XI + captain before vs after the swap), not the raw individual player delta above.
+      // This matches the optimizer's own squad-level objective rather than a player-level one, and
+      // individualGain1/3/5 stay on the row so the breakdown UI can still show the simpler number.
       const swapped=squad.map(player=>player.id===out.id?incoming:player);
       const swappedSquadByEvent=events.map(event=>squadWeekTotal(swapped,event.id));
       const squadDeltas=swappedSquadByEvent.map((total,index)=>total-baselineSquadByEvent[index]);
@@ -222,6 +226,12 @@ export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTra
       const calibration=playerCalibrationProfile(incoming);
       const quality=evaluateTransferQuality({gain1,gain3,gain5,weeklyGains:squadDeltas,expectedMinutes:im.expectedMinutes,startProbability:im.startProbability,confidence:im.confidence,calibrationGroup:calibration.group,lowPlContinuityClub:calibration.lowPlContinuityClub,anomalyCodes:anomalies.map(flag=>flag.code)});
       const reviewRequired=quality.status==="blocked";
+      // Standing decision (reviewed ac6a221): bounded 0.55-1.0x discount on positive gain, sized so
+      // it can never invert a ranking. This is a stopgap point-estimate risk adjustment for exactly
+      // the failure class this projection engine review started from (Hull City's Mendy/Ajayi --
+      // see the ac6a221 review). When the Probabilistic Projection Simulator's distribution engine
+      // ships, IT should own risk-adjusted ranking and this multiplier should be REMOVED, not kept
+      // stacked alongside it as a second, redundant risk adjustment. Flag this for that review round.
       const confidenceMultiplier=clamp(.55+im.startProbability*.25+im.confidence*.2,.55,1);
       const riskAdjustedGain=(gain5>0?gain5*confidenceMultiplier:gain5)-hitCost;
       const qualityAdjustedGain=riskAdjustedGain*(.7+quality.score*.003);
