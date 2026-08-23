@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   FplData,
@@ -341,6 +342,25 @@ test("transfer quality gate: blocked and watchlist rows cannot become the primar
   assert.deepEqual(sortTransfersByQuality([blocked,watch,safe]).map(item=>item.incoming.name),["Safe","Watch","Blocked"]);
   assert.equal(selectPrimaryTransfer([blocked,watch,safe])?.incoming.id,safeIn.id);
   assert.equal(selectPrimaryTransfer([blocked,watch]),null);
+});
+
+// Overview's "THIS WEEK'S RECOMMENDATION" card and CoachDock's floating-orb summary previously
+// re-derived their own "is this transfer good enough to recommend" check with an independently
+// hardcoded `rankScore<2.2`/`rankScore>=2.2` comparison, instead of calling the same
+// selectPrimaryTransfer() the Transfers page uses. All three agreed by coincidence -- the
+// underlying rankScore cap for blocked/watchlist rows happened to keep them under 2.2 too -- but
+// nothing enforced that agreement, so a future change to selectPrimaryTransfer's threshold could
+// silently desync Overview/CoachDock from Transfers. This locks in that the duplication is gone:
+// selectPrimaryTransfer is the only place either 2.2 or a rankScore comparison against it appears.
+test("Overview and CoachDock select the primary transfer via selectPrimaryTransfer, not an independently duplicated 2.2 threshold",()=>{
+  const source=readFileSync(new URL("../app/components/CoachApp.tsx",import.meta.url),"utf-8");
+  const overview=source.slice(source.indexOf("function Overview("),source.indexOf("function WhatChanged("));
+  const coachDock=source.slice(source.indexOf("function CoachDock("));
+  for(const [name,body] of [["Overview",overview],["CoachDock",coachDock]] as const){
+    assert.ok(body.includes("selectPrimaryTransfer("),`${name} must call selectPrimaryTransfer to pick its headline route`);
+    assert.ok(!/rankScore\s*[<>]=?\s*2\.2/.test(body),`${name} must not independently compare rankScore against the 2.2 action threshold`);
+    assert.ok(!body.includes(".reviewRequired"),`${name} must not re-check .reviewRequired alongside the shared selector -- it is already folded into qualityStatus/rankScore`);
+  }
 });
 
 test("transfer quality gate: optimizer utility cannot lift a blocked route back into recommendation",()=>{
