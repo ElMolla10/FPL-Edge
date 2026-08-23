@@ -1159,6 +1159,15 @@ export type CaptainRiskNote={message:string;captainStartPct:number;viceStartPct:
 // startProbability is used as an approximate proxy for "risk of playing zero minutes" since the
 // engine has no direct P(zero minutes) figure; the UI text says "if they don't play at all" rather
 // than overclaiming precision the model doesn't have.
+// Standing decision (reviewed 5a6fe18): this always swings at standard x2, never resolveCaptainMultiplier's
+// x3, because there is no confirmed pre-deadline "planned chip for the upcoming gameweek" concept
+// anywhere in the app -- resolveCaptainMultiplier's chip context (OfficialScoringAuthority.chip)
+// is only known AFTER a deadline passes, once FPL has recorded what was actually submitted. Final
+// Check runs BEFORE that deadline, so the only chip signal available here would be
+// chipVerdictAcrossHorizon's *recommendation*, not a confirmed manager decision -- using it would
+// silently assume the manager follows the suggestion. Do not "fix" this by reaching for that
+// recommendation as a proxy; the real fix is a persisted planned-chip selector (logged as a future
+// feature, not built here -- it has value beyond this one note and is scope beyond this cleanup).
 export function captainRiskNote(captain:FplPlayer,vice:FplPlayer,captainStartPct:number,viceStartPct:number,captainXPts:number,viceXPts:number):CaptainRiskNote|null{
   if(captainStartPct>=68)return null;
   const pointsIfCaptainPlays=captainXPts*2;
