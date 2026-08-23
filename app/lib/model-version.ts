@@ -11,7 +11,11 @@ export type ModelRelease={
 
 export const MODEL_RELEASES:ModelRelease[]=[
   {
-    version:"fpl-edge-2026.08.23-r4",short:"r4",title:"Team quality & opponent context",released:"23 Aug 2026",current:true,
+    version:"fpl-edge-2026.08.23-r5",short:"r5",title:"Autosub-aware bench ordering",released:"23 Aug 2026",current:true,
+    changes:["Evaluates all six outfield bench permutations.","Weights player appearance uncertainty across legal autosub scenarios.","Freezes the recommended bench order in deadline receipts."],
+  },
+  {
+    version:"fpl-edge-2026.08.23-r4",short:"r4",title:"Team quality & opponent context",released:"23 Aug 2026",current:false,
     changes:["Adds normalized home/away team attack and defence strength.","Prices promoted-club uncertainty conservatively.","Uses both the player's team and the opponent in fixture projections."],
   },
   {

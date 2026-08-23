@@ -9,6 +9,7 @@ import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } fr
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
 import { persist, syncWithServer } from "../lib/persistence";
 import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
+import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } from "../lib/bench-order";
 
 type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
 export type OfficialPick={elementId:number;position:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean;sellingPrice?:number|null};
@@ -182,12 +183,10 @@ function useManager(){const[meta,setMeta]=useState<ManagerMeta|null>(null);useEf
 const sellingPricesFor=(meta:ManagerMeta|null)=>new Map((meta?.picks??[]).flatMap(pick=>pick.sellingPrice!==null&&pick.sellingPrice!==undefined?[[pick.elementId,pick.sellingPrice] as [number,number]]:[]));
 function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:ManagerMeta)=>void}){const[id,setId]=useState("");const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const connect=async()=>{if(!/^\d+$/.test(id)){setMsg("Enter the numeric Team ID from your official FPL URL.");return}setBusy(true);setMsg("");try{const response=await fetch(`/api/fpl/team?entry=${id}`,{cache:"no-store"});const json=await response.json();if(!response.ok)throw new Error(json.error||"Could not connect team");const ids=(json.playerIds as number[]).filter(pid=>data.players.some(p=>p.id===pid));if(ids.length!==15)throw new Error("FPL did not return a complete public squad.");persist("fpl-edge-squad",JSON.stringify(ids));persist("fpl-edge-entry",id);persist("fpl-edge-manager",JSON.stringify(json.manager));localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());setMsg(`${json.manager.teamName} connected. Your coach is ready.`);onConnected?.(json.manager)}catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}finally{setBusy(false)}};return <section className="connect-hero"><div><span>START HERE</span><h2>Connect your official FPL team</h2><p>Enter the number in your FPL team URL. Read-only: we never ask for your password or make changes to your official team.</p></div><div><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect my team →"}</button><small>{msg||"Current public squad becomes available after its deadline."}</small></div></section>}
 
-// TODO: bench order below is GK-last + xPts-descending only. It does not simulate whether a
-// given substitution would actually keep the XI's formation legal (e.g. min 3 DEF) if the
-// specific starter it's replacing doesn't play -- real FPL autosub eligibility depends on which
-// starter is missing, not just static bench rank. Confirmed unbuilt during the 2026-08 audit;
-// deferred as a larger feature, not silently dropped.
-export function analysis(data:FplData,squad:FplPlayer[]){const events=futureEvents(data,5);if(!events.length||!isValidSquad(squad,data))return null;const first=events[0].id;const xi=bestXi(squad,first,data.fixtures,first);const bench=squad.filter(p=>!xi.players.some(x=>x.id===p.id)).sort((a,b)=>{if(a.positionShort==="GKP")return 1;if(b.positionShort==="GKP")return-1;return playerProjection(b,first,data.fixtures,first)-playerProjection(a,first,data.fixtures,first)});const vice=[...xi.players].sort((a,b)=>playerProjection(b,first,data.fixtures,first)-playerProjection(a,first,data.fixtures,first))[1];const issues=squad.filter(p=>p.status!=="a"||startPct(p,first,data)<68).sort((a,b)=>startPct(a,first,data)-startPct(b,first,data));const cost=squad.reduce((s,p)=>s+p.price,0);return{events,first,xi,bench,vice,issues,cost,bank:Math.max(0,data.rules.budget-cost)}}
+export function benchOrderForEvent(xi:FplPlayer[],bench:FplPlayer[],eventId:number,data:Pick<FplData,"fixtures">):BenchOrderResult{
+  return optimizeBenchOrder(xi,bench,player=>{const metrics=projectionMetrics(player,eventId,data.fixtures,eventId);return{xPts:metrics.xPts,appearanceProbability:modeledAppearanceProbability(player,metrics)}});
+}
+export function analysis(data:FplData,squad:FplPlayer[]){const events=futureEvents(data,5);if(!events.length||!isValidSquad(squad,data))return null;const first=events[0].id;const xi=bestXi(squad,first,data.fixtures,first);const rawBench=squad.filter(p=>!xi.players.some(x=>x.id===p.id));const benchOrder=benchOrderForEvent(xi.players,rawBench,first,data);const bench=benchOrder.bench;const vice=[...xi.players].sort((a,b)=>playerProjection(b,first,data.fixtures,first)-playerProjection(a,first,data.fixtures,first))[1];const issues=squad.filter(p=>p.status!=="a"||startPct(p,first,data)<68).sort((a,b)=>startPct(a,first,data)-startPct(b,first,data));const cost=squad.reduce((s,p)=>s+p.price,0);return{events,first,xi,bench,benchOrder,vice,issues,cost,bank:Math.max(0,data.rules.budget-cost)}}
 export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTransfers=1,limit=12,sellingPrices=new Map<number,number>()):Transfer[]{
   const events=futureEvents(data,5);if(!events.length||!isValidSquad(squad,data))return[];
   const first=events[0].id;const owned=new Set(squad.map(p=>p.id));
@@ -367,7 +366,8 @@ export function resolvePastGameweek(players:FplPlayer[],historyWeek:HistoryWeek|
   if(lock){
     const toRow=(id:number):PastGameweekPlayer|null=>{const player=byId(id);return player?{player,points:0,multiplier:id===lock.captainId?2:1,isCaptain:id===lock.captainId,isViceCaptain:id===lock.viceId}:null};
     const xi=lock.xiIds.map(toRow).filter(Boolean) as PastGameweekPlayer[];
-    const bench=lock.squadIds.filter(id=>!lock.xiIds.includes(id)).map(toRow).filter(Boolean) as PastGameweekPlayer[];
+    const fallbackBenchIds=lock.squadIds.filter(id=>!lock.xiIds.includes(id));
+    const bench=(lock.benchIds?.length===4?lock.benchIds:fallbackBenchIds).map(toRow).filter(Boolean) as PastGameweekPlayer[];
     return{source:"locked-prediction",totalPoints:null,predictedPoints:lock.predicted,xi,bench,automaticSubs:[]};
   }
   return null;
@@ -398,12 +398,14 @@ export function resolveCurrentXi(squad:FplPlayer[],players:FplPlayer[],eventId:n
   if(lock){
     const byId=(id:number)=>players.find(p=>p.id===id);
     const xi=lock.xiIds.map(byId).filter(Boolean) as FplPlayer[];
-    const bench=lock.squadIds.filter(id=>!lock.xiIds.includes(id)).map(byId).filter(Boolean) as FplPlayer[];
+    const fallbackBenchIds=lock.squadIds.filter(id=>!lock.xiIds.includes(id));
+    const bench=(lock.benchIds?.length===4?lock.benchIds:fallbackBenchIds).map(byId).filter(Boolean) as FplPlayer[];
     return{xi,bench,modelCaptain:xi.find(p=>p.id===lock.captainId)??xi[0],modelVice:xi.find(p=>p.id===lock.viceId)??xi[1],source:"locked"};
   }
   const result=bestXi(squad,eventId,fixtures,eventId);
   const xi=result.players;
-  const bench=squad.filter(p=>!xi.some(x=>x.id===p.id)).sort((a,b)=>{if(a.positionShort==="GKP")return 1;if(b.positionShort==="GKP")return-1;return playerProjection(b,eventId,fixtures,eventId)-playerProjection(a,eventId,fixtures,eventId)});
+  const rawBench=squad.filter(p=>!xi.some(x=>x.id===p.id));
+  const bench=optimizeBenchOrder(xi,rawBench,player=>{const metrics=projectionMetrics(player,eventId,fixtures,eventId);return{xPts:metrics.xPts,appearanceProbability:modeledAppearanceProbability(player,metrics)}}).bench;
   const modelVice=[...xi].sort((a,b)=>playerProjection(b,eventId,fixtures,eventId)-playerProjection(a,eventId,fixtures,eventId))[1];
   return{xi,bench,modelCaptain:result.captain??xi[0],modelVice,source:"model"};
 }
@@ -618,7 +620,7 @@ function LivePointsPanel({player,scoring,close}:{player:FplPlayer;scoring:LiveSc
 function FutureGameweekView({data,event,squad,tab,setTab,selected,setSelected,bank}:{data:FplData;event:FplEvent;squad:FplPlayer[];tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number}){
   const xiResult=bestXi(squad,event.id,data.fixtures,event.id);
   const xi=xiResult.players;
-  const bench=squad.filter(p=>!xi.some(x=>x.id===p.id)).sort((a,b)=>{if(a.positionShort==="GKP")return 1;if(b.positionShort==="GKP")return-1;return playerProjection(b,event.id,data.fixtures,event.id)-playerProjection(a,event.id,data.fixtures,event.id)});
+  const bench=benchOrderForEvent(xi,squad.filter(p=>!xi.some(x=>x.id===p.id)),event.id,data).bench;
   const replacement=bestTransfers(data,squad,bank).filter(x=>selected&&x.out.id===selected.id&&x.qualityStatus!=="blocked").slice(0,3);
   const gwFixtures=data.fixtures.filter(f=>f.event===event.id);
 
@@ -923,10 +925,10 @@ export type ProjectionReceiptTransfer={
   qualityStatus?:TransferQualityStatus;qualityScore?:number;qualityReasonCodes?:string[];
 };
 export type ProjectionReceipt={
-  schemaVersion:1|2|3|4|5;receiptId:string;modelVersion:string;event:number;eventIds:number[];
+  schemaVersion:1|2|3|4|5|6;receiptId:string;modelVersion:string;event:number;eventIds:number[];
   deadline:string;capturedAt:string;dataUpdatedAt:string;dataSource:string;seasonStatsThrough:number;
   assumptions:{bank:number;freeTransfers:number;transferHorizon:number};
-  squad:{squadIds:number[];xiIds:number[];captainId:number;viceId:number;predictedTotal:number;captainXPts:number;viceXPts:number};
+  squad:{squadIds:number[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;predictedTotal:number;captainXPts:number;viceXPts:number};
   playerEncoding:"tuple-v1"|"tuple-v2"|"tuple-v3"|"tuple-v4";players:ProjectionReceiptPlayer[];transfers:ProjectionReceiptTransfer[];
 };
 type ReceiptTransferInput=Pick<Transfer,"gain1"|"gain3"|"gain5"|"individualGain1"|"individualGain3"|"individualGain5"|"rankScore"|"netDifference"|"hitCost"|"startProbIn"|"confidenceIn"|"risk"|"reviewRequired"|"anomalies">&Partial<Pick<Transfer,"qualityStatus"|"qualityScore"|"qualityReasons">>&{out:Pick<FplPlayer,"id"|"name">;incoming:Pick<FplPlayer,"id"|"name">};
@@ -935,7 +937,7 @@ const receiptNumber=(value:number,places=3)=>Number(value.toFixed(places));
 // Pure, explicit and deliberately complete enough for later calibration. It snapshots every
 // official player, not only the chosen squad, so future model-vs-reality work can evaluate the
 // full prediction population without reconstructing what the model "must have meant" later.
-export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad,xiIds,captainId,viceId,bank,freeTransfers,transferRows}:{data:FplData;eventIds:number[];deadline:string;capturedAt:string;squad:FplPlayer[];xiIds:number[];captainId:number;viceId:number;bank:number;freeTransfers:number;transferRows:ReceiptTransferInput[]}):ProjectionReceipt{
+export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad,xiIds,benchIds,captainId,viceId,bank,freeTransfers,transferRows}:{data:FplData;eventIds:number[];deadline:string;capturedAt:string;squad:FplPlayer[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;bank:number;freeTransfers:number;transferRows:ReceiptTransferInput[]}):ProjectionReceipt{
   if(!eventIds.length)throw new Error("A projection receipt requires at least one future event.");
   if(Date.parse(capturedAt)>=Date.parse(deadline))throw new Error("The deadline has passed; this receipt cannot be labelled pre-deadline.");
   const horizon=eventIds.slice(0,5),first=horizon[0];
@@ -944,18 +946,20 @@ export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad
   const projected=(id:number)=>{const player=byId.get(id);return player?playerProjection(player,first,data.fixtures,first):0};
   const captainXPts=projected(captainId),viceXPts=projected(viceId);
   const predictedTotal=xiIds.reduce((sum,id)=>sum+projected(id),0)+captainXPts;
+  const frozenBenchIds=benchIds?.length===4?[...benchIds]:squad.filter(player=>!xiIds.includes(player.id)).map(player=>player.id);
   const transfers=transferRows.slice(0,20).map((row,index)=>({rank:index+1,outId:row.out.id,outName:row.out.name,incomingId:row.incoming.id,incomingName:row.incoming.name,gain1:receiptNumber(row.gain1),gain3:receiptNumber(row.gain3),gain5:receiptNumber(row.gain5),individualGain1:receiptNumber(row.individualGain1),individualGain3:receiptNumber(row.individualGain3),individualGain5:receiptNumber(row.individualGain5),rankScore:receiptNumber(row.rankScore),netDifference:receiptNumber(row.netDifference),hitCost:row.hitCost,startProbability:receiptNumber(row.startProbIn),confidence:receiptNumber(row.confidenceIn),risk:row.risk,reviewRequired:row.reviewRequired,anomalyCodes:row.anomalies.map(flag=>flag.code),qualityStatus:row.qualityStatus??(row.reviewRequired?"blocked":"actionable"),qualityScore:row.qualityScore===undefined?undefined:receiptNumber(row.qualityScore,0),qualityReasonCodes:row.qualityReasons?.map(reason=>reason.code)??[]}));
-  return{schemaVersion:5,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v4",players,transfers};
+  return{schemaVersion:6,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],benchIds:frozenBenchIds,captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v4",players,transfers};
 }
 
-export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];captainId:number;viceId:number;receipt?:ProjectionReceipt};
+export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;receipt?:ProjectionReceipt};
 export type LockStatus="none"|"matches"|"mismatch";
 // Pure so the mismatch detection is directly unit-testable (tests/finalcheck.test.mts) without
 // rendering. Order-independent on xiIds since bestXi's internal ordering isn't semantically meaningful.
-export function reconcileLock(existingLock:LockRecord|undefined,current:{xiIds:number[];captainId:number;viceId:number}):LockStatus{
+export function reconcileLock(existingLock:LockRecord|undefined,current:{xiIds:number[];benchIds?:number[];captainId:number;viceId:number}):LockStatus{
   if(!existingLock)return"none";
   const sameIds=(a:number[],b:number[])=>a.length===b.length&&[...a].sort((x,y)=>x-y).every((v,i)=>v===[...b].sort((x,y)=>x-y)[i]);
-  return sameIds(existingLock.xiIds,current.xiIds)&&existingLock.captainId===current.captainId&&existingLock.viceId===current.viceId?"matches":"mismatch";
+  const benchMatches=!existingLock.benchIds||!current.benchIds||existingLock.benchIds.length===current.benchIds.length&&existingLock.benchIds.every((id,index)=>id===current.benchIds![index]);
+  return sameIds(existingLock.xiIds,current.xiIds)&&benchMatches&&existingLock.captainId===current.captainId&&existingLock.viceId===current.viceId?"matches":"mismatch";
 }
 
 export type ProjectionTransferEvaluation={
@@ -1006,10 +1010,13 @@ export function evaluateProjectionReceipt(lock:LockRecord,weeks:HistoryWeek[]):P
   for(const eventId of receipt.eventIds){if(!weekByEvent.get(eventId)?.playerStats)break;completedEvents++}
   const officialSquad=firstWeek.squad?.map(pick=>pick.elementId)??[];
   const officialXi=firstWeek.squad?.filter(pick=>pick.position<=11).map(pick=>pick.elementId)??[];
+  const officialBench=firstWeek.squad?.filter(pick=>pick.position>11).sort((a,b)=>a.position-b.position).map(pick=>pick.elementId)??[];
   const officialCaptainId=firstWeek.captainId??firstWeek.squad?.find(pick=>pick.isCaptain)?.elementId??null;
   const officialViceId=firstWeek.viceCaptainId??firstWeek.squad?.find(pick=>pick.isViceCaptain)?.elementId??null;
   const effectiveCaptainId=firstWeek.squad?.find(pick=>pick.multiplier>1)?.elementId??officialCaptainId;
-  const officialPlanMatch=officialSquad.length===receipt.squad.squadIds.length&&sameIdSet(officialSquad,receipt.squad.squadIds)&&sameIdSet(officialXi,receipt.squad.xiIds)&&officialCaptainId===receipt.squad.captainId&&officialViceId===receipt.squad.viceId;
+  const receiptBench=receipt.squad.benchIds;
+  const benchOrderMatch=!receiptBench||receiptBench.length===officialBench.length&&receiptBench.every((id,index)=>id===officialBench[index]);
+  const officialPlanMatch=officialSquad.length===receipt.squad.squadIds.length&&sameIdSet(officialSquad,receipt.squad.squadIds)&&sameIdSet(officialXi,receipt.squad.xiIds)&&benchOrderMatch&&officialCaptainId===receipt.squad.captainId&&officialViceId===receipt.squad.viceId;
   const tupleById=new Map(receipt.players.map(player=>[player[0],player]));
   const currentProjection=(id:number)=>tupleById.get(id)?.[4]??0;
   const chip=firstWeek.chip??null;
@@ -1159,11 +1166,12 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
   const xiBase=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0);
   const predicted=xiBase+playerProjection(captain,a.first,data.fixtures,a.first);
   const xiIds=a.xi.players.map(p=>p.id);
+  const benchIds=a.bench.map(p=>p.id);
   let existingLocks:LockRecord[]=[];try{existingLocks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
   const existingLock=existingLocks.find(l=>l.event===a.first);
-  const lockStatus=reconcileLock(existingLock,{xiIds,captainId:captain.id,viceId:vice.id});
+  const lockStatus=reconcileLock(existingLock,{xiIds,benchIds,captainId:captain.id,viceId:vice.id});
   const locked=lockStatus==="matches";
-  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===5&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
+  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===6&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
   const lock=()=>{
     setLockError("");
     const event=data.events.find(item=>item.id===a.first),capturedAt=new Date().toISOString();
@@ -1172,8 +1180,8 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
       const freeTransfers=readFreeTransfers(),bank=meta?.bank??a.bank;
       const baseRows=bestTransfers(data,squad,bank,freeTransfers,60,sellingPricesFor(meta));
       const transferRows=withModelUtilityChange(baseRows,squad,createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"));
-      const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows});
-      const record:LockRecord={event:a.first,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:squad.map(p=>p.id),xiIds,captainId:captain.id,viceId:vice.id,receipt};
+      const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,benchIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows});
+      const record:LockRecord={event:a.first,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:squad.map(p=>p.id),xiIds,benchIds,captainId:captain.id,viceId:vice.id,receipt};
       persist("fpl-edge-locks",JSON.stringify([...existingLocks.filter(item=>item.event!==a.first),record]));setLockVersion(v=>v+1);
     }catch(error){setLockError(error instanceof Error?error.message:"Could not create the projection receipt.")}
   };
@@ -1190,6 +1198,7 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
     {captainDisagreement&&<p className="captain-model-note">Model recommends <b>{captainDisagreement.name}</b> ({playerProjection(captainDisagreement,a.first,data.fixtures,a.first).toFixed(1)} xPts) over your pick <b>{captain.name}</b> ({playerProjection(captain,a.first,data.fixtures,a.first).toFixed(1)} xPts).</p>}
     {riskNote&&<div className="captain-risk-note"><b>⚠ {riskNote.message}</b></div>}
     <Pitch players={a.xi.players} bench={a.bench} captain={captain} vice={vice} event={a.first} data={data} onSelect={()=>{}}/>
+    <section className="bench-order-card"><header><div><span>AUTOSUB-AWARE BENCH</span><h2>Bench order chosen for what can actually come on.</h2></div><strong>{a.benchOrder.expectedAutosubPoints.toFixed(2)}<small>expected autosub pts</small></strong></header><div>{a.bench.map((player,index)=>{const metrics=projectionMetrics(player,a.first,data.fixtures,a.first),appearance=modeledAppearanceProbability(player,metrics);return <article key={player.id}><i>{player.positionShort==="GKP"?"GK":index+1}</i><div><b>{player.name}</b><small>{player.positionShort==="GKP"?"Separate goalkeeper replacement rule":`${Math.round(appearance*100)}% appearance proxy · ${metrics.xPts.toFixed(1)} xPts`}</small></div></article>})}</div><footer>All six outfield orders are tested across {a.benchOrder.scenarios.toLocaleString()} appearance combinations while enforcing at least 3 DEF, 2 MID and 1 FWD. {a.benchOrder.improvement>.005?`This order adds ${a.benchOrder.improvement.toFixed(2)} expected autosub points versus simple xPts sorting.`:"The simple xPts order already survives the formation and availability test."}</footer></section>
     <div className="lock-summary">
       <article><span>CAPTAIN</span><b>{captain.name}</b><small>{playerProjection(captain,a.first,data.fixtures,a.first).toFixed(1)} xPts</small></article>
       <article><span>VICE</span><b>{vice.name}</b><small>{playerProjection(vice,a.first,data.fixtures,a.first).toFixed(1)} xPts</small></article>
@@ -1356,7 +1365,7 @@ function DecisionSnapshots({data,rows,loading,error,refresh}:{data:FplData;rows:
           <p><span>Points bias</span><b>{population?`${population.pointsBias>0?"+":""}${population.pointsBias.toFixed(2)}`:"—"}</b><small>{population?.pointsBias&&population.pointsBias>0?"underprojecting":"negative means overprojecting"}</small></p>
         </div>}
         {evaluation.transfers.length>0&&<section className="route-evaluation"><header><span>FROZEN TRANSFER ROUTES</span><small>{evaluation.completedEvents}/{evaluation.horizonEvents} horizon gameweeks complete</small></header>{evaluation.transfers.slice(0,3).map(route=><div key={`${route.rank}-${route.outName}-${route.incomingName}`}><b>#{route.rank} {route.outName} → {route.incomingName}</b><span>Forecast through {route.completedEvents}: <strong>{route.projectedPlayerSwing===null?"—":`${route.projectedPlayerSwing>=0?"+":""}${route.projectedPlayerSwing.toFixed(1)}`}</strong></span><span>Actual through {route.completedEvents}: <strong>{route.actualPlayerSwing===null?"—":`${route.actualPlayerSwing>=0?"+":""}${route.actualPlayerSwing}`}</strong></span><span>After hit: <strong>{route.actualNetAfterHit===null?"—":`${route.actualNetAfterHit>=0?"+":""}${route.actualNetAfterHit}`}</strong></span><small>Original 5-GW player-swing forecast {route.projectedFive>=0?"+":""}{route.projectedFive.toFixed(1)}{route.reviewRequired?" · review was required":""}</small></div>)}</section>}
-        <footer>{receipt?`${receipt.players.length} frozen players · ${receipt.transfers.length} routes · ${receipt.playerEncoding} · locked ${new Date(lock.lockedAt).toLocaleString()}`:`Legacy lock from ${new Date(lock.lockedAt).toLocaleString()} — detailed calibration was not captured.`}</footer>
+        <footer>{receipt?`${receipt.players.length} frozen players · ${receipt.transfers.length} routes · ${receipt.squad.benchIds?.length===4?"bench order frozen · ":""}${receipt.playerEncoding} · locked ${new Date(lock.lockedAt).toLocaleString()}`:`Legacy lock from ${new Date(lock.lockedAt).toLocaleString()} — detailed calibration was not captured.`}</footer>
       </article>})}</div>:<div className="history-empty"><b>No projection receipts yet.</b><p>Use Final Check and lock your team before the deadline. After the gameweek finishes, this page will automatically grade the squad forecast, player projections, captaincy and transfer routes.</p></div>}
   </section>
 }

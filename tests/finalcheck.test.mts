@@ -62,3 +62,9 @@ test("reconcileLock: locked plan, then only the vice changes -- still flagged as
   const status = reconcileLock(lockedPlan, currentStateAfterMutation);
   assert.equal(status, "mismatch");
 });
+
+test("reconcileLock: a changed bench order invalidates an otherwise identical deadline plan",()=>{
+  const lockedPlan=makeLock({benchIds:[12,13,14,15]});
+  assert.equal(reconcileLock(lockedPlan,{xiIds:lockedPlan.xiIds,benchIds:[13,12,14,15],captainId:1,viceId:2}),"mismatch");
+  assert.equal(reconcileLock(lockedPlan,{xiIds:lockedPlan.xiIds,benchIds:[12,13,14,15],captainId:1,viceId:2}),"matches");
+});
