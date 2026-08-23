@@ -16,6 +16,7 @@ import {
   projectionMetrics,
 } from "../app/lib/fpl.ts";
 import { HistoryWeek, LockRecord, ProjectionPlayerEvaluationRow, ProjectionTransferEvaluation, aggregateAccuracy, aggregateTransferAccuracy, analysis, bestTransfers, createProjectionReceipt, evaluateProjectionReceipt, evaluateTransferQuality, projectionConfidenceBand, selectPrimaryTransfer, sortTransfersByQuality, Transfer, withModelUtilityChange } from "../app/components/CoachApp.tsx";
+import { TransferRoute } from "../app/lib/transfer-routes.ts";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -80,8 +81,9 @@ test("projection receipt freezes every player, selected captaincy and ranked tra
   const capturedAt="2026-08-22T10:00:00.000Z",deadline="2026-08-23T10:00:00.000Z";
   const data:FplData={updatedAt:"2026-08-22T09:55:00.000Z",source:"official-test",seasonStatsThrough:1,players:[target,captain],fixtures:[makeFixture({id:1,event:2,teamH:1,teamA:2}),makeFixture({id:2,event:3,teamH:2,teamA:1})],events:[{id:2,name:"Gameweek 2",deadline,finished:false,current:false,next:true,dataChecked:false},{id:3,name:"Gameweek 3",deadline:"2026-08-30T10:00:00.000Z",finished:false,current:false,next:false,dataChecked:false}],teams:[{id:1,name:"One",short:"ONE"},{id:2,name:"Two",short:"TWO"}],rules:makeRules()};
   const transferRows=[{out:captain,incoming:target,gain1:1.2345,gain3:2.3456,gain5:3.4567,individualGain1:1.1111,individualGain3:3.3333,individualGain5:4.5678,rankScore:2.2222,netDifference:3.4567,hitCost:0,startProbIn:.6543,confidenceIn:.4321,risk:"Medium" as const,reviewRequired:true,anomalies:[{code:"test-warning",message:"Test"}],qualityStatus:"blocked" as const,qualityScore:31,qualityReasons:[{code:"insufficient-start-probability",message:"Blocked"}]}];
-  const receipt=createProjectionReceipt({data,eventIds:[2,3],deadline,capturedAt,squad:[captain,target],xiIds:[captain.id],captainId:captain.id,viceId:target.id,bank:1.5,freeTransfers:2,transferRows});
-  assert.equal(receipt.schemaVersion,6);
+  const routeRows:TransferRoute[]=[{id:"route",weeks:[{eventId:2,eventName:"Gameweek 2",freeTransfersBefore:2,freeTransfersAfter:2,transfers:[{out:captain,incoming:target,sellingPrice:6,buyingPrice:6.5,bankChange:-.5,horizonGain:3.4567}],hitCost:0,bankAfter:1,projectedPoints:55.5555,netProjectedPoints:55.5555,squadIdsAfter:[22]}],totalProjectedPoints:55.5555,netProjectedPoints:55.5555,baselinePoints:52,gain:3.5555,totalHitCost:0,totalTransfers:1,finalBank:1,finalFreeTransfers:2,confidence:.6543,risk:"Medium",firstAction:"Captain → Target",explanation:[]}];
+  const receipt=createProjectionReceipt({data,eventIds:[2,3],deadline,capturedAt,squad:[captain,target],xiIds:[captain.id],captainId:captain.id,viceId:target.id,bank:1.5,freeTransfers:2,transferRows,routeRows});
+  assert.equal(receipt.schemaVersion,7);
   assert.equal(receipt.modelVersion,PROJECTION_MODEL_VERSION);
   assert.equal(receipt.playerEncoding,"tuple-v4");
   assert.deepEqual(receipt.players.map(player=>player[0]),[11,22],"every official player is captured in deterministic id order");
@@ -103,6 +105,9 @@ test("projection receipt freezes every player, selected captaincy and ranked tra
   assert.equal(receipt.transfers[0].qualityStatus,"blocked");
   assert.equal(receipt.transfers[0].qualityScore,31);
   assert.deepEqual(receipt.transfers[0].qualityReasonCodes,["insufficient-start-probability"]);
+  assert.equal(receipt.routes?.[0].firstAction,"Captain → Target");
+  assert.equal(receipt.routes?.[0].gain,3.555);
+  assert.deepEqual(receipt.routes?.[0].weeks[0].moves,[[11,22,6,6.5]],"complete route freezes exact player ids and transaction prices");
 });
 
 test("post-GW evaluation grades a matching official plan, player calibration and transfer-route outcomes",()=>{

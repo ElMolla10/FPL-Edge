@@ -19,7 +19,7 @@ export type FplData = { updatedAt:string; source:string; seasonStatsThrough:numb
 
 // Bump whenever projection or ranking semantics change. Deadline receipts persist this value so
 // later accuracy reports never compare outcomes from different model generations as one system.
-export const PROJECTION_MODEL_VERSION="fpl-edge-2026.08.23-r5";
+export const PROJECTION_MODEL_VERSION="fpl-edge-2026.08.23-r6";
 
 const difficultyFactor:Record<number,number>={1:1.24,2:1.12,3:1,4:.88,5:.76};
 export const availability=(player:FplPlayer)=>player.chance!==null?Math.max(0,player.chance/100):player.status==="a"?1:player.status==="d"?.72:.2;

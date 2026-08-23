@@ -10,6 +10,7 @@ import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib
 import { persist, syncWithServer } from "../lib/persistence";
 import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
 import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } from "../lib/bench-order";
+import { TransferRoute, solveTransferRoutes } from "../lib/transfer-routes";
 
 type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
 export type OfficialPick={elementId:number;position:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean;sellingPrice?:number|null};
@@ -648,14 +649,17 @@ export function transferHoldNote(nearestDoubles:DoubleGameweek[],rollRecommended
 
 function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
-  const[meta]=useManager();const[tab,setTab]=useState<"moves"|"watchlist">("moves");const[fts,setFts]=useState(readFreeTransfers);
+  const[meta]=useManager();const[tab,setTab]=useState<"routes"|"moves"|"watchlist">("routes");const[fts,setFts]=useState(readFreeTransfers);
+  const[routeHorizon,setRouteHorizon]=useState<3|5|8>(5);const[maxWeeklyHit,setMaxWeeklyHit]=useState<0|4|8>(4);
   const[watchIds,setWatchIds]=useState<number[]>([]);useEffect(()=>setWatchIds(readIds("fpl-edge-watchlist")),[]);
   const[expanded,setExpanded]=useState<Set<string>>(new Set());
   const a=analysis(data,squad);
   const optimizer=useMemo(()=>data?createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"):null,[data]);
   const bank=meta?.bank??a?.bank??0;
+  const sellingPrices=useMemo(()=>sellingPricesFor(meta),[meta]);
   const baseRows=useMemo(()=>a?bestTransfers(data,squad,bank,fts,60,sellingPricesFor(meta)):[],[data,squad,bank,fts,a,meta]);
   const rows=useMemo(()=>withModelUtilityChange(baseRows,squad,optimizer),[baseRows,squad,optimizer]);
+  const routes=useMemo(()=>solveTransferRoutes(data,squad,bank,{horizon:routeHorizon,freeTransfers:fts,maxWeeklyHit,sellingPrices,resultLimit:4}),[data,squad,bank,fts,routeHorizon,maxWeeklyHit,sellingPrices]);
   if(!a)return <><ConnectTeam data={data}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></>;
   const best=selectPrimaryTransfer(rows);const roll=!best;
   const actionableRows=rows.filter(row=>row.qualityStatus==="actionable");
@@ -665,8 +669,8 @@ function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:n
   const setWatch=(id:number)=>{const next=watchIds.includes(id)?watchIds.filter(x=>x!==id):[...watchIds,id];setWatchIds(next);persist("fpl-edge-watchlist",JSON.stringify(next))};
   const toggleExpand=(key:string)=>setExpanded(x=>{const next=new Set(x);next.has(key)?next.delete(key):next.add(key);return next});
   return <div className="coach-page">
-    <section className="transfer-tabs"><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Transfer centre</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select></label></section>
-    {tab==="moves"?<>
+    <section className="transfer-tabs"><button className={tab==="routes"?"active":""} onClick={()=>setTab("routes")}>Route planner</button><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Single moves</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select></label></section>
+    {tab==="routes"?<TransferRoutePlanner routes={routes} horizon={routeHorizon} setHorizon={setRouteHorizon} maxWeeklyHit={maxWeeklyHit} setMaxWeeklyHit={setMaxWeeklyHit}/>:tab==="moves"?<>
       <section className="recommended-move">
         <div className="call-label"><span>RECOMMENDED MOVE</span><b>{roll?"SAVE":"QUALITY-GATED EDGE"}</b></div>
         <h2>{roll?"ROLL":`${best.out.name} → ${best.incoming.name}`}</h2>
@@ -683,6 +687,37 @@ function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:n
       {process.env.NODE_ENV!=="production"&&<TransferDebugTable rows={rows.slice(0,10)}/>}
     </>:<Watchlist data={data} squad={squad} ids={watchIds} remove={setWatch} bank={bank}/>}
   </div>;
+}
+
+function TransferRoutePlanner({routes,horizon,setHorizon,maxWeeklyHit,setMaxWeeklyHit}:{routes:TransferRoute[];horizon:3|5|8;setHorizon:(value:3|5|8)=>void;maxWeeklyHit:0|4|8;setMaxWeeklyHit:(value:0|4|8)=>void}){
+  const best=routes[0];
+  const signed=(value:number)=>`${value>=0?"+":""}${value.toFixed(1)}`;
+  if(!best)return <section className="route-planner-empty"><span>ROUTE SOLVER</span><h2>No legal route could be produced.</h2><p>Refresh official data and confirm that the saved squad contains 15 legal players.</p></section>;
+  return <>
+    <section className="route-planner-controls">
+      <div><span>PLANNING HORIZON</span>{([3,5,8] as const).map(value=><button className={horizon===value?"active":""} onClick={()=>setHorizon(value)} key={value}>{value} GWs</button>)}</div>
+      <div><span>MAX HIT IN ONE GW</span>{([0,4,8] as const).map(value=><button className={maxWeeklyHit===value?"active":""} onClick={()=>setMaxWeeklyHit(value)} key={value}>{value?`−${value}`:"No hits"}</button>)}</div>
+      <p>The solver searches rolls, one-transfer and two-transfer combinations while preserving legal squads, exact selling values, bank and free transfers after every deadline.</p>
+    </section>
+    <section className="route-planner-hero">
+      <div><span>BEST COMPLETE ROUTE</span><h2>{best.firstAction}</h2><p>{best.gain>.05?`${signed(best.gain)} net projected points versus making no transfers across ${horizon} gameweeks.`:`No legal transfer sequence currently beats rolling across ${horizon} gameweeks.`}</p></div>
+      <strong className={best.gain>.05?"positive":"neutral"}>{signed(best.gain)}<small>NET EDGE</small></strong>
+      <div className="route-hero-metrics"><p><span>Projected points</span><b>{best.netProjectedPoints.toFixed(1)}</b></p><p><span>Transfers</span><b>{best.totalTransfers}</b></p><p><span>Hit cost</span><b>{best.totalHitCost?`−${best.totalHitCost}`:"0"}</b></p><p><span>Final bank</span><b>£{best.finalBank.toFixed(1)}m</b></p><p><span>Route confidence</span><b>{Math.round(best.confidence*100)}%</b></p><p><span>Risk</span><b>{best.risk}</b></p></div>
+    </section>
+    <section className="route-options">
+      <header><div><span>COMPLETE PLANS</span><h2>Best route and genuinely different alternatives.</h2></div><small>Ranked by net projected points after hits</small></header>
+      {routes.map((route,index)=><article className={index===0?"primary":""} key={route.id}>
+        <header><i>{index+1}</i><div><span>{index===0?"RECOMMENDED":"ALTERNATIVE"}</span><h3>{route.firstAction}</h3></div><p><b>{signed(route.gain)}</b><small>vs roll</small></p><em className={route.risk.toLowerCase()}>{route.risk} risk</em></header>
+        <div className="route-week-grid">{route.weeks.map(week=><section key={week.eventId}>
+          <header><span>{week.eventName.replace("Gameweek ","GW")}</span><b>{week.freeTransfersBefore} FT → {week.freeTransfersAfter} FT</b></header>
+          <div className={week.transfers.length?"has-moves":"roll"}>{week.transfers.length?week.transfers.map(move=><p key={`${move.out.id}-${move.incoming.id}`}><span>{move.out.name}</span><i>→</i><b>{move.incoming.name}</b><small>{move.bankChange>=0?"+":"−"}£{Math.abs(move.bankChange).toFixed(1)}m</small></p>):<p><b>ROLL</b><small>Bank the transfer</small></p>}</div>
+          <footer><p><span>Team xPts</span><b>{week.projectedPoints.toFixed(1)}</b></p><p><span>Hit</span><b>{week.hitCost?`−${week.hitCost}`:"0"}</b></p><p><span>Bank</span><b>£{week.bankAfter.toFixed(1)}m</b></p></footer>
+        </section>)}</div>
+        <footer>{route.explanation.map(line=><p key={line}>{line}</p>)}</footer>
+      </article>)}
+    </section>
+    <p className="route-method-note">Route projections use the same team-quality, expected-minutes, availability and player-confidence model as the rest of FPL Edge. Players below the hard role-security floor cannot anchor a recommended route.</p>
+  </>;
 }
 
 function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,setWatch}:{title:string;eyebrow:string;rows:Transfer[];expanded:Set<string>;toggleExpand:(key:string)=>void;watchIds:number[];setWatch:(id:number)=>void}){
@@ -924,12 +959,16 @@ export type ProjectionReceiptTransfer={
   risk:Transfer["risk"];reviewRequired:boolean;anomalyCodes:string[];
   qualityStatus?:TransferQualityStatus;qualityScore?:number;qualityReasonCodes?:string[];
 };
+export type ProjectionReceiptRoute={
+  rank:number;gain:number;netProjectedPoints:number;totalHitCost:number;totalTransfers:number;firstAction:string;confidence:number;risk:TransferRoute["risk"];
+  weeks:{eventId:number;freeTransfersBefore:number;freeTransfersAfter:number;hitCost:number;bankAfter:number;projectedPoints:number;moves:[number,number,number,number][]}[];
+};
 export type ProjectionReceipt={
-  schemaVersion:1|2|3|4|5|6;receiptId:string;modelVersion:string;event:number;eventIds:number[];
+  schemaVersion:1|2|3|4|5|6|7;receiptId:string;modelVersion:string;event:number;eventIds:number[];
   deadline:string;capturedAt:string;dataUpdatedAt:string;dataSource:string;seasonStatsThrough:number;
   assumptions:{bank:number;freeTransfers:number;transferHorizon:number};
   squad:{squadIds:number[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;predictedTotal:number;captainXPts:number;viceXPts:number};
-  playerEncoding:"tuple-v1"|"tuple-v2"|"tuple-v3"|"tuple-v4";players:ProjectionReceiptPlayer[];transfers:ProjectionReceiptTransfer[];
+  playerEncoding:"tuple-v1"|"tuple-v2"|"tuple-v3"|"tuple-v4";players:ProjectionReceiptPlayer[];transfers:ProjectionReceiptTransfer[];routes?:ProjectionReceiptRoute[];
 };
 type ReceiptTransferInput=Pick<Transfer,"gain1"|"gain3"|"gain5"|"individualGain1"|"individualGain3"|"individualGain5"|"rankScore"|"netDifference"|"hitCost"|"startProbIn"|"confidenceIn"|"risk"|"reviewRequired"|"anomalies">&Partial<Pick<Transfer,"qualityStatus"|"qualityScore"|"qualityReasons">>&{out:Pick<FplPlayer,"id"|"name">;incoming:Pick<FplPlayer,"id"|"name">};
 const receiptNumber=(value:number,places=3)=>Number(value.toFixed(places));
@@ -937,7 +976,7 @@ const receiptNumber=(value:number,places=3)=>Number(value.toFixed(places));
 // Pure, explicit and deliberately complete enough for later calibration. It snapshots every
 // official player, not only the chosen squad, so future model-vs-reality work can evaluate the
 // full prediction population without reconstructing what the model "must have meant" later.
-export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad,xiIds,benchIds,captainId,viceId,bank,freeTransfers,transferRows}:{data:FplData;eventIds:number[];deadline:string;capturedAt:string;squad:FplPlayer[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;bank:number;freeTransfers:number;transferRows:ReceiptTransferInput[]}):ProjectionReceipt{
+export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad,xiIds,benchIds,captainId,viceId,bank,freeTransfers,transferRows,routeRows=[]}:{data:FplData;eventIds:number[];deadline:string;capturedAt:string;squad:FplPlayer[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;bank:number;freeTransfers:number;transferRows:ReceiptTransferInput[];routeRows?:TransferRoute[]}):ProjectionReceipt{
   if(!eventIds.length)throw new Error("A projection receipt requires at least one future event.");
   if(Date.parse(capturedAt)>=Date.parse(deadline))throw new Error("The deadline has passed; this receipt cannot be labelled pre-deadline.");
   const horizon=eventIds.slice(0,5),first=horizon[0];
@@ -948,7 +987,8 @@ export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad
   const predictedTotal=xiIds.reduce((sum,id)=>sum+projected(id),0)+captainXPts;
   const frozenBenchIds=benchIds?.length===4?[...benchIds]:squad.filter(player=>!xiIds.includes(player.id)).map(player=>player.id);
   const transfers=transferRows.slice(0,20).map((row,index)=>({rank:index+1,outId:row.out.id,outName:row.out.name,incomingId:row.incoming.id,incomingName:row.incoming.name,gain1:receiptNumber(row.gain1),gain3:receiptNumber(row.gain3),gain5:receiptNumber(row.gain5),individualGain1:receiptNumber(row.individualGain1),individualGain3:receiptNumber(row.individualGain3),individualGain5:receiptNumber(row.individualGain5),rankScore:receiptNumber(row.rankScore),netDifference:receiptNumber(row.netDifference),hitCost:row.hitCost,startProbability:receiptNumber(row.startProbIn),confidence:receiptNumber(row.confidenceIn),risk:row.risk,reviewRequired:row.reviewRequired,anomalyCodes:row.anomalies.map(flag=>flag.code),qualityStatus:row.qualityStatus??(row.reviewRequired?"blocked":"actionable"),qualityScore:row.qualityScore===undefined?undefined:receiptNumber(row.qualityScore,0),qualityReasonCodes:row.qualityReasons?.map(reason=>reason.code)??[]}));
-  return{schemaVersion:6,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],benchIds:frozenBenchIds,captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v4",players,transfers};
+  const routes=routeRows.slice(0,4).map((route,index):ProjectionReceiptRoute=>({rank:index+1,gain:receiptNumber(route.gain),netProjectedPoints:receiptNumber(route.netProjectedPoints),totalHitCost:route.totalHitCost,totalTransfers:route.totalTransfers,firstAction:route.firstAction,confidence:receiptNumber(route.confidence),risk:route.risk,weeks:route.weeks.map(week=>({eventId:week.eventId,freeTransfersBefore:week.freeTransfersBefore,freeTransfersAfter:week.freeTransfersAfter,hitCost:week.hitCost,bankAfter:receiptNumber(week.bankAfter,1),projectedPoints:receiptNumber(week.projectedPoints),moves:week.transfers.map(move=>[move.out.id,move.incoming.id,receiptNumber(move.sellingPrice,1),receiptNumber(move.buyingPrice,1)])}))}));
+  return{schemaVersion:7,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],benchIds:frozenBenchIds,captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v4",players,transfers,routes};
 }
 
 export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;receipt?:ProjectionReceipt};
@@ -1171,7 +1211,7 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
   const existingLock=existingLocks.find(l=>l.event===a.first);
   const lockStatus=reconcileLock(existingLock,{xiIds,benchIds,captainId:captain.id,viceId:vice.id});
   const locked=lockStatus==="matches";
-  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===6&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
+  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===7&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
   const lock=()=>{
     setLockError("");
     const event=data.events.find(item=>item.id===a.first),capturedAt=new Date().toISOString();
@@ -1180,7 +1220,8 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
       const freeTransfers=readFreeTransfers(),bank=meta?.bank??a.bank;
       const baseRows=bestTransfers(data,squad,bank,freeTransfers,60,sellingPricesFor(meta));
       const transferRows=withModelUtilityChange(baseRows,squad,createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"));
-      const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,benchIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows});
+      const routeRows=solveTransferRoutes(data,squad,bank,{horizon:5,freeTransfers,maxWeeklyHit:4,sellingPrices:sellingPricesFor(meta),resultLimit:4});
+      const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,benchIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows,routeRows});
       const record:LockRecord={event:a.first,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:squad.map(p=>p.id),xiIds,benchIds,captainId:captain.id,viceId:vice.id,receipt};
       persist("fpl-edge-locks",JSON.stringify([...existingLocks.filter(item=>item.event!==a.first),record]));setLockVersion(v=>v+1);
     }catch(error){setLockError(error instanceof Error?error.message:"Could not create the projection receipt.")}
@@ -1208,7 +1249,7 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
     <section className="deadline-grid"><article><span>LATEST TEAM NEWS</span>{squad.filter(p=>p.news||p.status!=="a").length?squad.filter(p=>p.news||p.status!=="a").map(p=><p key={p.id}><b>{p.name}</b> · {p.news||"Officially flagged"}</p>):<p>No official squad-specific news.</p>}</article><article><span>RISK FLAGS</span>{a.issues.length?a.issues.map(p=><p key={p.id}><b>{p.name}</b> · {startPct(p,a.first,data)}% start probability</p>):<p>No player is below the 68% start threshold.</p>}</article></section>
     <CaptainCompare xi={a.xi.players} captain={captain} vice={vice} data={data} event={a.first}/>
     {lockError&&<p className="lock-error">{lockError}</p>}
-    <button className={`lock-button ${fullReceiptSaved?"locked":""}`} onClick={lock}>{fullReceiptSaved?"FULL RECEIPT SAVED ✓":locked?"REFRESH FULL RECEIPT":"LOCK THIS TEAM"}<small>{fullReceiptSaved?`${existingLock!.receipt!.players.length} player projections · ${existingLock!.receipt!.transfers.length} ranked routes · ${existingLock!.receipt!.modelVersion}`:"Save the XI, captaincy, every player projection and ranked transfer routes before the deadline."}</small></button>
+    <button className={`lock-button ${fullReceiptSaved?"locked":""}`} onClick={lock}>{fullReceiptSaved?"FULL RECEIPT SAVED ✓":locked?"REFRESH FULL RECEIPT":"LOCK THIS TEAM"}<small>{fullReceiptSaved?`${existingLock!.receipt!.players.length} player projections · ${existingLock!.receipt!.transfers.length} single moves · ${existingLock!.receipt!.routes?.length??0} complete routes · ${existingLock!.receipt!.modelVersion}`:"Save the XI, captaincy, every player projection and complete transfer routes before the deadline."}</small></button>
   </div>;
 }
 function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:FplPlayer;vice:FplPlayer;data:FplData;event:number}){

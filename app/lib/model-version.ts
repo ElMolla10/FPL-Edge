@@ -11,7 +11,11 @@ export type ModelRelease={
 
 export const MODEL_RELEASES:ModelRelease[]=[
   {
-    version:"fpl-edge-2026.08.23-r5",short:"r5",title:"Autosub-aware bench ordering",released:"23 Aug 2026",current:true,
+    version:"fpl-edge-2026.08.23-r6",short:"r6",title:"Multi-gameweek transfer routes",released:"23 Aug 2026",current:true,
+    changes:["Searches roll, single-transfer and double-transfer decisions across 3–8 gameweeks.","Carries exact selling values, bank, free transfers and hit costs through every deadline.","Freezes the four best complete routes inside version-7 deadline receipts."],
+  },
+  {
+    version:"fpl-edge-2026.08.23-r5",short:"r5",title:"Autosub-aware bench ordering",released:"23 Aug 2026",current:false,
     changes:["Evaluates all six outfield bench permutations.","Weights player appearance uncertainty across legal autosub scenarios.","Freezes the recommended bench order in deadline receipts."],
   },
   {
