@@ -30,6 +30,13 @@ export const futureEvents=(data:FplData,count=8)=>data.events.filter(event=>!eve
 
 const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
 
+// The hard role-security floor a player must clear before a projection can anchor an actionable
+// transfer recommendation, single-move or multi-week route. Single source for CoachApp.tsx's
+// evaluateTransferQuality() and transfer-routes.ts's eligibleAt() -- both consume this object
+// directly rather than each keeping their own copy of the same three numbers, so tuning one can't
+// silently leave the other behind (found duplicated independently during retroactive review).
+export const ROLE_SECURITY_FLOOR={startProbability:.55,expectedMinutes:45,confidence:.35} as const;
+
 export type PlayerCalibrationGroup="established-pl"|"limited-pl"|"no-pl-prior"|"current-pl-established";
 export type PlayerCalibrationProfile={group:PlayerCalibrationGroup;label:string;hasPremierLeaguePrior:boolean;lowPlContinuityClub:boolean;priorShrinkageMinutes:number;currentLearningMinutes:number;currentWeightCap:number;confidenceCap:number;rolePriorMatches:number};
 export const LOW_PL_CONTINUITY_THRESHOLD=.35;

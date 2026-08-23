@@ -1,4 +1,4 @@
-import { FplData, FplPlayer, bestXi, futureEvents, playerProjection, projectionMetrics } from "./fpl";
+import { FplData, FplPlayer, ROLE_SECURITY_FLOOR, bestXi, futureEvents, playerProjection, projectionMetrics } from "./fpl";
 
 export type RouteTransfer={
   out:FplPlayer;
@@ -104,7 +104,7 @@ export function solveTransferRoutes(data:FplData,initialSquad:FplPlayer[],initia
   const eligibleAt=(player:FplPlayer,index:number)=>{
     if(player.status==="u")return false;
     const model=metrics(player,events[index].id);
-    return model.startProbability>=.55&&model.expectedMinutes>=45&&model.confidence>=.35;
+    return model.startProbability>=ROLE_SECURITY_FLOOR.startProbability&&model.expectedMinutes>=ROLE_SECURITY_FLOOR.expectedMinutes&&model.confidence>=ROLE_SECURITY_FLOOR.confidence;
   };
   const pools=events.map((_,index)=>new Map(data.rules.positions.map(rule=>{
     const players=data.players.filter(player=>player.positionId===rule.id&&eligibleAt(player,index)).sort((a,b)=>{

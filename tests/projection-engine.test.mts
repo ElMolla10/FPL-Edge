@@ -6,6 +6,7 @@ import {
   FplFixture,
   FplPlayer,
   PROJECTION_MODEL_VERSION,
+  ROLE_SECURITY_FLOOR,
   attachIntegrityWarnings,
   bestXi,
   findIdentityConflicts,
@@ -303,6 +304,23 @@ test("calibration groups distinguish established, limited, absent and newly esta
   assert.equal(playerCalibrationProfile(makePlayer({priorSource:"official-pl-history",priorMinutes:63})).group,"limited-pl");
   assert.equal(playerCalibrationProfile(makePlayer({priorSource:"position-baseline",priorMinutes:0,minutes:200})).group,"no-pl-prior");
   assert.equal(playerCalibrationProfile(makePlayer({priorSource:"position-baseline",priorMinutes:0,minutes:900})).group,"current-pl-established");
+});
+
+// The route solver's eligibleAt() and this gate's hard floors used to be two independently
+// hardcoded copies of .55/45/.35 that happened to agree numerically, not by construction (found
+// during retroactive review of 4f8762e). This test drives the boundary off ROLE_SECURITY_FLOOR
+// itself rather than restating .55/45/.35 as fresh literals here too -- if evaluateTransferQuality
+// ever stops reading the shared constant, this test breaks even though the numbers still "look"
+// the same, because it no longer tracks whatever ROLE_SECURITY_FLOOR is changed to.
+test("transfer quality gate: the hard floors move with ROLE_SECURITY_FLOOR, not a second hardcoded copy",()=>{
+  // Margins are wide enough to clear both the hard floor under test and the separate (higher)
+  // watch-level thresholds, so the baseline lands cleanly on "actionable" and only the deliberate
+  // hard-floor violations below flip it to "blocked" -- isolating exactly what this test checks.
+  const base={gain1:1,gain3:3,gain5:5,weeklyGains:[1,1,1,1,1],expectedMinutes:ROLE_SECURITY_FLOOR.expectedMinutes+40,startProbability:ROLE_SECURITY_FLOOR.startProbability+.3,confidence:ROLE_SECURITY_FLOOR.confidence+.3,calibrationGroup:"established-pl" as const,lowPlContinuityClub:false,anomalyCodes:[]};
+  assert.equal(evaluateTransferQuality(base).status,"actionable","clearing every floor with margin must not be blocked");
+  assert.equal(evaluateTransferQuality({...base,startProbability:ROLE_SECURITY_FLOOR.startProbability-.01}).status,"blocked","just below the shared start-probability floor must block");
+  assert.equal(evaluateTransferQuality({...base,expectedMinutes:ROLE_SECURITY_FLOOR.expectedMinutes-1}).status,"blocked","just below the shared expected-minutes floor must block");
+  assert.equal(evaluateTransferQuality({...base,confidence:ROLE_SECURITY_FLOOR.confidence-.01}).status,"blocked","just below the shared confidence floor must block");
 });
 
 test("transfer quality gate: a secure established route with multi-week gains is actionable",()=>{

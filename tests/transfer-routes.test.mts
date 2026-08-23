@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
-import { FplData, FplPlayer } from "../app/lib/fpl.ts";
+import { FplData, FplPlayer, ROLE_SECURITY_FLOOR } from "../app/lib/fpl.ts";
 import { solveTransferRoutes } from "../app/lib/transfer-routes.ts";
 
 function makePlayer(overrides:Partial<FplPlayer>={}):FplPlayer{return{
@@ -84,4 +85,21 @@ test("role-insecure targets cannot anchor a route despite an inflated headline p
   const trap=makePlayer({id:199,name:"Trap",teamId:199,positionId:3,position:"Midfielder",positionShort:"MID",price:5,epNext:15,form:15,pointsPerGame:9,priorPointsPerGame:9,priorMinutes:63,priorStarts:1,priorExpectedGoals:20,priorExpectedAssists:20,status:"d",chance:25});
   const routes=solveTransferRoutes(dataFor([...initial,trap],3),initial,5,{horizon:3,freeTransfers:1,resultLimit:4});
   assert.ok(routes.every(route=>route.weeks.every(week=>week.transfers.every(move=>move.incoming.id!==trap.id))));
+});
+
+// eligibleAt() is a private closure inside solveTransferRoutes -- it can't be called directly to
+// prove it reads ROLE_SECURITY_FLOOR the way the boundary test for evaluateTransferQuality does in
+// projection-engine.test.mts. This inspects the actual source instead: it fails if either consumer
+// goes back to an independently hardcoded .55/45/.35 rather than the shared exported constant, the
+// exact duplication found during retroactive review of 4f8762e (same failure class as the earlier
+// duplicated 2.2 action threshold).
+test("route eligibility and the single-transfer quality gate read the same ROLE_SECURITY_FLOOR constant, not independently duplicated numbers",()=>{
+  assert.deepEqual(ROLE_SECURITY_FLOOR,{startProbability:.55,expectedMinutes:45,confidence:.35});
+  const routesSource=readFileSync(new URL("../app/lib/transfer-routes.ts",import.meta.url),"utf-8");
+  const coachAppSource=readFileSync(new URL("../app/components/CoachApp.tsx",import.meta.url),"utf-8");
+  assert.ok(routesSource.includes("ROLE_SECURITY_FLOOR.startProbability")&&routesSource.includes("ROLE_SECURITY_FLOOR.expectedMinutes")&&routesSource.includes("ROLE_SECURITY_FLOOR.confidence"),"transfer-routes.ts's eligibleAt must read all three floors from the shared constant");
+  assert.ok(!/startProbability\s*>=\s*\.55/.test(routesSource)&&!/expectedMinutes\s*>=\s*45\b/.test(routesSource)&&!/confidence\s*>=\s*\.35/.test(routesSource),"transfer-routes.ts must not independently hardcode the floor values");
+  const evaluateTransferQuality=coachAppSource.slice(coachAppSource.indexOf("export function evaluateTransferQuality("),coachAppSource.indexOf("export function sortTransfersByQuality("));
+  assert.ok(evaluateTransferQuality.includes("ROLE_SECURITY_FLOOR.startProbability")&&evaluateTransferQuality.includes("ROLE_SECURITY_FLOOR.expectedMinutes")&&evaluateTransferQuality.includes("ROLE_SECURITY_FLOOR.confidence"),"evaluateTransferQuality's hard floors must read from the shared constant");
+  assert.ok(!/startProbability\s*<\s*\.55/.test(evaluateTransferQuality)&&!/expectedMinutes\s*<\s*45\b/.test(evaluateTransferQuality)&&!/confidence\s*<\s*\.35/.test(evaluateTransferQuality),"evaluateTransferQuality must not independently hardcode the floor values");
 });

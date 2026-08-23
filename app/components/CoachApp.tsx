@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
-import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, bestXi, fetchFplData, futureEvents, isValidSquad, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs } from "../lib/fpl";
+import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, fetchFplData, futureEvents, isValidSquad, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs } from "../lib/fpl";
 import { createOptimizer } from "../lib/optimizer";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
@@ -65,9 +65,9 @@ export function evaluateTransferQuality(input:TransferQualityInput):TransferQual
   const severe=new Set(["five-gw-gain-anomaly","low-certainty-elite-projection","high-risk-top-recommendation"]);
   const severeFlags=input.anomalyCodes.filter(code=>severe.has(code));
   if(severeFlags.length)hard("projection-plausibility",`Projection failed ${severeFlags.length} hard plausibility check${severeFlags.length===1?"":"s"}: ${severeFlags.join(", ")}.`);
-  if(input.startProbability<.55)hard("insufficient-start-probability",`Only ${Math.round(input.startProbability*100)}% start probability; this cannot be an actionable transfer.`);
-  if(input.expectedMinutes<45)hard("insufficient-expected-minutes",`Only ${Math.round(input.expectedMinutes)} expected minutes; role security is below the action floor.`);
-  if(input.confidence<.35)hard("insufficient-model-confidence",`Model confidence is only ${Math.round(input.confidence*100)}%, below the hard safety floor.`);
+  if(input.startProbability<ROLE_SECURITY_FLOOR.startProbability)hard("insufficient-start-probability",`Only ${Math.round(input.startProbability*100)}% start probability; this cannot be an actionable transfer.`);
+  if(input.expectedMinutes<ROLE_SECURITY_FLOOR.expectedMinutes)hard("insufficient-expected-minutes",`Only ${Math.round(input.expectedMinutes)} expected minutes; role security is below the action floor.`);
+  if(input.confidence<ROLE_SECURITY_FLOOR.confidence)hard("insufficient-model-confidence",`Model confidence is only ${Math.round(input.confidence*100)}%, below the hard safety floor.`);
   const hasHard=reasons.length>0;
   if(!hasHard){
     if(input.startProbability<.70)watch("start-probability-watch",`${Math.round(input.startProbability*100)}% start probability needs confirmation before acting.`);
