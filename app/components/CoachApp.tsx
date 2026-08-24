@@ -11,6 +11,7 @@ import { persist, syncWithServer } from "../lib/persistence";
 import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
 import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } from "../lib/bench-order";
 import { TransferRoute, solveTransferRoutes } from "../lib/transfer-routes";
+import { blankProbability, haulProbability, playerPointsDistribution } from "../lib/projection-distribution";
 
 type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
 export type OfficialPick={elementId:number;position:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean;sellingPrice?:number|null};
@@ -1176,14 +1177,16 @@ export function captainRiskNote(captain:FplPlayer,vice:FplPlayer,captainStartPct
   return{message,captainStartPct,viceStartPct,pointsIfCaptainPlays,pointsIfArmbandPasses};
 }
 
-// The haul formula previously had a stray *30 multiplier that pushed every realistic player
-// straight through its clamp ceiling -- verified against real profiles (elite forward through
-// fringe defender all clamped to the same 58%, zero differentiation). Fixed here; return
-// probability was already sane and is unchanged.
-export function captainReturnHaul(m:ProjectionMetrics):{ret:number;haul:number}{
-  const ret=clamp((m.xG+m.xA)*64+m.startProbability*18,5,92);
-  const haul=clamp(m.xG*45+m.xA*25,2,58);
-  return{ret,haul};
+// Probabilistic Projection Simulator, Phase A: replaces the old linear xG/xA-only formula (which
+// structurally could not represent a defender or goalkeeper haul -- it never looked at clean sheet,
+// DC or bonus at all) with direct reads off the real points distribution. ret = 1 - blank
+// probability (P(points<=2)); haul = P(points>=10), the same 0-100 percentage scale and semantic
+// direction the old formula used, so captaincyRiskFraming's existing thresholds keep working
+// unchanged. positionShort is now required (the old formula never took it -- part of why it was
+// position-blind) since goal/clean-sheet/DC point values and applicability are position-specific.
+export function captainReturnHaul(m:ProjectionMetrics,positionShort:FplPlayer["positionShort"]):{ret:number;haul:number}{
+  const pmf=playerPointsDistribution(m,positionShort);
+  return{ret:(1-blankProbability(pmf))*100,haul:haulProbability(pmf)*100};
 }
 
 export type CaptainCandidate={id:number;name:string;xPts:number;ret:number;haul:number;startProbability:number;selectedBy:number};
@@ -1274,7 +1277,7 @@ function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:Fpl
   const players=[captain,vice];
   const candidates:CaptainCandidate[]=xi.map(p=>{
     const m=projectionMetrics(p,event,data.fixtures,event);
-    const{ret,haul}=captainReturnHaul(m);
+    const{ret,haul}=captainReturnHaul(m,p.positionShort);
     return{id:p.id,name:p.name,xPts:m.xPts,ret,haul,startProbability:m.startProbability,selectedBy:p.selectedBy};
   });
   const framing=captaincyRiskFraming(candidates,captain.id);
@@ -1283,7 +1286,7 @@ function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:Fpl
   const sameAlternative=framing.safeAlternative&&framing.differentialAlternative&&framing.safeAlternative.id===framing.differentialAlternative.id;
   return <section className="captain-compare">
     <header><span>CAPTAIN COMPARISON</span><h2>{players.map(p=>p.name).join(" vs ")}</h2></header>
-    <div>{players.map(p=>{const m=projectionMetrics(p,event,data.fixtures,event);const{ret,haul}=captainReturnHaul(m);return <article key={p.id}><h3>{p.name}<small>{opponent(p,event,data)}</small></h3><p><span>xPts</span><b>{m.xPts.toFixed(1)}</b></p><p><span>Projected minutes</span><b>{Math.round(m.expectedMinutes)}</b></p><p><span>Return probability</span><b>{Math.round(ret)}%</b></p><p><span>Haul probability</span><b>{Math.round(haul)}%</b></p><p><span>Ownership</span><b>{p.selectedBy.toFixed(1)}%</b></p><p><span>Risk</span><b>{m.startProbability>.8?"Low":m.startProbability>.65?"Medium":"High"}</b></p></article>})}</div>
+    <div>{players.map(p=>{const m=projectionMetrics(p,event,data.fixtures,event);const{ret,haul}=captainReturnHaul(m,p.positionShort);return <article key={p.id}><h3>{p.name}<small>{opponent(p,event,data)}</small></h3><p><span>xPts</span><b>{m.xPts.toFixed(1)}</b></p><p><span>Projected minutes</span><b>{Math.round(m.expectedMinutes)}</b></p><p><span>Return probability</span><b>{Math.round(ret)}%</b></p><p><span>Haul probability</span><b>{Math.round(haul)}%</b></p><p><span>Ownership</span><b>{p.selectedBy.toFixed(1)}%</b></p><p><span>Risk</span><b>{m.startProbability>.8?"Low":m.startProbability>.65?"Medium":"High"}</b></p></article>})}</div>
     <div className="captain-risk-framing">
       <span>RISK PROFILE</span>
       <p>{roleLabel}</p>

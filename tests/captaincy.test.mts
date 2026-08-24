@@ -123,7 +123,14 @@ test("captainRiskNote: vice is safe (>=68%) -- message does NOT include the comp
   assert.ok(!result?.message.includes("isn't nailed either"), `did not expect the compounding-risk caveat when vice is safe, got: ${result?.message}`);
 });
 
-// --- captainReturnHaul: the haul-probability ceiling bug ---
+// --- captainReturnHaul: Probabilistic Projection Simulator Phase A ---
+// The old linear xG*45+xA*25 formula (and its clamp-ceiling bug, previously tested here) is gone
+// entirely -- replaced by direct reads off the real points distribution in
+// app/lib/projection-distribution.ts (see that module's own test file for the engine's own
+// coverage: Poisson/NB hand-checks, PMF-sums-to-1, bonus-approximation mean recovery, etc.). These
+// tests cover captainReturnHaul's own thin wrapper: the ret/haul percentage mapping, and the
+// specific defender/goalkeeper generalization this phase was built to fix -- captainReturnHaul now
+// requires positionShort (the old formula never took it, which was part of why it was position-blind).
 
 function makeMetrics(overrides: Partial<ProjectionMetrics> = {}): ProjectionMetrics {
   return {
@@ -134,30 +141,29 @@ function makeMetrics(overrides: Partial<ProjectionMetrics> = {}): ProjectionMetr
   };
 }
 
-test("captainReturnHaul: an elite forward's haul probability is no longer pinned to the clamp ceiling", () => {
-  const m = makeMetrics({ xG: 0.87, xA: 0.15, startProbability: 0.9 });
-  const { haul } = captainReturnHaul(m);
-  assert.ok(haul < 58, `elite-forward haul (${haul}) must be below the 58% ceiling -- pinning to the ceiling means the bug regressed`);
-  assert.ok(haul > 30, `elite-forward haul (${haul}) should still be a real, high number, not just below the ceiling`);
+test("captainReturnHaul: ret and haul are always valid percentages, and differentiate an elite forward from a low-threat defender", () => {
+  const elite = captainReturnHaul(makeMetrics({ xG: 0.87, xA: 0.15 }), "FWD");
+  const defender = captainReturnHaul(makeMetrics({ xG: 0.06, xA: 0.05, cleanSheetProbability: 0.1, defensiveContribution: 0.1 }), "DEF");
+  for (const { ret, haul } of [elite, defender]) {
+    assert.ok(ret >= 0 && ret <= 100, `ret out of range: ${ret}`);
+    assert.ok(haul >= 0 && haul <= 100, `haul out of range: ${haul}`);
+  }
+  assert.ok(elite.haul > defender.haul * 3, `expected a large gap between elite forward (${elite.haul}) and a low-threat, weak-clean-sheet defender (${defender.haul})`);
 });
 
-test("captainReturnHaul: haul probability actually differentiates between an elite forward and a low-threat defender", () => {
-  const elite = captainReturnHaul(makeMetrics({ xG: 0.87, xA: 0.15 }));
-  const defender = captainReturnHaul(makeMetrics({ xG: 0.06, xA: 0.05 }));
-  assert.ok(elite.haul > defender.haul * 5, `expected a large gap between elite (${elite.haul}) and defender (${defender.haul}) haul probability -- the old formula clamped both to the same 58%`);
+// This is the specific limitation the design round flagged: the old formula never looked at clean
+// sheet, DC or bonus at all, so a defender's haul chance was structurally floored near its 2% clamp
+// regardless of how nailed-on their clean sheet or DC rate actually was.
+test("captainReturnHaul: a nailed-on defender's haul comes from clean sheet + DC + bonus, not xG/xA", () => {
+  const nailedDefender = makeMetrics({ xG: 0.03, xA: 0.02, cleanSheetProbability: 0.65, defensiveContribution: 1.6, bonus: 0.6, startProbability: 0.95, sixtyProbability: 0.92 });
+  const { haul } = captainReturnHaul(nailedDefender, "DEF");
+  assert.ok(haul > 8, `a nailed-on, high-clean-sheet, high-DC defender should have a real haul chance even with almost no attacking threat -- got ${haul}%, the old formula would have floored near 2%`);
 });
 
-test("captainReturnHaul: haul probability still respects its floor and ceiling for extreme inputs", () => {
-  const zero = captainReturnHaul(makeMetrics({ xG: 0, xA: 0 }));
-  assert.equal(zero.haul, 2);
-  const extreme = captainReturnHaul(makeMetrics({ xG: 5, xA: 5 }));
-  assert.equal(extreme.haul, 58);
-});
-
-test("captainReturnHaul: return probability is unchanged by the fix", () => {
-  const m = makeMetrics({ xG: 0.5, xA: 0.2, startProbability: 0.85 });
-  const { ret } = captainReturnHaul(m);
-  assert.ok(Math.abs(ret - ((0.5 + 0.2) * 64 + 0.85 * 18)) < 1e-9, "return-probability formula must be untouched");
+test("captainReturnHaul: a busy goalkeeper's haul comes from clean sheet, saves and bonus, not xG/xA", () => {
+  const keeper = makeMetrics({ xG: 0, xA: 0, cleanSheetProbability: 0.6, defensiveContribution: 0, bonus: 0.5, saves: 3.5, startProbability: 0.97, sixtyProbability: 0.95 });
+  const { haul } = captainReturnHaul(keeper, "GKP");
+  assert.ok(haul > 2, `a busy, nailed-on goalkeeper should have a non-trivial haul chance -- got ${haul}%`);
 });
 
 // --- captaincyRiskFraming: safe vs. differential vs. balanced, and when an alternative is real ---
