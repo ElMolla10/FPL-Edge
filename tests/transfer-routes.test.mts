@@ -92,14 +92,18 @@ test("role-insecure targets cannot anchor a route despite an inflated headline p
 // projection-engine.test.mts. This inspects the actual source instead: it fails if either consumer
 // goes back to an independently hardcoded .55/45/.35 rather than the shared exported constant, the
 // exact duplication found during retroactive review of 4f8762e (same failure class as the earlier
-// duplicated 2.2 action threshold).
+// duplicated 2.2 action threshold). evaluateTransferQuality itself now lives in
+// app/lib/transfer-quality.ts (relocated so LiveDraftBuilder.tsx could reuse it without a circular
+// import through CoachApp.tsx) -- this scans that file, not CoachApp.tsx's re-export, so the check
+// keeps testing the real implementation rather than silently going blind after the move.
 test("route eligibility and the single-transfer quality gate read the same ROLE_SECURITY_FLOOR constant, not independently duplicated numbers",()=>{
   assert.deepEqual(ROLE_SECURITY_FLOOR,{startProbability:.55,expectedMinutes:45,confidence:.35});
   const routesSource=readFileSync(new URL("../app/lib/transfer-routes.ts",import.meta.url),"utf-8");
-  const coachAppSource=readFileSync(new URL("../app/components/CoachApp.tsx",import.meta.url),"utf-8");
+  const transferQualitySource=readFileSync(new URL("../app/lib/transfer-quality.ts",import.meta.url),"utf-8");
   assert.ok(routesSource.includes("ROLE_SECURITY_FLOOR.startProbability")&&routesSource.includes("ROLE_SECURITY_FLOOR.expectedMinutes")&&routesSource.includes("ROLE_SECURITY_FLOOR.confidence"),"transfer-routes.ts's eligibleAt must read all three floors from the shared constant");
   assert.ok(!/startProbability\s*>=\s*\.55/.test(routesSource)&&!/expectedMinutes\s*>=\s*45\b/.test(routesSource)&&!/confidence\s*>=\s*\.35/.test(routesSource),"transfer-routes.ts must not independently hardcode the floor values");
-  const evaluateTransferQuality=coachAppSource.slice(coachAppSource.indexOf("export function evaluateTransferQuality("),coachAppSource.indexOf("export function sortTransfersByQuality("));
+  const evaluateTransferQuality=transferQualitySource.slice(transferQualitySource.indexOf("export function evaluateTransferQuality("));
+  assert.notEqual(evaluateTransferQuality.length,0,"evaluateTransferQuality must still be found in app/lib/transfer-quality.ts -- if it moved again, update this scan target too");
   assert.ok(evaluateTransferQuality.includes("ROLE_SECURITY_FLOOR.startProbability")&&evaluateTransferQuality.includes("ROLE_SECURITY_FLOOR.expectedMinutes")&&evaluateTransferQuality.includes("ROLE_SECURITY_FLOOR.confidence"),"evaluateTransferQuality's hard floors must read from the shared constant");
   assert.ok(!/startProbability\s*<\s*\.55/.test(evaluateTransferQuality)&&!/expectedMinutes\s*<\s*45\b/.test(evaluateTransferQuality)&&!/confidence\s*<\s*\.35/.test(evaluateTransferQuality),"evaluateTransferQuality must not independently hardcode the floor values");
 });

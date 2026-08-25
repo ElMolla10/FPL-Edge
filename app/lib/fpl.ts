@@ -197,6 +197,14 @@ export function projectionMetrics(player:FplPlayer,eventId:number,fixtures:FplFi
 }
 export const playerProjection=(player:FplPlayer,eventId:number,fixtures:FplFixture[],firstEvent:number)=>projectionMetrics(player,eventId,fixtures,firstEvent).xPts;
 
+// Moved from CoachApp.tsx so Pitch.tsx (used by both CoachApp.tsx's Final Check and
+// LiveDraftBuilder.tsx's Draft Lab result view) can depend on them without a circular import --
+// CoachApp.tsx already imports LiveDraftBuilder, so LiveDraftBuilder importing anything back from
+// CoachApp.tsx would cycle. Pure functions, no component dependency, belong here with
+// playerProjection/projectionMetrics rather than in a UI file.
+export function opponent(player:FplPlayer,eventId:number,data:FplData){const games=data.fixtures.filter(f=>f.event===eventId&&(f.teamH===player.teamId||f.teamA===player.teamId));if(!games.length)return"BLANK";return games.map(fixture=>{const home=fixture.teamH===player.teamId;const id=home?fixture.teamA:fixture.teamH;return`${data.teams.find(t=>t.id===id)?.short??"—"} ${home?"H":"A"}`}).join(", ")}
+export function startPct(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).startProbability*100)}
+
 export function bestXi(squad:FplPlayer[],eventId:number,fixtures:FplFixture[],firstEvent:number){
   const score=(p:FplPlayer)=>playerProjection(p,eventId,fixtures,firstEvent); let best:{players:FplPlayer[];total:number;captain:FplPlayer|null}={players:[],total:0,captain:null};
   const gk=squad.filter(p=>p.positionShort==="GKP").sort((a,b)=>score(b)-score(a));

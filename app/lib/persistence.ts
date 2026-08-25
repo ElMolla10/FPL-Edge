@@ -64,6 +64,18 @@ export function persist(key: string, value: string) {
   if (signedIn) schedulePush();
 }
 
+// Moved from CoachApp.tsx so LiveDraftBuilder.tsx (Draft Lab's recommended-changes section) can
+// read the same free-transfer count Transfers already persists, without importing back through
+// CoachApp.tsx (which already imports LiveDraftBuilder, and would cycle).
+export function readFreeTransfers(): number {
+  try {
+    const value = Number(localStorage.getItem("fpl-edge-free-transfers"));
+    return Number.isInteger(value) && value >= 0 && value <= 5 ? value : 1;
+  } catch {
+    return 1;
+  }
+}
+
 function hydrateFromServer(server: {
   squadIds: number[];
   watchlist: number[];

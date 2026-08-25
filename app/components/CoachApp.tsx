@@ -2,16 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
+import Pitch from "./Pitch";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
-import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, fetchFplData, futureEvents, isValidSquad, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs } from "../lib/fpl";
+import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, fetchFplData, futureEvents, isValidSquad, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
 import { createOptimizer } from "../lib/optimizer";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
-import { persist, syncWithServer } from "../lib/persistence";
+import { persist, readFreeTransfers, syncWithServer } from "../lib/persistence";
 import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
 import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } from "../lib/bench-order";
 import { TransferRoute, solveTransferRoutes } from "../lib/transfer-routes";
 import { blankProbability, haulProbability, playerPointsDistribution, pointsRange } from "../lib/projection-distribution";
+import { TRANSFER_ACTION_THRESHOLD, TransferQualityReason, TransferQualityStatus, evaluateTransferQuality } from "../lib/transfer-quality";
 
 type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
 export type OfficialPick={elementId:number;position:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean;sellingPrice?:number|null};
@@ -35,63 +37,16 @@ export type Transfer={
   risk:"Low"|"Medium"|"High";
 };
 
-export type TransferQualityStatus="actionable"|"watchlist"|"blocked";
-export type TransferQualityReason={code:string;message:string};
-export type TransferQualityInput={
-  gain1:number;gain3:number;gain5:number;weeklyGains:number[];
-  expectedMinutes:number;startProbability:number;confidence:number;
-  calibrationGroup:PlayerCalibrationGroup;lowPlContinuityClub:boolean;
-  anomalyCodes:string[];
-};
-export type TransferQuality={
-  status:TransferQualityStatus;score:number;reasons:TransferQualityReason[];
-  positiveWeeks:number;gainWithoutBestWeek:number;
-};
+export{evaluateTransferQuality,TRANSFER_ACTION_THRESHOLD}from"../lib/transfer-quality";
+export type{TransferQuality,TransferQualityInput,TransferQualityReason,TransferQualityStatus}from"../lib/transfer-quality";
 
 const qualityOrder:Record<TransferQualityStatus,number>={actionable:0,watchlist:1,blocked:2};
-const clamp01=(value:number)=>Math.max(0,Math.min(1,value));
-
-// A projection can be numerically attractive without being credible enough to act on. This pure
-// gate makes that distinction before ranking, rather than attaching warnings after a row is #1.
-export function evaluateTransferQuality(input:TransferQualityInput):TransferQuality{
-  const positiveWeeks=input.weeklyGains.filter(gain=>gain>.05).length;
-  const bestWeek=input.weeklyGains.length?Math.max(...input.weeklyGains):0;
-  const gainWithoutBestWeek=input.gain5-bestWeek;
-  const evidence=input.calibrationGroup==="established-pl"?1:input.calibrationGroup==="current-pl-established"?.9:input.calibrationGroup==="limited-pl"?.55:.35;
-  const continuity=input.lowPlContinuityClub?.8:1;
-  const robustness=.65*(positiveWeeks/Math.max(1,input.weeklyGains.length))+.35*clamp01((gainWithoutBestWeek+1)/3);
-  const rawScore=Math.round(100*(.30*clamp01(input.startProbability)+.25*clamp01(input.confidence)+.20*clamp01(input.expectedMinutes/90)+.15*robustness+.10*evidence*continuity));
-  const reasons:TransferQualityReason[]=[];
-  const hard=(code:string,message:string)=>reasons.push({code,message});
-  const watch=(code:string,message:string)=>reasons.push({code,message});
-  const severe=new Set(["five-gw-gain-anomaly","low-certainty-elite-projection","high-risk-top-recommendation"]);
-  const severeFlags=input.anomalyCodes.filter(code=>severe.has(code));
-  if(severeFlags.length)hard("projection-plausibility",`Projection failed ${severeFlags.length} hard plausibility check${severeFlags.length===1?"":"s"}: ${severeFlags.join(", ")}.`);
-  if(input.startProbability<ROLE_SECURITY_FLOOR.startProbability)hard("insufficient-start-probability",`Only ${Math.round(input.startProbability*100)}% start probability; this cannot be an actionable transfer.`);
-  if(input.expectedMinutes<ROLE_SECURITY_FLOOR.expectedMinutes)hard("insufficient-expected-minutes",`Only ${Math.round(input.expectedMinutes)} expected minutes; role security is below the action floor.`);
-  if(input.confidence<ROLE_SECURITY_FLOOR.confidence)hard("insufficient-model-confidence",`Model confidence is only ${Math.round(input.confidence*100)}%, below the hard safety floor.`);
-  const hasHard=reasons.length>0;
-  if(!hasHard){
-    if(input.startProbability<.70)watch("start-probability-watch",`${Math.round(input.startProbability*100)}% start probability needs confirmation before acting.`);
-    if(input.expectedMinutes<60)watch("minutes-watch",`${Math.round(input.expectedMinutes)} expected minutes makes the route too role-sensitive for the primary recommendation.`);
-    if(input.confidence<.60)watch("confidence-watch",`${Math.round(input.confidence*100)}% model confidence is below the actionable threshold.`);
-    if(input.calibrationGroup==="no-pl-prior")watch("no-pl-evidence",`No genuine prior-season Premier League evidence; wait for a stable top-flight sample.`);
-    if(input.calibrationGroup==="limited-pl")watch("limited-pl-evidence",`Limited prior-season Premier League evidence; recommendation remains provisional.`);
-    if(input.lowPlContinuityClub)watch("low-club-continuity",`The incoming player's club has limited roster-level Premier League continuity.`);
-    if(input.gain5<=0)watch("no-projected-gain",`The route does not improve the optimized squad across the five-gameweek horizon.`);
-    if(positiveWeeks<2||gainWithoutBestWeek<=0)watch("single-week-dependence",`The five-gameweek gain does not remain positive after removing its single best gameweek.`);
-    if(input.gain5>0&&input.gain3<=0)watch("timing-not-ready",`The route is positive over five gameweeks but not over the next three; monitor rather than move now.`);
-  }
-  const status:TransferQualityStatus=hasHard?"blocked":reasons.length?"watchlist":"actionable";
-  const score=status==="blocked"?Math.min(rawScore,39):status==="watchlist"?Math.min(rawScore,69):rawScore;
-  return{status,score,reasons,positiveWeeks,gainWithoutBestWeek};
-}
 
 export function sortTransfersByQuality(rows:Transfer[]):Transfer[]{
   return [...rows].sort((a,b)=>qualityOrder[a.qualityStatus]-qualityOrder[b.qualityStatus]||b.rankScore-a.rankScore||b.netDifference-a.netDifference);
 }
 
-export function selectPrimaryTransfer(rows:Transfer[],threshold=2.2):Transfer|null{
+export function selectPrimaryTransfer(rows:Transfer[],threshold=TRANSFER_ACTION_THRESHOLD):Transfer|null{
   return sortTransfersByQuality(rows).find(row=>row.qualityStatus==="actionable"&&row.rankScore>=threshold)??null;
 }
 
@@ -102,12 +57,10 @@ const titles:Record<View,string>={overview:"Your gameweek command centre",team:"
 const fmt=(n:number|null|undefined)=>n?Math.round(n).toLocaleString():"—";
 const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
 const readIds=(key:string)=>{try{return JSON.parse(localStorage.getItem(key)||"[]") as number[]}catch{return[]}};
-const readFreeTransfers=()=>{try{const value=Number(localStorage.getItem("fpl-edge-free-transfers"));return Number.isInteger(value)&&value>=0&&value<=5?value:1}catch{return 1}};
 const certainty=(p:FplPlayer)=>p.status!=="a"?"CONFIRMED":projectionMetrics(p,0,[],0).startProbability>.72?"LIKELY":"UNCERTAIN";
 
-export function opponent(player:FplPlayer,eventId:number,data:FplData){const games=data.fixtures.filter(f=>f.event===eventId&&(f.teamH===player.teamId||f.teamA===player.teamId));if(!games.length)return"BLANK";return games.map(fixture=>{const home=fixture.teamH===player.teamId;const id=home?fixture.teamA:fixture.teamH;return`${data.teams.find(t=>t.id===id)?.short??"—"} ${home?"H":"A"}`}).join(", ")}
+export{opponent}from"../lib/fpl";
 function freshness(updatedAt:string){const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(updatedAt))/60000));return{minutes,label:minutes<2?"just now":`${minutes}m ago`,tone:minutes<=10?"fresh":minutes<=30?"aging":"stale"}}
-function startPct(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).startProbability*100)}
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
 
 export default function CoachApp({onBack}:{onBack:()=>void}){
@@ -555,7 +508,6 @@ function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number
   </div>;
 }
 function formation(players:FplPlayer[]){return ["DEF","MID","FWD"].map(pos=>players.filter(p=>p.positionShort===pos).length).join("-")}
-function Pitch({players,bench,captain,vice,event,data,onSelect}:{players:FplPlayer[];bench:FplPlayer[];captain:FplPlayer;vice:FplPlayer;event:number;data:FplData;onSelect:(p:FplPlayer)=>void}){return <><section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{players.filter(p=>p.positionShort===pos).map(p=><button key={p.id} className={p.status!=="a"||startPct(p,event,data)<68?"flagged":""} onClick={()=>onSelect(p)}><i>{pos}</i><b>{p.name}{p.id===captain.id&&<em>C</em>}{p.id===vice.id&&<em>V</em>}</b><span>{opponent(p,event,data)} · {playerProjection(p,event,data.fixtures,event).toFixed(1)} xPts</span><small>{startPct(p,event,data)}% start</small></button>)}</div>)}</section><section className="coach-bench"><span>BENCH ORDER</span>{bench.map((p,i)=><button key={p.id} onClick={()=>onSelect(p)}><i>{i+1}</i><b>{p.name}</b><small>{opponent(p,event,data)} · {playerProjection(p,event,data.fixtures,event).toFixed(1)}</small></button>)}</section></>}
 function PlayerPanel({player,data,first,replacements,close}:{player:FplPlayer;data:FplData;first:number;replacements:Transfer[];close:()=>void}){const events=futureEvents(data,5);const m=projectionMetrics(player,first,data.fixtures,first);return <div className="player-panel-backdrop" onClick={close}><aside className="player-panel" onClick={e=>e.stopPropagation()}><button className="panel-close" onClick={close}>×</button><span>{player.teamName} · {player.position}</span><h2>{player.name}</h2><div className="panel-price">£{player.price.toFixed(1)}m <small>{player.selectedBy.toFixed(1)}% owned</small></div><div className="panel-fixtures">{events.map(e=><div key={e.id}><b>{e.name.replace("Gameweek ","GW")}</b><span>{opponent(player,e.id,data)}</span><strong>{playerProjection(player,e.id,data.fixtures,first).toFixed(1)}</strong></div>)}</div><div className="panel-stats"><p><span>Expected minutes</span><b>{Math.round(m.expectedMinutes)}</b></p><p><span>Start probability</span><b>{Math.round(m.startProbability*100)}%</b></p><p><span>Season xG / xA</span><b>{player.expectedGoals.toFixed(2)} / {player.expectedAssists.toFixed(2)}</b></p><p><span>Form</span><b>{player.form.toFixed(1)}</b></p><p><span>Penalties</span><b>{m.penaltyRole?"First choice":"Not confirmed"}</b></p><p><span>Set pieces</span><b>{m.setPieceRole?"First choice":"Not confirmed"}</b></p></div><section><span>COACH VIEW</span><p>{m.startProbability>.8?`LIKELY starter with ${Math.round(m.expectedMinutes)} expected minutes.`:`UNCERTAIN minutes profile: only ${Math.round(m.startProbability*100)}% start probability.`} {m.penaltyRole?"First-choice penalties improve the ceiling.":"No confirmed penalty role is included."}</p></section><section><span>BEST REPLACEMENTS</span>{replacements.length?replacements.map(r=><p key={r.incoming.id}><b>{r.incoming.name}</b> · +{r.gain5.toFixed(1)} five-GW xPts · {r.risk} risk</p>):<p>No clearly stronger legal one-player route was found.</p>}</section></aside></div>}
 function PastGameweekView({data,event,history}:{data:FplData;event:FplEvent;history:HistoryWeek[]|null}){
   const historyWeek=history?.find(w=>w.event===event.id);
