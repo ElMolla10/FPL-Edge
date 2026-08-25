@@ -175,5 +175,7 @@
 
 /* Full-player watchlist search and football-led triggers */
 .watchlist-add{grid-template-columns:minmax(260px,1fr) minmax(420px,1.15fr) auto}.watchlist-add>div:first-child p{font-size:9px;color:#74837b;margin:3px 0 0}.watchlist-player-search{display:grid;grid-template-columns:1.2fr .65fr 1.4fr;gap:6px}.watchlist-player-search input,.watchlist-player-search select{min-width:0;border:1px solid #cbd4cb;background:#fff;padding:11px 12px;font-size:10px}.watchlist-grid header>b.building{background:#fff0bd;color:#73570e}.watch-budget-note{background:#f2f4ef;border-left:3px solid #8e9b93;padding:9px 11px;color:#5e6d65}.watch-budget-note b{color:#27382f}
+.watch-distribution{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin:10px 0}.watch-distribution span{background:#eef2ec;padding:10px}.watch-distribution small,.watch-distribution b{display:block}.watch-distribution small{font-size:8px;color:#6e7d75}.watch-distribution b{font-size:15px;margin-top:5px}
+@media(max-width:700px){.watch-distribution{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:1200px){.watchlist-add{grid-template-columns:1fr}.watchlist-add>button{justify-self:start;min-height:42px}.watchlist-player-search{grid-template-columns:1fr .65fr 1.2fr}}
 @media(max-width:650px){.watchlist-player-search{grid-template-columns:1fr}.watchlist-add>button{width:100%}}

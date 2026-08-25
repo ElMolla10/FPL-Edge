@@ -11,7 +11,7 @@ import { persist, syncWithServer } from "../lib/persistence";
 import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
 import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } from "../lib/bench-order";
 import { TransferRoute, solveTransferRoutes } from "../lib/transfer-routes";
-import { blankProbability, haulProbability, playerPointsDistribution } from "../lib/projection-distribution";
+import { blankProbability, haulProbability, playerPointsDistribution, pointsRange } from "../lib/projection-distribution";
 
 type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
 export type OfficialPick={elementId:number;position:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean;sellingPrice?:number|null};
@@ -26,6 +26,7 @@ export type Transfer={
   dcOut:number;dcIn:number;attackingOut:number;attackingIn:number;
   fixtureAdjustmentIn:number;confidenceOut:number;confidenceIn:number;
   teamAttackIn:number;teamDefenceIn:number;opponentDefenceIn:number;opponentAttackIn:number;fixtureAttackMultiplierIn:number;fixtureDefenceMultiplierIn:number;
+  outMetrics:ProjectionMetrics;inMetrics:ProjectionMetrics;
   gainBand:FiveGwGainBand;anomalies:AnomalyFlag[];
   hitCost:number;netDifference:number;utilityChange:number|null;
   rankScore:number;reviewRequired:boolean;
@@ -247,6 +248,7 @@ export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTra
         attackingOut:om.xG+om.xA,attackingIn:im.xG+im.xA,
         fixtureAdjustmentIn,confidenceOut:om.confidence,confidenceIn:im.confidence,
         teamAttackIn:im.teamAttackFactor??1,teamDefenceIn:im.teamDefenceFactor??1,opponentDefenceIn:im.opponentDefenceFactor??1,opponentAttackIn:im.opponentAttackFactor??1,fixtureAttackMultiplierIn:im.fixtureAttackMultiplier??1,fixtureDefenceMultiplierIn:im.fixtureDefenceMultiplier??1,
+        outMetrics:om,inMetrics:im,
         gainBand,anomalies,hitCost,netDifference:gain5-hitCost,utilityChange:null,rankScore,reviewRequired,
         weeklyGains:squadDeltas,positiveWeeks:quality.positiveWeeks,gainWithoutBestWeek:quality.gainWithoutBestWeek,
         qualityStatus:quality.status,qualityScore:quality.score,qualityReasons:quality.reasons,
@@ -758,6 +760,8 @@ function TransferBreakdown({r}:{r:Transfer}){
   ];
   const statusCopy=r.qualityStatus==="actionable"?"The role, evidence and multi-week upside are strong enough to act on.":r.qualityStatus==="watchlist"?"The upside is interesting, but at least one signal needs more evidence.":"This route failed a hard plausibility or role-security check.";
   const signed=(value:number,places=1)=>`${value>=0?"+":""}${value.toFixed(places)}`;
+  const outDist=playerPointsDistribution(r.outMetrics,r.out.positionShort),inDist=playerPointsDistribution(r.inMetrics,r.incoming.positionShort);
+  const outRange=pointsRange(outDist),inRange=pointsRange(inDist);
   return <div className={`transfer-detail ${r.qualityStatus}`}>
     <header className="transfer-detail-head">
       <div><span>MODEL VERDICT</span><h3>{r.out.name} <i>→</i> {r.incoming.name}</h3><p>{statusCopy}</p></div>
@@ -786,6 +790,15 @@ function TransferBreakdown({r}:{r:Transfer}){
         <footer><span>Average fixture difficulty</span><b>{r.fixtureAdjustmentIn.toFixed(1)} / 5</b></footer>
       </section>
     </div>
+
+    <section className="player-signal-card points-distribution-card">
+      <header><span>POINTS DISTRIBUTION (PER GAMEWEEK)</span><b>{r.out.name}</b><b>{r.incoming.name}</b></header>
+      <p><span>Floor (10th %ile)</span><b>{outRange.floor}</b><strong>{inRange.floor}</strong></p>
+      <p><span>Median</span><b>{outRange.median}</b><strong>{inRange.median}</strong></p>
+      <p><span>Ceiling (90th %ile)</span><b>{outRange.ceiling}</b><strong>{inRange.ceiling}</strong></p>
+      <p><span>Blank risk (≤2 pts)</span><b>{Math.round(blankProbability(outDist)*100)}%</b><strong>{Math.round(blankProbability(inDist)*100)}%</strong></p>
+      <p><span>Haul chance (10+ pts)</span><b>{Math.round(haulProbability(outDist)*100)}%</b><strong>{Math.round(haulProbability(inDist)*100)}%</strong></p>
+    </section>
 
     <section className="transfer-decision-math">
       <p><span>After transfer hit</span><b>{signed(r.netDifference)} pts</b><small>{r.hitCost?`${r.hitCost}-point cost included`:"No hit required"}</small></p>
@@ -877,8 +890,10 @@ function Watchlist({data,squad,ids,remove,bank}:{data:FplData;squad:FplPlayer[];
   const events=futureEvents(data,5),first=events[0]?.id;
   const players=ids.map(id=>data.players.find(p=>p.id===id)).filter(Boolean) as FplPlayer[];
   const[add,setAdd]=useState(""),[search,setSearch]=useState(""),[position,setPosition]=useState("ALL");
+  const[expanded,setExpanded]=useState<Set<number>>(new Set());
   const candidates=useMemo(()=>watchlistCandidatePool(data.players,squad.map(player=>player.id),ids,search,position),[data.players,squad,ids,search,position]);
   const addPlayer=()=>{const id=Number(add);if(id)remove(id);setAdd("")};
+  const toggleExpand=(id:number)=>setExpanded(x=>{const next=new Set(x);next.has(id)?next.delete(id):next.add(id);return next});
   return <><section className="watchlist-add"><div><span>PERMANENT WATCHLIST</span><h2>Search every official FPL player.</h2><p>{candidates.length} eligible player{candidates.length===1?"":"s"} match your filters.</p></div><div className="watchlist-player-search"><input value={search} onChange={event=>{setSearch(event.target.value);setAdd("")}} placeholder="Search player or club…"/><select value={position} onChange={event=>{setPosition(event.target.value);setAdd("")}}><option value="ALL">All positions</option>{data.rules.positions.map(rule=><option value={rule.short} key={rule.id}>{rule.short}</option>)}</select><select value={add} onChange={e=>setAdd(e.target.value)}><option value="">Choose from {candidates.length} players…</option>{candidates.map(p=><option key={p.id} value={p.id}>{p.name} · {p.teamShort} · {p.positionShort} · £{p.price.toFixed(1)}m</option>)}</select></div><button onClick={addPlayer} disabled={!add}>Add to watchlist</button></section>
   <section className="watchlist-grid">{players.length?players.map(p=>{
     const m=projectionMetrics(p,first,data.fixtures,first);
@@ -891,6 +906,9 @@ function Watchlist({data,squad,ids,remove,bank}:{data:FplData;squad:FplPlayer[];
     const naturalFiveGw=naturalRoute?.fiveGw??0;
     const trigger=buyTriggerMessage(p,natural,m,naturalMetrics,fiveGw,naturalFiveGw,bank);
     const priority=trigger.ready?"BUY":trigger.close?"BUILDING":"WATCH";
+    const isOpen=expanded.has(p.id);
+    const dist=isOpen?playerPointsDistribution(m,p.positionShort):null;
+    const range=dist?pointsRange(dist):null;
     return <article key={p.id}>
       <header><div><span>{p.teamShort} · {p.positionShort}</span><h3>{p.name}</h3></div><b className={priority.toLowerCase()}>{priority}</b></header>
       <div className="watch-kpis">
@@ -908,8 +926,16 @@ function Watchlist({data,squad,ids,remove,bank}:{data:FplData;squad:FplPlayer[];
       <p className={trigger.ready?"trigger-ready":""}><b>Performance trigger:</b> {trigger.message}</p>
       {trigger.budgetNote&&<p className="watch-budget-note"><b>Budget:</b> {trigger.budgetNote}</p>}
       <small>Compared route: {natural?`${natural.name} → ${p.name}`:"No same-position route yet"}</small>
+      {isOpen&&dist&&range&&<div className="watch-distribution">
+        <span><small>FLOOR</small><b>{range.floor}</b></span>
+        <span><small>MEDIAN</small><b>{range.median}</b></span>
+        <span><small>CEILING</small><b>{range.ceiling}</b></span>
+        <span><small>BLANK RISK (≤2)</small><b>{Math.round(blankProbability(dist)*100)}%</b></span>
+        <span><small>HAUL CHANCE (10+)</small><b>{Math.round(haulProbability(dist)*100)}%</b></span>
+      </div>}
       <footer>
         <div>{events.map(e=>{const games=data.fixtures.filter(f=>f.event===e.id&&(f.teamH===p.teamId||f.teamA===p.teamId));const difficulties=games.map(f=>f.teamH===p.teamId?f.teamHDifficulty:f.teamADifficulty);const difficulty=difficulties.length?Math.round(difficulties.reduce((s,d)=>s+d,0)/difficulties.length):3;return <i key={e.id} className={`fdr-${difficulty}`}>{opponent(p,e.id,data)}<small>{difficulties.length?difficulties.join(", "):3}</small></i>})}</div>
+        <button onClick={()=>toggleExpand(p.id)}>{isOpen?"Hide distribution":"Show distribution"}</button>
         <button onClick={()=>remove(p.id)}>Remove</button>
       </footer>
     </article>
