@@ -1220,11 +1220,23 @@ export type CaptaincyRiskFraming={defaultRole:"safe"|"differential"|"balanced";s
 // "Safe" reuses this exact component's own existing "Risk: Low" threshold (startProbability>.8).
 // "Differential" reuses the Players page's existing "Differential under 10%" ownership filter --
 // neither threshold is invented fresh for this feature. An alternative only surfaces if it's a
-// real tradeoff, not a free upgrade or rounding noise: a double-digit percentage-point edge on its
-// own axis, and (for the differential specifically) a genuine cost in return probability.
+// real tradeoff, not a free upgrade or rounding noise: a real edge on its own axis, and (for the
+// differential specifically) a genuine cost in return probability.
+// ret and haul are NOT the same scale under the Phase A distribution engine, so they get separate
+// edge thresholds rather than one shared MEANINGFUL_EDGE (the pre-recalibration value, 10 for both).
+// ret (1-blank probability) spans a wide real range among live starters (~24-94%), so 10 points
+// stays well-calibrated there unchanged. haul (P(points>=10)) is far more compressed: pulling every
+// live player through the real engine put the 99th percentile at 9.7% and the single highest value
+// in the entire dataset at 23.1% (B.Fernandes) -- a 10-point haul edge over a strong default captain
+// is effectively unreachable by construction, not just rare, which is why the differential path never
+// fired against a real top-15-owned pool during the Phase C investigation. 5 is calibrated two ways:
+// it's roughly the ~0.51x compression the Phase A report already measured for one elite forward
+// (42.9%->22.0% under the old vs. new formula), and it sits meaningfully above the real p90 haul
+// noise floor (2.5%) while actually being clearable by a genuine standout low-owned differential.
 const SAFE_START_THRESHOLD=.8;
 const DIFFERENTIAL_OWNERSHIP_THRESHOLD=10;
-const MEANINGFUL_EDGE=10;
+const MEANINGFUL_RET_EDGE=10;
+const MEANINGFUL_HAUL_EDGE=5;
 const MIN_RETURN_COST=5;
 export function captaincyRiskFraming(candidates:CaptainCandidate[],defaultCaptainId:number):CaptaincyRiskFraming{
   const defaultCaptain=candidates.find(c=>c.id===defaultCaptainId);
@@ -1234,8 +1246,8 @@ export function captaincyRiskFraming(candidates:CaptainCandidate[],defaultCaptai
   const diffCandidates=candidates.filter(c=>c.selectedBy<DIFFERENTIAL_OWNERSHIP_THRESHOLD);
   const differentialPick=diffCandidates.length?diffCandidates.reduce((best,c)=>c.haul>best.haul?c:best):null;
   const defaultRole=safePick?.id===defaultCaptainId?"safe":differentialPick?.id===defaultCaptainId?"differential":"balanced";
-  const safeAlternative=safePick&&safePick.id!==defaultCaptainId&&(safePick.ret-defaultCaptain.ret)>=MEANINGFUL_EDGE?safePick:null;
-  const differentialAlternative=differentialPick&&differentialPick.id!==defaultCaptainId&&(differentialPick.haul-defaultCaptain.haul)>=MEANINGFUL_EDGE&&(defaultCaptain.ret-differentialPick.ret)>=MIN_RETURN_COST?differentialPick:null;
+  const safeAlternative=safePick&&safePick.id!==defaultCaptainId&&(safePick.ret-defaultCaptain.ret)>=MEANINGFUL_RET_EDGE?safePick:null;
+  const differentialAlternative=differentialPick&&differentialPick.id!==defaultCaptainId&&(differentialPick.haul-defaultCaptain.haul)>=MEANINGFUL_HAUL_EDGE&&(defaultCaptain.ret-differentialPick.ret)>=MIN_RETURN_COST?differentialPick:null;
   return{defaultRole,safeAlternative,differentialAlternative};
 }
 

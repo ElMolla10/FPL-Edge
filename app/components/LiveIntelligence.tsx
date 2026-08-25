@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FplData, FplPlayer, bestXi, eventTotals, fetchFplData, futureEvents, isValidSquad, optimizeSquad, playerProjection, savedSquad } from "../lib/fpl";
+import { FplData, FplPlayer, bestXi, eventTotals, fetchFplData, futureEvents, isValidSquad, optimizeSquad, playerProjection, projectionMetrics, savedSquad } from "../lib/fpl";
 import { detectFixtureAnomalies } from "../lib/dgw";
 import { persist } from "../lib/persistence";
+import { haulProbability, playerPointsDistribution } from "../lib/projection-distribution";
 
 function useOfficialFpl(){const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const load=async()=>{setLoading(true);setError("");try{setData(await fetchFplData())}catch(e){setError(e instanceof Error?e.message:"Official FPL data unavailable")}finally{setLoading(false)}};useEffect(()=>{load();const id=window.setInterval(load,300000);return()=>window.clearInterval(id)},[]);return{data,error,loading,load}}
 function Source({data,loading,onRefresh}:{data:FplData;loading:boolean;onRefresh:()=>void}){return <section className="live-source"><div><span className="live-dot"/><b>OFFICIAL FPL DATA</b><small>Auto-refreshes every 5 minutes · updated {new Date(data.updatedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</small></div><button onClick={onRefresh} disabled={loading}>{loading?"Refreshing…":"Refresh now"}</button></section>}
@@ -42,11 +43,15 @@ export function chipScoresForEvent(data:FplData,baseline:FplPlayer[],event:{id:n
   const wc=optimizeSquad(data,window);const uplift=eventTotals(wc,window,data.fixtures).reduce((a,b)=>a+b,0)-eventTotals(baseline,window,data.fixtures).reduce((a,b)=>a+b,0);
   const xiBase=currentXi.players.reduce((s,p)=>s+playerProjection(p,event.id,data.fixtures,event.id),0);const squadAll=baseline.reduce((s,p)=>s+playerProjection(p,event.id,data.fixtures,event.id),0);const bench=Math.max(0,squadAll-xiBase);
   const freeHit=Math.max(0,oneXi.total-currentXi.total);const tc=oneXi.captain?playerProjection(oneXi.captain,event.id,data.fixtures,event.id):0;
+  // Informational only -- haul probability supplements the detail text, it does not change the
+  // score itself, matching how every prior distribution-engine addition in this app has stayed
+  // additive to existing recommendations rather than altering what they recommend.
+  const tcHaul=oneXi.captain?haulProbability(playerPointsDistribution(projectionMetrics(oneXi.captain,event.id,data.fixtures,event.id),oneXi.captain.positionShort))*100:0;
   return{
     wildcard:{score:clamp(2+uplift/3),detail:hasSquad?`+${Math.max(0,uplift).toFixed(1)} projected pts vs your squad over 5 GWs`:"Build your squad to calculate personal uplift"},
     freeHit:{score:clamp(1+freeHit*1.1),detail:`+${freeHit.toFixed(1)} one-week pts vs current XI`},
     benchBoost:{score:clamp(bench/1.25),detail:`${bench.toFixed(1)} projected bench pts`},
-    tripleCaptain:{score:clamp(2+tc/1.25),detail:`${oneXi.captain?.name??"—"} · ${tc.toFixed(1)} xPts`},
+    tripleCaptain:{score:clamp(2+tc/1.25),detail:`${oneXi.captain?.name??"—"} · ${tc.toFixed(1)} xPts · ${Math.round(tcHaul)}% haul chance`},
   };
 }
 export function LiveChips(){
