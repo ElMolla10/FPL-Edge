@@ -9,6 +9,68 @@ export type SquadScores={projectedPoints:number;captaincy:number;fixtures:number
 export type SquadEvaluation={objective:number;weightedPoints:number;fiveWeekPoints:number;weeks:WeekPlan[];flexibility:number;benchUtility:number;deadSlots:number;riskPenalty:number;bank:number;scores:SquadScores;warnings:string[];strategy:{formation:string;premiums:string[];captain:string;budget:Record<string,number>;benchSpend:number;targets:string[];risk:RiskMode};};
 export type OptimizedResult={squad:FplPlayer[];evaluation:SquadEvaluation;efficiency:number;nearMisses:{player:FplPlayer;difference:number;reason:string}[];explanations:Record<number,string[]>;weights:number[];mode:HorizonMode;risk:RiskMode};
 
+// Runtime consistency checks on the optimizer's own output, run in the display layer before Draft
+// Lab shows a result -- same shape as fpl.ts's findIdentityConflicts/attachIntegrityWarnings: a pure
+// validation function, warnings surfaced in the UI, never just a console.error. Each check below is
+// marked GUARD or GAP: GUARD means weekPlan/evaluate already make the failure impossible today by
+// construction, and this exists purely as regression protection if a future refactor breaks that
+// guarantee; GAP means nothing today actually enforces the invariant, even though it happens to hold
+// for the live data this was investigated against. Call this on both manualEvaluation and
+// optimized.evaluation in LiveDraftBuilder -- the same function, not two implementations, matching
+// how chipScoresForEvent is shared rather than duplicated.
+export function validateSquadEvaluation(evaluation:SquadEvaluation,squad:FplPlayer[],data:FplData):string[]{
+  const warnings:string[]=[];
+  const firstEvent=evaluation.weeks[0]?.eventId;
+  for(const week of evaluation.weeks){
+    // GUARD: weekPlan's def/mid loop derives fwd as 10-def-mid (never chosen independently) and
+    // discards any candidate whose assembled xi.length isn't exactly 11 before it can be selected.
+    if(week.xi.length!==11)warnings.push(`GW${week.eventId}: XI has ${week.xi.length} players, not 11.`);
+    // GAP: weekPlan's own def:3-5/mid:2-5/fwd:1-3 loop bounds are hardcoded, not derived from
+    // data.rules.positions[i].minPlay/maxPlay. They match the live official rules today (verified
+    // against the real feed during the Phase-C-adjacent investigation for this feature), but nothing
+    // enforces they still would if FPL ever changed squad-formation rules.
+    for(const rule of data.rules.positions){
+      const count=week.xi.filter(p=>p.positionShort===rule.short).length;
+      if(count<rule.minPlay||count>rule.maxPlay)warnings.push(`GW${week.eventId}: ${count} ${rule.short} in the XI, outside the legal ${rule.minPlay}-${rule.maxPlay} range.`);
+    }
+    // GUARD: captain/vice are picked by sorting the xi array itself (ranked=[...xi].sort(...),
+    // captain=ranked[0], vice=ranked[1]) -- both are drawn from xi by construction.
+    if(!week.xi.some(p=>p.id===week.captain.id))warnings.push(`GW${week.eventId}: captain ${week.captain.name} is not in the XI.`);
+    if(!week.xi.some(p=>p.id===week.vice.id))warnings.push(`GW${week.eventId}: vice-captain ${week.vice.name} is not in the XI.`);
+    // MIXED, covers three list items at once (bench points never counted in the XI total, captain
+    // counted exactly once/2x not 3x, displayed total reconciles with the sum of individual player
+    // values) -- they are facets of one invariant, not three independently checkable things. GUARD in
+    // that weekPlan's own points=xi.reduce(...)+score(captain) already only sums xi and adds captain
+    // exactly once more; this specifically recomputes from projectionMetrics directly rather than
+    // re-reading weekPlan's own output, so it also guards a future weekPlan refactor that breaks the
+    // formula without any other check catching it.
+    const xiSum=week.xi.reduce((sum,p)=>sum+projectionMetrics(p,week.eventId,data.fixtures,firstEvent).xPts,0);
+    const captainScore=projectionMetrics(week.captain,week.eventId,data.fixtures,firstEvent).xPts;
+    const expectedPoints=xiSum+captainScore;
+    if(Math.abs(week.points-expectedPoints)>.05)warnings.push(`GW${week.eventId}: displayed total ${week.points.toFixed(2)} does not reconcile with the sum of individual XI values plus captain bonus (${expectedPoints.toFixed(2)}).`);
+    // GUARD, separate logic from the bench-order.ts autosub GK fix used by Final Check -- Draft Lab
+    // never calls optimizeBenchOrder, only modeledAppearanceProbability for scoring. weekPlan's own
+    // bench sort explicitly pushes any GKP to the last slot via its own comparator.
+    const gkIndex=week.bench.findIndex(p=>p.positionShort==="GKP");
+    if(gkIndex!==-1&&gkIndex!==week.bench.length-1)warnings.push(`GW${week.eventId}: backup goalkeeper is not in the final bench slot.`);
+  }
+  // GAP: cost is one squad.reduce(...), but the displayed per-position budget breakdown is a separate
+  // reduce per position, each independently rounded to 1 decimal -- nothing currently asserts they
+  // agree. Tolerance covers the max plausible drift from rounding four independent position sums.
+  const totalCost=squad.reduce((sum,p)=>sum+p.price,0);
+  const budgetSum=Object.values(evaluation.strategy.budget).reduce((sum,value)=>sum+value,0);
+  if(Math.abs(totalCost-budgetSum)>.2)warnings.push(`Squad cost £${totalCost.toFixed(1)}m does not reconcile with the displayed per-position budget total £${budgetSum.toFixed(1)}m.`);
+  // GUARD: isValidSquad already enforces this -- it is the gate checked before any of this can render
+  // (complete=isValidSquad(squad,data)), and re-checked on every swap optimize()'s replace() accepts.
+  // This call is also the defense-in-depth for the one path that gate doesn't explicitly re-check:
+  // optimize()'s starting baseline from cheapest(), before any isValidSquad-checked swap has run, is
+  // exactly what becomes the squad passed here if no restart ever beats it.
+  const clubCounts=new Map<number,number>();
+  squad.forEach(p=>clubCounts.set(p.teamId,(clubCounts.get(p.teamId)??0)+1));
+  for(const[,count]of clubCounts)if(count>data.rules.teamLimit)warnings.push(`${count} players from the same club, exceeding the ${data.rules.teamLimit}-player limit.`);
+  return warnings;
+}
+
 const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
 const weightsFor=(mode:HorizonMode,count:number)=>{const source=mode==="GW1 Attack"?[1,.55,.35,.2,.1]:mode==="Next 3 GWs"?[1,.92,.78]:mode==="Long-term 8 GWs"?[1,.96,.92,.88,.84,.8,.76,.72]:[1,.9,.8,.7,.6];return Array.from({length:count},(_,i)=>source[i]??Math.max(.45,1-i*.07))};
 const hash=(text:string)=>[...text].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,2166136261);
