@@ -1,4 +1,4 @@
-import { attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile } from "../../lib/fpl";
+import { accumulateLiveStats, attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile, seasonStatsThroughEvent } from "../../lib/fpl";
 import { buildTeamQualityProfiles } from "../../lib/team-quality";
 import priorSeasonSnapshot from "../../data/prior-season-2025-26.json";
 
@@ -27,28 +27,17 @@ export async function GET() {
     const bootstrap = await bootstrapResponse.json();
     const fixtures = await fixturesResponse.json();
     const statsEvents = bootstrap.events.filter((event: any) => event.is_current || event.started || event.finished);
-    const completedEventIds = new Set<number>(bootstrap.events.filter((event: any) => event.finished && event.data_checked).map((event: any) => event.id));
     const liveEventPayloads = await Promise.all(statsEvents.map(async (event: any) => {
       const response = await fetch(`https://fantasy.premierleague.com/api/event/${event.id}/live/`, request);
       if (!response.ok) throw new Error(`Official FPL live stats for GW${event.id} returned ${response.status}`);
       return { eventId: event.id, payload: await response.json() };
     }));
     const aggregateFields = ["total_points","goals_scored","assists","expected_goals","expected_assists","expected_goal_involvements","expected_goals_conceded","clean_sheets","goals_conceded","minutes","starts","bonus","bps","ict_index","influence","creativity","threat","saves","penalties_saved","defensive_contribution","clearances_blocks_interceptions","recoveries","tackles"];
-    const seasonStats = new Map<number, any>();
-    const latestEventStats = new Map<number, any>();
-    for (const { eventId, payload } of liveEventPayloads) for (const element of payload.elements) {
-      const latest = latestEventStats.get(element.id);
-      if (!latest || eventId >= latest.eventId) latestEventStats.set(element.id, { eventId, ...element.stats });
-      // Future projections must never learn from a match while it is still being played. Current
-      // event points remain available through latestEventStats for the live-scoring view, while
-      // season aggregates advance only after FPL marks the whole event finished and data-checked.
-      if (completedEventIds.has(eventId)) {
-        const aggregate = seasonStats.get(element.id) ?? { appearances: 0 };
-        for (const field of aggregateFields) aggregate[field] = number(aggregate[field]) + number(element.stats?.[field]);
-        if (number(element.stats?.minutes) > 0) aggregate.appearances += 1;
-        seasonStats.set(element.id, aggregate);
-      }
-    }
+    // Future projections must never learn from a match while it is still being played -- satisfied
+    // per-fixture here (see accumulateLiveStats), not by waiting on FPL's slower event-level
+    // finished/data_checked admin sign-off. Current event points remain available through
+    // latestEventStats for the live-scoring view regardless of this gate.
+    const { seasonStats, latestEventStats } = accumulateLiveStats(fixtures, liveEventPayloads, aggregateFields);
     const teams = new Map(bootstrap.teams.map((team: any) => [team.id, team]));
     const positions = new Map(bootstrap.element_types.map((position: any) => [position.id, position]));
     const matchedPriorByPlayerId = new Map<number, PriorSeasonRecord>();
@@ -64,7 +53,7 @@ export async function GET() {
       const coverage = plRosterContinuity(minutes);
       teamPriorProfiles.set(teamId, { coverage, low: isLowPlContinuity(coverage) });
     }
-    const completedFixtures=fixtures.filter((fixture:any)=>completedEventIds.has(fixture.event)&&fixture.finished);
+    const completedFixtures=fixtures.filter((fixture:any)=>fixture.finished);
     const teamQualityInputs=bootstrap.teams.map((team:any)=>{
       const home=completedFixtures.filter((fixture:any)=>fixture.team_h===team.id),away=completedFixtures.filter((fixture:any)=>fixture.team_a===team.id);
       const expectedGoalsFor=bootstrap.elements.filter((player:any)=>player.team===team.id).reduce((sum:number,player:any)=>sum+number(seasonStats.get(player.id)?.expected_goals),0);
@@ -76,7 +65,7 @@ export async function GET() {
     const payload = {
       updatedAt: new Date().toISOString(),
       source: BOOTSTRAP_URL,
-      seasonStatsThrough: completedEventIds.size ? Math.max(...completedEventIds) : 0,
+      seasonStatsThrough: seasonStatsThroughEvent(bootstrap.events, fixtures),
       rules: {
         budget: number(bootstrap.game_settings?.squad_total_spend) / 10,
         // squad_squadplay is the XI size (11); the draft size is the sum of the
@@ -118,14 +107,14 @@ export async function GET() {
       players: bootstrap.elements.map((player: any) => {
         const team: any = teams.get(player.team);
         const position: any = positions.get(player.element_type);
-        const season = seasonStats.get(player.id) ?? {};
-        const latest = latestEventStats.get(player.id) ?? {};
+        const season: Record<string, any> = seasonStats.get(player.id) ?? {};
+        const latest: Record<string, any> = latestEventStats.get(player.id) ?? {};
         // Element ids are stable within an FPL season, while the immutable player code is the
         // stronger identity key. Refuse a stale snapshot row if the two ever stop agreeing.
         const prior = matchedPriorByPlayerId.get(player.id);
         const appearances = number(season.appearances);
         const priorEquivalentMatches = prior?.minutes ? prior.minutes / 90 : 0;
-        const teamMatchesPlayed = fixtures.filter((fixture: any) => completedEventIds.has(fixture.event) && (fixture.team_h === player.team || fixture.team_a === player.team)).length;
+        const teamMatchesPlayed = fixtures.filter((fixture: any) => fixture.finished && (fixture.team_h === player.team || fixture.team_a === player.team)).length;
         const priorProfile = teamPriorProfiles.get(player.team) ?? { coverage: 0, low: true };
         const teamQuality=teamQualityProfiles.get(player.team);
         const record = {

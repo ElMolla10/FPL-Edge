@@ -44,6 +44,47 @@ export const LOW_PL_CONTINUITY_THRESHOLD=.35;
 // top-flight evidence exists across a current club without guessing promotion status from names.
 export function plRosterContinuity(priorMinutes:number[]):number{return priorMinutes.length?clamp(priorMinutes.reduce((sum,minutes)=>sum+Math.min(1800,Math.max(0,minutes)),0)/(priorMinutes.length*1800),0,1):0}
 export const isLowPlContinuity=(coverage:number)=>coverage<LOW_PL_CONTINUITY_THRESHOLD;
+
+// Gates season-stat accumulation on the specific fixture(s) a player's live stat line came from
+// (via explain[].fixture), not on FPL's event-level finished/data_checked admin flags -- those are
+// whole-gameweek sign-off markers that can lag real match completion by days, while the actual
+// protection this gate exists for ("never learn from a match still being played") is already fully
+// satisfied once that player's own fixture is finished. fixture.finished (distinct from
+// finished_provisional, which this app does not fetch) is FPL's own signal that a match's bonus
+// points have been calculated, not merely that full time was reached -- so bonus is accumulated
+// through this same per-fixture gate with no separate carve-out; the residual risk of a rare, small,
+// late correction between finished and data_checked is accepted rather than built around.
+export function accumulateLiveStats(fixtures:{id:number;finished:boolean}[],liveEventPayloads:{eventId:number;payload:{elements:{id:number;stats:Record<string,unknown>;explain?:{fixture:number}[]}[]}}[],aggregateFields:string[]):{seasonStats:Map<number,Record<string,number>&{appearances:number}>;latestEventStats:Map<number,Record<string,unknown>&{eventId:number}>}{
+  const number=(value:unknown)=>Number(value)||0;
+  const fixturesById=new Map(fixtures.map(fixture=>[fixture.id,fixture]));
+  const seasonStats=new Map<number,Record<string,number>&{appearances:number}>();
+  const latestEventStats=new Map<number,Record<string,unknown>&{eventId:number}>();
+  for(const{eventId,payload}of liveEventPayloads)for(const element of payload.elements){
+    const latest=latestEventStats.get(element.id);
+    if(!latest||eventId>=latest.eventId)latestEventStats.set(element.id,{eventId,...element.stats});
+    const playerFixtures=(element.explain??[]).map(entry=>entry.fixture);
+    const allFixturesFinished=playerFixtures.every(fixtureId=>fixturesById.get(fixtureId)?.finished);
+    if(allFixturesFinished){
+      const aggregate=seasonStats.get(element.id)??{appearances:0};
+      for(const field of aggregateFields)aggregate[field]=number(aggregate[field])+number(element.stats?.[field]);
+      if(number(element.stats?.minutes)>0)aggregate.appearances+=1;
+      seasonStats.set(element.id,aggregate);
+    }
+  }
+  return{seasonStats,latestEventStats};
+}
+
+// "Through GW N" is a whole-gameweek floor guarantee for the summary line shown across the app --
+// distinct from accumulateLiveStats above, which credits a player's own fixture the moment it
+// finishes, even before the rest of that gameweek's fixtures (or FPL's admin sign-off) catch up.
+export function seasonStatsThroughEvent(events:{id:number}[],fixtures:{event:number|null;finished:boolean}[]):number{
+  const fullyCompleted=events.filter(event=>{
+    const eventFixtures=fixtures.filter(fixture=>fixture.event===event.id);
+    return eventFixtures.length>0&&eventFixtures.every(fixture=>fixture.finished);
+  }).map(event=>event.id);
+  return fullyCompleted.length?Math.max(...fullyCompleted):0;
+}
+
 export function playerCalibrationProfile(player:FplPlayer):PlayerCalibrationProfile{
   const hasPremierLeaguePrior=(player.priorSource==="official-pl-history"||player.priorSource===undefined)&&player.priorMinutes>0;
   const lowPlContinuityClub=player.lowPlContinuityClub===true;
