@@ -7,6 +7,7 @@ import { persist, readFreeTransfers } from "../lib/persistence";
 import { blankProbability, haulProbability, playerPointsDistribution, pointsRange } from "../lib/projection-distribution";
 import { TRANSFER_ACTION_THRESHOLD, evaluateTransferQuality } from "../lib/transfer-quality";
 import { transferAnomalies } from "../lib/anomalies";
+import { bestTransfers, selectPrimaryTransfer } from "../lib/transfers";
 import Pitch from "./Pitch";
 
 // Shared by the List tab (standalone) and the Report tab (alongside Budget/Strategy in the same
@@ -31,7 +32,18 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
   const optimized=useMemo(()=>optimizer?optimizer.optimize():null,[optimizer]);
   const modelSquad=optimized?.squad??[];
   const complete=!!data&&isValidSquad(squad,data); const cost=squad.reduce((sum,p)=>sum+p.price,0);
+  const bank=data?Math.max(0,data.rules.budget-cost):0;
   const manualEvaluation=useMemo(()=>complete&&optimizer?optimizer.evaluate(squad):null,[complete,optimizer,squad]);
+  // Reuses the Transfers page's own single-transfer engine (whole-squad re-optimized ranking, the
+  // full quality gate, real hit cost) instead of deriving a single "best move" from the diff-based
+  // recommendedChanges mechanism below, which has no cheap way to re-run squad-level XI optimization
+  // per candidate swap and falls back to an individual-player gain. Draft Lab has no manager
+  // connection, so sellingPrices defaults to empty (falls back to p.price on both legs) -- the same
+  // simplification recommendedChanges already has; this still gains everything else bestTransfers
+  // offers for free, and would pick up real selling prices automatically if Draft Lab ever becomes
+  // manager-connection-aware.
+  const bestTransferMoves=useMemo(()=>data&&complete?bestTransfers(data,squad,bank,readFreeTransfers()):[],[data,complete,squad,bank]);
+  const bestTransferRightNow=selectPrimaryTransfer(bestTransferMoves);
   const totals=manualEvaluation?.weeks.slice(0,5).map(week=>week.points)??[];
   const rating=manualEvaluation?.scores.overall??null;
   const consistencyWarnings=useMemo(()=>{if(!data)return[];const warnings:string[]=[];if(manualEvaluation)validateSquadEvaluation(manualEvaluation,squad,data).forEach(w=>warnings.push(`Your squad — ${w}`));if(optimized)validateSquadEvaluation(optimized.evaluation,optimized.squad,data).forEach(w=>warnings.push(`Model suggestion — ${w}`));return warnings;},[manualEvaluation,optimized,squad,data]);
@@ -88,6 +100,12 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
     <section className="builder-pitch"><div className="pitch-box"/>{data.rules.positions.map(rule=><div className={`builder-pitch-row row-${rule.short.toLowerCase()}`} key={rule.id}>{[...squad.filter(p=>p.positionId===rule.id),...Array.from({length:Math.max(0,rule.squad-squad.filter(p=>p.positionId===rule.id).length)},()=>null)].map((player,i)=>player?<article className={selectedInsight===player.id?"selected-player":""} onClick={()=>setSelectedInsight(player.id)} key={player.id}><div className="mini-shirt">{rule.short}</div><b>{player.name}</b><small>{player.teamShort} · £{player.price.toFixed(1)}m</small><span>{eventIds.length?playerProjection(player,eventIds[0],data.fixtures,eventIds[0]).toFixed(1):"—"} xPts</span><button aria-label={`Remove ${player.name}`} onClick={()=>remove(player.id)}>×</button></article>:<button className="pitch-empty" key={`empty-${i}`} onClick={()=>setPosition(rule.short)}><i>+</i><span>Add {rule.short}</span></button>)}</div>)}</section>
     <section className={`squad-score ${complete?"complete":""}`}><div><span>SQUAD QUALITY RATING</span><strong>{rating??"—"}<small>/100</small></strong><p>{complete?"Independent quality score—not 100 merely because the optimizer selected it.":"Complete a valid 15-player squad to unlock its rating and projections."}</p>{complete&&optimized&&<small className="efficiency-label">Optimization efficiency: {Math.min(100,manualEvaluation!.objective/optimized.evaluation.objective*100).toFixed(1)}%</small>}</div><div className="gw-projections">{Array.from({length:5},(_,i)=><article key={i}><span>{events[i]?.name??`GW${i+1}`}</span><b>{totals[i]?.toFixed(1)??"—"}</b><small>predicted pts</small></article>)}</div></section>{complete&&manualEvaluation&&optimized&&<>
       {consistencyWarnings.length>0&&<p className="integrity-warning optimizer-consistency-warning">⚠ Consistency check failed: {consistencyWarnings[0]}{consistencyWarnings.length>1?` (+${consistencyWarnings.length-1} more)`:""}</p>}
+      <section className="recommended-move best-transfer-now">
+        <div className="call-label"><span>BEST TRANSFER RIGHT NOW</span><b>{bestTransferRightNow?"MODEL EDGE":"SAVE"}</b></div>
+        <h2>{bestTransferRightNow?`${bestTransferRightNow.out.name} → ${bestTransferRightNow.incoming.name}`:"No actionable single transfer"}</h2>
+        <p>{bestTransferRightNow?`The single highest-ranked legal swap right now — not a full squad rebuild. ${bestTransferRightNow.risk} modelled minutes/availability risk.`:`No individual swap clears the ${TRANSFER_ACTION_THRESHOLD}-point action threshold and every quality gate right now.`}</p>
+        {bestTransferRightNow&&<div>{([["GW","1",bestTransferRightNow.gain1],["NEXT","3",bestTransferRightNow.gain3],["NEXT","5",bestTransferRightNow.gain5]] as const).map(([label,n,value])=><span key={n}><small>{label} {n}</small><b>{value>=0?"+":""}{value.toFixed(1)} pts</b></span>)}<span><small>TRANSFER HIT</small><b>{bestTransferRightNow.hitCost?`−${bestTransferRightNow.hitCost}`:"None"}</b></span><span><small>NET (AFTER HIT)</small><b>{bestTransferRightNow.netDifference>=0?"+":""}{bestTransferRightNow.netDifference.toFixed(1)} pts</b></span></div>}
+      </section>
       {recommendedChanges&&<section className="recommended-move draft-recommended-changes">
         <div className="call-label"><span>RECOMMENDED CHANGES</span><b>{recommendedChanges.changes.length===0?"ALREADY OPTIMAL":recommendedChanges.worthIt?"MAKE THE CHANGES":"KEEP CURRENT SQUAD"}</b></div>
         <h2>{recommendedChanges.changes.length?`${recommendedChanges.changes.length} change${recommendedChanges.changes.length===1?"":"s"} to reach the model squad`:"Your squad already matches the model suggestion"}</h2>

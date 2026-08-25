@@ -69,7 +69,12 @@ export function persist(key: string, value: string) {
 // CoachApp.tsx (which already imports LiveDraftBuilder, and would cycle).
 export function readFreeTransfers(): number {
   try {
-    const value = Number(localStorage.getItem("fpl-edge-free-transfers"));
+    const raw = localStorage.getItem("fpl-edge-free-transfers");
+    // Number(null) is 0, not NaN -- a raw-string check is required so a key that was never set
+    // (the common case for a user who has never touched the Transfers page selector) falls through
+    // to the intended default of 1 free transfer, instead of silently defaulting to 0 (assume a hit).
+    if (raw === null || raw === "") return 1;
+    const value = Number(raw);
     return Number.isInteger(value) && value >= 0 && value <= 5 ? value : 1;
   } catch {
     return 1;
