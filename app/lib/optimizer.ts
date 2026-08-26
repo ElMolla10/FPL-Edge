@@ -8,6 +8,8 @@ export type WeekPlan={eventId:number;xi:FplPlayer[];bench:FplPlayer[];captain:Fp
 export type SquadScores={projectedPoints:number;captaincy:number;fixtures:number;minutesSecurity:number;bench:number;flexibility:number;value:number;risk:number;overall:number};
 export type SquadEvaluation={objective:number;weightedPoints:number;fiveWeekPoints:number;weeks:WeekPlan[];flexibility:number;benchUtility:number;deadSlots:number;riskPenalty:number;bank:number;scores:SquadScores;warnings:string[];strategy:{formation:string;premiums:string[];captain:string;budget:Record<string,number>;benchSpend:number;targets:string[];risk:RiskMode};};
 export type OptimizedResult={squad:FplPlayer[];evaluation:SquadEvaluation;efficiency:number;nearMisses:{player:FplPlayer;difference:number;reason:string}[];explanations:Record<number,string[]>;weights:number[];mode:HorizonMode;risk:RiskMode};
+export type ConstrainedSwap={out:FplPlayer;incoming:FplPlayer};
+export type ConstrainedOptimizeResult={squad:FplPlayer[];evaluation:SquadEvaluation;changes:ConstrainedSwap[];consideredCombinations:number};
 
 // Runtime consistency checks on the optimizer's own output, run in the display layer before Draft
 // Lab shows a result -- same shape as fpl.ts's findIdentityConflicts/attachIntegrityWarnings: a pure
@@ -88,5 +90,65 @@ export function createOptimizer(data:FplData,mode:HorizonMode="Balanced 5 GWs",r
   const replace=(squad:FplPlayer[],index:number,candidate:FplPlayer)=>{if(squad.some(p=>p.id===candidate.id)||candidate.positionId!==squad[index].positionId)return null;const next=[...squad];next[index]=candidate;return isValidSquad(next,data)?next:null};
   const optimize=():OptimizedResult=>{const rng=rngFactory(hash(`${mode}:${risk}:${data.updatedAt.slice(0,13)}`));let global=cheapest();let globalEval=evaluate(global);const restarts=24,steps=520;for(let restart=0;restart<restarts;restart++){let current=[...cheapest()];for(let j=0;j<80;j++){const index=Math.floor(rng()*15);const pool=poolByPosition.get(current[index].positionId)??[];const next=replace(current,index,pool[Math.floor(rng()*pool.length)]);if(next)current=next}let currentEval=evaluate(current);for(let step=0;step<steps;step++){const index=Math.floor(rng()*15);const pool=poolByPosition.get(current[index].positionId)??[];const candidate=pool[Math.floor(rng()*pool.length)];const next=replace(current,index,candidate);if(!next)continue;const nextEval=evaluate(next);const temperature=Math.max(.12,4.5*(1-step/steps));if(nextEval.objective>currentEval.objective||Math.exp((nextEval.objective-currentEval.objective)/temperature)>rng()){current=next;currentEval=nextEval}if(currentEval.objective>globalEval.objective){global=[...current];globalEval=currentEval}}}
     const selected=new Set(global.map(p=>p.id));const nearCandidates=data.players.filter(p=>!selected.has(p.id)&&p.status!=="u").map(player=>{let bestDifference=Infinity;for(let i=0;i<global.length;i++){if(global[i].positionId!==player.positionId)continue;const next=replace(global,i,player);if(!next)continue;bestDifference=Math.min(bestDifference,globalEval.objective-evaluate(next).objective)}return{player,difference:bestDifference,reason:Number.isFinite(bestDifference)?`Best legal swap still reduced the risk-adjusted objective by ${Math.max(0,bestDifference).toFixed(2)}.`:"No legal one-player swap fit the budget and club limits."}}).filter(x=>Number.isFinite(x.difference)).sort((a,b)=>a.difference-b.difference).slice(0,5);const explanations:Record<number,string[]>={};global.forEach(p=>{const m=metrics(p,eventIds[0]);const five=eventIds.slice(0,5).reduce((s,id)=>s+metrics(p,id).xPts,0);const reasons=[`${five.toFixed(1)} projected points over five gameweeks`,`${Math.round(m.startProbability*100)}% GW1 start probability · ${Math.round(m.expectedMinutes)} expected minutes`];if(m.penaltyRole)reasons.push("first-choice penalty role");if(m.setPieceRole)reasons.push("first-choice set-piece role");if(p.positionShort==="DEF"||p.positionShort==="GKP")reasons.push(`${Math.round(m.cleanSheetProbability*100)}% modeled GW1 clean-sheet probability`);if(m.xG>.25)reasons.push(`${m.xG.toFixed(2)} fixture-specific GW1 xG`);if(m.xA>.18)reasons.push(`${m.xA.toFixed(2)} fixture-specific GW1 xA`);explanations[p.id]=reasons.slice(0,4)});return{squad:global,evaluation:globalEval,efficiency:100,nearMisses:nearCandidates,explanations,weights,mode,risk}};
-  return{events,eventIds,weights,metrics,evaluate,optimize};
+  // One-shot combinatorial search shared by Practical Upgrade (maxChanges caps how many slots may
+  // change, no exclusions) and Keep Core (lockedPlayerIds excludes specific players from ever being
+  // an "out" candidate; maxChanges still bounds the combinatorial search -- literal "no cap" is not
+  // tractable via this enumeration technique, so Keep Core's caller is expected to pass a pragmatic
+  // bound like 4, disclosed to the user as "up to N simultaneous changes", never "unlimited").
+  // Seeded from the real current squad, not cheapest() -- optimize() cannot do this: it has no
+  // baseline-squad concept and its burn-in phase actively destroys any relationship to a starting
+  // point before real search begins (design-checkpoint investigation, this feature).
+  //
+  // Shortlist + combination technique mirrors transfer-routes.ts's per-week proposal/shortlist/apply
+  // shape, generalized from single/pair to 1..maxChanges-way combinations, scored with the real
+  // multi-week evaluate() (not transfer-routes.ts's single-week weekTotal). The incoming pool is
+  // pre-filtered against the CURRENT squad's club counts before ranking by gain -- without this, a
+  // shortlist built by raw gain alone can degenerate into a handful of clubs that happen to rank
+  // well, which then fail isValidSquad's club-limit check almost universally once combined with an
+  // already-tight squad. Found empirically during the design-checkpoint verification: against a
+  // squad already at the 3-per-club cap in two clubs, 0 of 1351 raw combos were legal without this
+  // filter. Same check bestTransfers() already applies per-swap in app/lib/transfers.ts.
+  //
+  // Precondition: squad must already satisfy isValidSquad(squad,data), same precondition evaluate()
+  // and optimize() rely on -- enforced at the call site by "complete" gating, not re-checked here.
+  const optimizeConstrained=(squad:FplPlayer[],options:{maxChanges:number;lockedPlayerIds?:Set<number>;shortlistSize?:number}):ConstrainedOptimizeResult=>{
+    const lockedPlayerIds=options.lockedPlayerIds??new Set<number>();
+    const shortlistSize=options.shortlistSize??20;
+    const unlockedCount=squad.filter(p=>!lockedPlayerIds.has(p.id)).length;
+    const maxChanges=Math.max(0,Math.min(options.maxChanges,unlockedCount));
+    const owned=new Set(squad.map(p=>p.id));
+    const clubCount=new Map<number,number>();squad.forEach(p=>clubCount.set(p.teamId,(clubCount.get(p.teamId)??0)+1));
+    const proposals:{out:FplPlayer;incoming:FplPlayer;gain:number}[]=[];
+    for(const out of squad){
+      if(lockedPlayerIds.has(out.id))continue;
+      for(const incoming of poolByPosition.get(out.positionId)??[]){
+        if(owned.has(incoming.id))continue;
+        if(incoming.teamId!==out.teamId&&(clubCount.get(incoming.teamId)??0)>=3)continue;
+        proposals.push({out,incoming,gain:projectionValue(incoming)-projectionValue(out)});
+      }
+    }
+    proposals.sort((a,b)=>b.gain-a.gain);
+    const shortlist=proposals.slice(0,shortlistSize);
+    let best:{squad:FplPlayer[];evaluation:SquadEvaluation;changes:ConstrainedSwap[]}={squad,evaluation:evaluate(squad),changes:[]};
+    let consideredCombinations=0;
+    const tryCombo=(combo:ConstrainedSwap[])=>{
+      if(combo.length===0)return;
+      const outIds=new Set(combo.map(c=>c.out.id)),incomingIds=new Set(combo.map(c=>c.incoming.id));
+      if(outIds.size!==combo.length||incomingIds.size!==combo.length)return;
+      const replacements=new Map(combo.map(c=>[c.out.id,c.incoming]));
+      const candidate=squad.map(p=>replacements.get(p.id)??p);
+      if(!isValidSquad(candidate,data))return;
+      consideredCombinations++;
+      const candidateEval=evaluate(candidate);
+      if(candidateEval.objective>best.evaluation.objective)best={squad:candidate,evaluation:candidateEval,changes:combo};
+    };
+    const build=(start:number,current:ConstrainedSwap[])=>{
+      if(current.length>0)tryCombo(current);
+      if(current.length>=maxChanges)return;
+      for(let i=start;i<shortlist.length;i++)build(i+1,[...current,shortlist[i]]);
+    };
+    build(0,[]);
+    return{...best,consideredCombinations};
+  };
+  return{events,eventIds,weights,metrics,evaluate,optimize,optimizeConstrained};
 }
