@@ -47,7 +47,7 @@ export default function CoachApp({onBack}:{onBack:()=>void}){
   const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMore(false);window.scrollTo({top:0,behavior:"smooth"})};
   const fresh=data?freshness(data.updatedAt):null;
   return <main className="coach-shell">
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{nav.map(([key,label,icon],i)=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span><small>{String(i+1).padStart(2,"0")}</small>{label}</span></button>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><AccountBar onAuthChange={runSync}/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{nav.map(([key,label,icon],i)=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span><small>{String(i+1).padStart(2,"0")}</small>{label}</span></button>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><AccountBar onAuthChange={runSync}/><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><div><p>FPL EDGE · DECISION ENGINE</p><h1>{titles[view]}</h1></div>{data&&<DeadlineClock data={data}/>}</header>
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
     </section>
@@ -82,6 +82,14 @@ function Freshness({data,onRefresh,loading}:{data:FplData;onRefresh:()=>void;loa
 
 // Squad/watchlist/locks persist to the server (see app/lib/persistence.ts) when signed in via
 // either method below; both resolve to the same account (see app/lib/auth.ts).
+// No override stored means "follow prefers-color-scheme" (handled in CSS, not here) -- this toggle
+// only ever writes an explicit "light"/"dark" override once the user actually clicks it.
+function ThemeToggle(){
+  const[theme,setTheme]=useState<"light"|"dark">("light");
+  useEffect(()=>{const stored=document.documentElement.getAttribute("data-theme");setTheme(stored==="dark"||(!stored&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light")},[]);
+  const toggle=()=>{const next=theme==="dark"?"light":"dark";setTheme(next);document.documentElement.setAttribute("data-theme",next);persist("fpl-edge-theme",next)};
+  return <button className="theme-toggle" onClick={toggle}>{theme==="dark"?"☀ Light mode":"● Dark mode"}</button>;
+}
 function AccountBar({onAuthChange}:{onAuthChange:()=>void}){
   const[account,setAccount]=useState<{email:string;method:"password"|"chatgpt"}|null>(null);
   const[checked,setChecked]=useState(false);
