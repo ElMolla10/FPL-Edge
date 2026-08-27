@@ -47,24 +47,24 @@ export default function CoachApp({onBack}:{onBack:()=>void}){
   const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMore(false);window.scrollTo({top:0,behavior:"smooth"})};
   const fresh=data?freshness(data.updatedAt):null;
   return <main className="coach-shell">
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{nav.map(([key,label,icon],i)=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span><small>{String(i+1).padStart(2,"0")}</small>{label}</span></button>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><AccountBar onAuthChange={runSync}/><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{nav.map(([key,label,icon],i)=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span><small>{String(i+1).padStart(2,"0")}</small>{label}</span></button>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><AccountBar onAuthChange={runSync}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><div><p>FPL EDGE · DECISION ENGINE</p><h1>{titles[view]}</h1></div>{data&&<DeadlineClock data={data}/>}</header>
-      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
+      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
     </section>
     <nav className="coach-mobile-nav"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i>⌂</i>Home</button><button className={view==="team"?"active":""} onClick={()=>go("team")}><i>◫</i>Team</button><button className={view==="transfers"?"active":""} onClick={()=>go("transfers")}><i>⇄</i>Transfers</button><button className={view==="players"?"active":""} onClick={()=>go("players")}><i>⌕</i>Players</button><button className={more?"active":""} onClick={()=>setMore(x=>!x)}><i>•••</i>More</button></nav>
     {more&&<div className="mobile-more">{nav.slice(3).filter(x=>x[0]!=="players").map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
   </main>
 }
 
-function Page({view,data,go,revision}:{view:View;data:FplData;go:(v:View)=>void;revision:number}){
-  if(view==="overview")return <Overview data={data} go={go} revision={revision}/>;
-  if(view==="team")return <Team data={data} go={go} revision={revision}/>;
-  if(view==="transfers")return <Transfers data={data} go={go} revision={revision}/>;
+function Page({view,data,go,revision,onTeamChange}:{view:View;data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+  if(view==="overview")return <Overview data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
+  if(view==="team")return <Team data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
+  if(view==="transfers")return <Transfers data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="draft")return <LiveDraftBuilder/>;
   if(view==="players")return <Players data={data} go={go} revision={revision}/>;
   if(view==="fixtures")return <div className="coach-page"><TeamQualityPanel data={data}/><TeamQualityFixtures data={data}/></div>;
   if(view==="news")return <News data={data} go={go} revision={revision}/>;
-  if(view==="deadline")return <FinalCheck data={data} go={go} revision={revision}/>;
+  if(view==="deadline")return <FinalCheck data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="chips")return <LiveChips/>;
   if(view==="model")return <div className="coach-page"><ModelVersionPanel/><TeamQualityPanel data={data}/><PointsModel data={data}/></div>;
   return <div className="coach-page"><ModelAudit data={data} revision={revision}/><LiveHistory/></div>;
@@ -118,9 +118,62 @@ function AccountBar({onAuthChange}:{onAuthChange:()=>void}){
   return <div className="account-bar">{!open?<button className="account-open" onClick={()=>setOpen(true)}>Sign in / Sign up</button>:<div className="account-form"><div className="segmented">{(["signin","signup"] as const).map(m=><button key={m} className={mode===m?"active":""} onClick={()=>setMode(m)}>{m==="signin"?"Sign in":"Sign up"}</button>)}</div><input type="email" placeholder="Email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/><input type="password" placeholder="Password (min 8 chars)" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/><button onClick={submit} disabled={busy}>{busy?"…":mode==="signin"?"Sign in":"Create account"}</button><a className="chatgpt-signin" href={`/signin-with-chatgpt?return_to=${returnTo}`}>Sign in with ChatGPT</a>{msg&&<small className="account-error">{msg}</small>}<button className="account-cancel" onClick={()=>setOpen(false)}>Cancel</button></div>}</div>;
 }
 
-function useManager(){const[meta,setMeta]=useState<ManagerMeta|null>(null);useEffect(()=>{try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}},[]);return[meta,setMeta] as const}
+// revision is a required re-read trigger, not just an initial-mount read -- without it, a manager
+// update made by one mounted component (e.g. TeamBar in the persistent sidebar) would never reach
+// the independent useManager() instances Overview/Team/Transfers/FinalCheck each hold locally.
+function useManager(revision:number){const[meta,setMeta]=useState<ManagerMeta|null>(null);useEffect(()=>{try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}},[revision]);return[meta,setMeta] as const}
 const sellingPricesFor=(meta:ManagerMeta|null)=>new Map((meta?.picks??[]).flatMap(pick=>pick.sellingPrice!==null&&pick.sellingPrice!==undefined?[[pick.elementId,pick.sellingPrice] as [number,number]]:[]));
-function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:ManagerMeta)=>void}){const[id,setId]=useState("");const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const connect=async()=>{if(!/^\d+$/.test(id)){setMsg("Enter the numeric Team ID from your official FPL URL.");return}setBusy(true);setMsg("");try{const response=await fetch(`/api/fpl/team?entry=${id}`,{cache:"no-store"});const json=await response.json();if(!response.ok)throw new Error(json.error||"Could not connect team");const ids=(json.playerIds as number[]).filter(pid=>data.players.some(p=>p.id===pid));if(ids.length!==15)throw new Error("FPL did not return a complete public squad.");persist("fpl-edge-squad",JSON.stringify(ids));persist("fpl-edge-entry",id);persist("fpl-edge-manager",JSON.stringify(json.manager));localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());setMsg(`${json.manager.teamName} connected. Your coach is ready.`);onConnected?.(json.manager)}catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}finally{setBusy(false)}};return <section className="connect-hero"><div><span>START HERE</span><h2>Connect your official FPL team</h2><p>Enter the number in your FPL team URL. Read-only: we never ask for your password or make changes to your official team.</p></div><div><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect my team →"}</button><small>{msg||"Current public squad becomes available after its deadline."}</small></div></section>}
+// Single source of truth for "connect a Team ID" -- fetch, validate, persist. ConnectTeam (the
+// full-page first-connect prompt) and TeamBar (the always-reachable sidebar switch/reconnect) both
+// call this rather than keeping their own copies that agree today and drift the next time either
+// is touched independently -- exactly the failure class this project has caught repeatedly.
+async function connectTeam(id:string,data:FplData):Promise<ManagerMeta>{
+  if(!/^\d+$/.test(id))throw new Error("Enter the numeric Team ID from your official FPL URL.");
+  const response=await fetch(`/api/fpl/team?entry=${id}`,{cache:"no-store"});
+  const json=await response.json();
+  if(!response.ok)throw new Error(json.error||"Could not connect team");
+  const ids=(json.playerIds as number[]).filter(pid=>data.players.some(p=>p.id===pid));
+  if(ids.length!==15)throw new Error("FPL did not return a complete public squad.");
+  persist("fpl-edge-squad",JSON.stringify(ids));
+  persist("fpl-edge-entry",id);
+  persist("fpl-edge-manager",JSON.stringify(json.manager));
+  localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());
+  return json.manager as ManagerMeta;
+}
+function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:ManagerMeta)=>void}){const[id,setId]=useState("");const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const connect=async()=>{setBusy(true);setMsg("");try{const manager=await connectTeam(id,data);setMsg(`${manager.teamName} connected. Your coach is ready.`);onConnected?.(manager)}catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}finally{setBusy(false)}};return <section className="connect-hero"><div><span>START HERE</span><h2>Connect your official FPL team</h2><p>Enter the number in your FPL team URL. Read-only: we never ask for your password or make changes to your official team.</p></div><div><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect my team →"}</button><small>{msg||"Current public squad becomes available after its deadline."}</small></div></section>}
+
+// Sidebar-resident sibling to ConnectTeam -- that component only renders when there's no usable
+// squad yet (isCompleteSquad fails), so once a team is connected there is no way back to it. This
+// stays mounted regardless of connection state so switching (or dropping) teams is always reachable.
+// Captain/vice picks (fpl-edge-captain-*/vice-*) are deliberately left untouched on disconnect/
+// reconnect: resolveCaptaincy already validates any stored id against the CURRENT squad's players
+// on every read (see its `valid()` guard) and falls back through manager->model->first-player when
+// the stored id isn't in that squad -- confirmed by reading its call sites, not assumed from the
+// similar pattern elsewhere. A stale id is inert dead data, never a rendering risk.
+function TeamBar({data,revision,onTeamChange}:{data:FplData|null;revision:number;onTeamChange:()=>void}){
+  const[meta,setMeta]=useManager(revision);
+  const[open,setOpen]=useState(false);
+  const[id,setId]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[msg,setMsg]=useState("");
+  const connect=async()=>{
+    if(!data){setMsg("Still loading official data -- try again in a moment.");return}
+    setBusy(true);setMsg("");
+    try{
+      const manager=await connectTeam(id,data);
+      setMeta(manager);setId("");setOpen(false);onTeamChange();
+    }catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}
+    finally{setBusy(false)}
+  };
+  const disconnect=()=>{
+    if(!confirm("Disconnect this team? You can reconnect anytime with a Team ID."))return;
+    localStorage.removeItem("fpl-edge-squad");
+    localStorage.removeItem("fpl-edge-entry");
+    localStorage.removeItem("fpl-edge-manager");
+    setMeta(null);setOpen(false);onTeamChange();
+  };
+  return <div className="team-bar">{!open?<><small>FPL TEAM</small><b>{meta?meta.teamName:"Not connected"}</b><button className="team-open" onClick={()=>setOpen(true)}>{meta?"Switch team":"Connect team"}</button></>:<div className="team-form"><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect"}</button>{msg&&<small className="team-error">{msg}</small>}<button className="team-cancel" onClick={()=>{setOpen(false);setMsg("")}}>Cancel</button>{meta&&<button className="team-disconnect" onClick={disconnect}>Disconnect team</button>}</div>}</div>;
+}
 
 export function benchOrderForEvent(xi:FplPlayer[],bench:FplPlayer[],eventId:number,data:Pick<FplData,"fixtures">):BenchOrderResult{
   return optimizeBenchOrder(xi,bench,player=>{const metrics=projectionMetrics(player,eventId,data.fixtures,eventId);return{xPts:metrics.xPts,appearanceProbability:modeledAppearanceProbability(player,metrics)}});
@@ -143,7 +196,7 @@ export function withModelUtilityChange(rows:Transfer[],squad:FplPlayer[],optimiz
   return sortTransfersByQuality(adjustedRows);
 }
 
-function Overview({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const[meta,setMeta]=useManager();const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);const a=analysis(data,squad);if(!a)return <><ConnectTeam data={data} onConnected={setMeta}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually. Your recommendations, transfer centre and deadline check will activate immediately.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></>;const moves=bestTransfers(data,squad,(meta?.bank??a.bank),1,12,sellingPricesFor(meta));const move=selectPrimaryTransfer(moves);const roll=!move;const issues=a.issues;const next=a.events[0];let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}const storedCaptainId=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));const storedViceId=Number(localStorage.getItem(`fpl-edge-vice-${a.first}`));const modelCaptain=a.xi.captain??a.xi.players[0];const resolvedCaptaincy=resolveCaptaincy(a.xi.players,storedCaptainId,storedViceId,manager?.captainId,manager?.viceCaptainId,modelCaptain,undefined);const activeCaptain=(resolvedCaptaincy&&a.xi.players.find(p=>p.id===resolvedCaptaincy.captainId))??modelCaptain;const projected=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0)+playerProjection(activeCaptain,a.first,data.fixtures,a.first);return <div className="coach-page"><section className="command-top"><div><span>NEXT DEADLINE</span><h2>{next.name}</h2><p>{new Date(next.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p></div><DeadlineClock data={data}/></section><section className="weekly-call"><div className="call-label"><span>THIS WEEK'S RECOMMENDATION</span><b>{roll?"LIKELY":"MODEL EDGE"}</b></div><h2>{roll?"ROLL TRANSFER":`${move.out.name} → ${move.incoming.name}`}</h2><ul>{roll?<><li>No risk-adjusted squad move clears the 2.2-point five-GW action threshold.</li><li>Your current XI keeps two future transfer routes open.</li><li>Recheck official flags before the deadline.</li></>:<><li>+{move.gain5.toFixed(1)} projected squad points across five gameweeks.</li><li>{move.minutes>=0?`${Math.round(move.minutes)} extra expected minutes this week.`:"The upside is fixture-led despite lower expected minutes."}</li><li>{move.risk} modelled minutes/availability risk.</li></>}</ul><button onClick={()=>go("transfers")}>Inspect the reasoning →</button></section><div className="command-metrics"><article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy</small></article><article><span>SQUAD VALUE</span><b>£{(meta?.squadValue??a.cost).toFixed(1)}m</b><small>official when connected</small></article><article><span>IN THE BANK</span><b>£{(meta?.bank??a.bank).toFixed(1)}m</b><small>{meta?"official public data":"builder estimate"}</small></article><article><span>FREE TRANSFERS</span><b>Set in Transfers</b><small>not exposed publicly by FPL</small></article><article><span>OVERALL RANK</span><b>{fmt(meta?.overallRank)}</b><small>{meta?meta.teamName:"connect to reveal"}</small></article><article><span>GW RANK</span><b>{fmt(meta?.gameweekRank)}</b><small>{meta?.gameweekPoints??"—"} GW points</small></article><article><span>TOTAL POINTS</span><b>{meta?.overallPoints??"—"}</b><small>official account history</small></article></div><section className="urgent-card"><header><div><span>URGENT ISSUES</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div><button onClick={()=>go("deadline")}>Open final check →</button></header>{issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}</section><WhatChanged data={data} squad={squad}/><DgwAlert data={data}/><SquadValueAlert squad={squad}/></div>}
+function Overview({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){const[meta,setMeta]=useManager(revision);const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);const a=analysis(data,squad);if(!a)return <><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually. Your recommendations, transfer centre and deadline check will activate immediately.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></>;const moves=bestTransfers(data,squad,(meta?.bank??a.bank),1,12,sellingPricesFor(meta));const move=selectPrimaryTransfer(moves);const roll=!move;const issues=a.issues;const next=a.events[0];let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}const storedCaptainId=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));const storedViceId=Number(localStorage.getItem(`fpl-edge-vice-${a.first}`));const modelCaptain=a.xi.captain??a.xi.players[0];const resolvedCaptaincy=resolveCaptaincy(a.xi.players,storedCaptainId,storedViceId,manager?.captainId,manager?.viceCaptainId,modelCaptain,undefined);const activeCaptain=(resolvedCaptaincy&&a.xi.players.find(p=>p.id===resolvedCaptaincy.captainId))??modelCaptain;const projected=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0)+playerProjection(activeCaptain,a.first,data.fixtures,a.first);return <div className="coach-page"><section className="command-top"><div><span>NEXT DEADLINE</span><h2>{next.name}</h2><p>{new Date(next.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p></div><DeadlineClock data={data}/></section><section className="weekly-call"><div className="call-label"><span>THIS WEEK'S RECOMMENDATION</span><b>{roll?"LIKELY":"MODEL EDGE"}</b></div><h2>{roll?"ROLL TRANSFER":`${move.out.name} → ${move.incoming.name}`}</h2><ul>{roll?<><li>No risk-adjusted squad move clears the 2.2-point five-GW action threshold.</li><li>Your current XI keeps two future transfer routes open.</li><li>Recheck official flags before the deadline.</li></>:<><li>+{move.gain5.toFixed(1)} projected squad points across five gameweeks.</li><li>{move.minutes>=0?`${Math.round(move.minutes)} extra expected minutes this week.`:"The upside is fixture-led despite lower expected minutes."}</li><li>{move.risk} modelled minutes/availability risk.</li></>}</ul><button onClick={()=>go("transfers")}>Inspect the reasoning →</button></section><div className="command-metrics"><article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy</small></article><article><span>SQUAD VALUE</span><b>£{(meta?.squadValue??a.cost).toFixed(1)}m</b><small>official when connected</small></article><article><span>IN THE BANK</span><b>£{(meta?.bank??a.bank).toFixed(1)}m</b><small>{meta?"official public data":"builder estimate"}</small></article><article><span>FREE TRANSFERS</span><b>Set in Transfers</b><small>not exposed publicly by FPL</small></article><article><span>OVERALL RANK</span><b>{fmt(meta?.overallRank)}</b><small>{meta?meta.teamName:"connect to reveal"}</small></article><article><span>GW RANK</span><b>{fmt(meta?.gameweekRank)}</b><small>{meta?.gameweekPoints??"—"} GW points</small></article><article><span>TOTAL POINTS</span><b>{meta?.overallPoints??"—"}</b><small>official account history</small></article></div><section className="urgent-card"><header><div><span>URGENT ISSUES</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div><button onClick={()=>go("deadline")}>Open final check →</button></header>{issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}</section><WhatChanged data={data} squad={squad}/><DgwAlert data={data}/><SquadValueAlert squad={squad}/></div>}
 function WhatChanged({data,squad}:{data:FplData;squad:FplPlayer[]}){const flagged=squad.filter(p=>p.news||p.status!=="a");const market=[...data.players].filter(p=>p.transfersIn>p.transfersOut).sort((a,b)=>(b.transfersIn-b.transfersOut)-(a.transfersIn-a.transfersOut))[0];return <section className="changed-card"><div><span>SINCE YOUR LAST CHECK</span><h2>What changed?</h2></div><div>{flagged.slice(0,2).map(p=><p key={p.id}><i className="amber"/><b>{p.name}</b> {p.news||"remains flagged in the official feed"}</p>)}{market&&<p><i className="green"/><b>{market.name}</b> has the strongest net transfer-in pressure.</p>}{!flagged.length&&<p><i className="green"/>No new official flag affects your saved squad.</p>}</div><strong>Impact: {flagged.length?"Review the final-check risk flags.":"No forced transfer."}</strong></section>}
 
 // Surfaces confirmed doubles/blanks within the same 8-GW horizon Chips/Fixtures already use, so a
@@ -351,8 +404,8 @@ function GameweekNav({event,branch,onBack,onForward,canBack,canForward}:{event:F
   </section>;
 }
 
-function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
-  const[manager,setManager]=useManager();
+function Team({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+  const[manager,setManager]=useManager(revision);
   let entry:string|null=null;
   try{entry=localStorage.getItem("fpl-edge-entry")}catch{}
   useEffect(()=>{
@@ -409,7 +462,7 @@ function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number
   const currentBench=currentResolution?.bench??[];
   const currentCaptaincy=useCaptaincy(currentXi,currentAnchor?.id??0,currentResolution?.modelCaptain,currentResolution?.modelVice);
 
-  if(!a)return <><ConnectTeam data={data} onConnected={setManager}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></>;
+  if(!a)return <><ConnectTeam data={data} onConnected={m=>{setManager(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></>;
 
   const goBack=()=>setNavEventId(id=>Math.max(backwardBoundId,id-1));
   const goForward=()=>setNavEventId(id=>Math.min(forwardBoundId,id+1));
@@ -526,8 +579,8 @@ export function transferHoldNote(nearestDoubles:DoubleGameweek[],rollRecommended
   return `A double gameweek is coming in GW${eventId} (${teamCount} team${teamCount>1?"s":""}) — consider banking this transfer.`;
 }
 
-function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
-  const[meta,setMeta]=useManager();
+function Transfers({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+  const[meta,setMeta]=useManager(revision);
   // meta must be a squad dependency (matches Overview's pattern) -- connecting a team here persists
   // squad ids straight to localStorage via ConnectTeam's onConnected callback below, but savedSquad()
   // is only re-read when this memo's deps change. Without meta here, the page showed the "connected"
@@ -545,7 +598,7 @@ function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:n
   const baseRows=useMemo(()=>a?bestTransfers(data,squad,bank,fts,60,sellingPricesFor(meta)):[],[data,squad,bank,fts,a,meta]);
   const rows=useMemo(()=>withModelUtilityChange(baseRows,squad,optimizer),[baseRows,squad,optimizer]);
   const routes=useMemo(()=>solveTransferRoutes(data,squad,bank,{horizon:routeHorizon,freeTransfers:fts,maxWeeklyHit,sellingPrices,resultLimit:4}),[data,squad,bank,fts,routeHorizon,maxWeeklyHit,sellingPrices]);
-  if(!a)return <><ConnectTeam data={data} onConnected={setMeta}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></>;
+  if(!a)return <><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></>;
   const best=selectPrimaryTransfer(rows);const roll=!best;
   const actionableRows=rows.filter(row=>row.qualityStatus==="actionable");
   const watchlistRows=rows.filter(row=>row.qualityStatus==="watchlist");
@@ -1123,8 +1176,8 @@ export function captaincyRiskFraming(candidates:CaptainCandidate[],defaultCaptai
   return{defaultRole,safeAlternative,differentialAlternative};
 }
 
-function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
-  const[meta,setMeta]=useManager();
+function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+  const[meta,setMeta]=useManager(revision);
   const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);
   const a=analysis(data,squad);
   const[lockVersion,setLockVersion]=useState(0);
@@ -1132,7 +1185,7 @@ function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:
   const players=a?.xi.players??[];
   const ranked=[...players].sort((x,y)=>a?playerProjection(y,a.first,data.fixtures,a.first)-playerProjection(x,a.first,data.fixtures,a.first):0);
   const captaincy=useCaptaincy(players,a?.first??0,a?.xi.captain??ranked[0],ranked[1]);
-  if(!a)return <><ConnectTeam data={data} onConnected={setMeta}/><button className="wide-action" onClick={()=>go("draft")}>Build a team first →</button></>;
+  if(!a)return <><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Build a team first →</button></>;
   const{captain,vice,chooseCaptain,chooseVice}=captaincy;
   const xiBase=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0);
   const predicted=xiBase+playerProjection(captain,a.first,data.fixtures,a.first);
