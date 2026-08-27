@@ -1,4 +1,4 @@
-import { FplData, FplPlayer, ProjectionMetrics, futureEvents, isValidSquad, playerCalibrationProfile, playerProjection, projectionMetrics } from "./fpl";
+import { FplData, FplPlayer, ProjectionMetrics, futureEvents, isCompleteSquad, playerCalibrationProfile, playerProjection, projectionMetrics } from "./fpl";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "./anomalies";
 import { TRANSFER_ACTION_THRESHOLD, TransferQualityReason, TransferQualityStatus, evaluateTransferQuality } from "./transfer-quality";
 
@@ -42,7 +42,10 @@ export function selectPrimaryTransfer(rows:Transfer[],threshold=TRANSFER_ACTION_
 }
 
 export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTransfers=1,limit=12,sellingPrices=new Map<number,number>()):Transfer[]{
-  const events=futureEvents(data,5);if(!events.length||!isValidSquad(squad,data))return[];
+  // isCompleteSquad, not the stricter isValidSquad -- squad here is the caller's real/saved squad
+  // (never a candidate this function is constructing), and a real manager's squad can legitimately
+  // be worth more than the nominal £100m budget today due to price rises since it was assembled.
+  const events=futureEvents(data,5);if(!events.length||!isCompleteSquad(squad,data))return[];
   const first=events[0].id;const owned=new Set(squad.map(p=>p.id));
   const clubCount=new Map<number,number>();squad.forEach(p=>clubCount.set(p.teamId,(clubCount.get(p.teamId)||0)+1));
   const hitCost=freeTransfers>=1?0:4;

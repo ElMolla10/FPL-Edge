@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
 import Pitch from "./Pitch";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
-import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, fetchFplData, futureEvents, isValidSquad, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
+import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, fetchFplData, futureEvents, isCompleteSquad, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
 import { createOptimizer } from "../lib/optimizer";
 import { FiveGwGainBand } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
@@ -117,7 +117,7 @@ function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:ManagerMet
 export function benchOrderForEvent(xi:FplPlayer[],bench:FplPlayer[],eventId:number,data:Pick<FplData,"fixtures">):BenchOrderResult{
   return optimizeBenchOrder(xi,bench,player=>{const metrics=projectionMetrics(player,eventId,data.fixtures,eventId);return{xPts:metrics.xPts,appearanceProbability:modeledAppearanceProbability(player,metrics)}});
 }
-export function analysis(data:FplData,squad:FplPlayer[]){const events=futureEvents(data,5);if(!events.length||!isValidSquad(squad,data))return null;const first=events[0].id;const xi=bestXi(squad,first,data.fixtures,first);const rawBench=squad.filter(p=>!xi.players.some(x=>x.id===p.id));const benchOrder=benchOrderForEvent(xi.players,rawBench,first,data);const bench=benchOrder.bench;const vice=[...xi.players].sort((a,b)=>playerProjection(b,first,data.fixtures,first)-playerProjection(a,first,data.fixtures,first))[1];const issues=squad.filter(p=>p.status!=="a"||startPct(p,first,data)<68).sort((a,b)=>startPct(a,first,data)-startPct(b,first,data));const cost=squad.reduce((s,p)=>s+p.price,0);return{events,first,xi,bench,benchOrder,vice,issues,cost,bank:Math.max(0,data.rules.budget-cost)}}
+export function analysis(data:FplData,squad:FplPlayer[]){const events=futureEvents(data,5);if(!events.length||!isCompleteSquad(squad,data))return null;const first=events[0].id;const xi=bestXi(squad,first,data.fixtures,first);const rawBench=squad.filter(p=>!xi.players.some(x=>x.id===p.id));const benchOrder=benchOrderForEvent(xi.players,rawBench,first,data);const bench=benchOrder.bench;const vice=[...xi.players].sort((a,b)=>playerProjection(b,first,data.fixtures,first)-playerProjection(a,first,data.fixtures,first))[1];const issues=squad.filter(p=>p.status!=="a"||startPct(p,first,data)<68).sort((a,b)=>startPct(a,first,data)-startPct(b,first,data));const cost=squad.reduce((s,p)=>s+p.price,0);return{events,first,xi,bench,benchOrder,vice,issues,cost,bank:Math.max(0,data.rules.budget-cost)}}
 // Squad-level objective delta (bench utility, flexibility, risk-adjustment, role security) for a
 // swap, kept as a distinct "Model Utility Change" metric — never merged into raw projected points.
 export function withModelUtilityChange(rows:Transfer[],squad:FplPlayer[],optimizer:ReturnType<typeof createOptimizer>|null):Transfer[]{
@@ -401,7 +401,7 @@ function Team({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number
   const currentBench=currentResolution?.bench??[];
   const currentCaptaincy=useCaptaincy(currentXi,currentAnchor?.id??0,currentResolution?.modelCaptain,currentResolution?.modelVice);
 
-  if(!a)return <><ConnectTeam data={data}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></>;
+  if(!a)return <><ConnectTeam data={data} onConnected={setManager}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></>;
 
   const goBack=()=>setNavEventId(id=>Math.max(backwardBoundId,id-1));
   const goForward=()=>setNavEventId(id=>Math.min(forwardBoundId,id+1));
@@ -519,8 +519,14 @@ export function transferHoldNote(nearestDoubles:DoubleGameweek[],rollRecommended
 }
 
 function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
-  const squad=useMemo(()=>savedSquad(data),[data,revision]);
-  const[meta]=useManager();const[tab,setTab]=useState<"routes"|"moves"|"watchlist">("routes");const[fts,setFts]=useState(readFreeTransfers);
+  const[meta,setMeta]=useManager();
+  // meta must be a squad dependency (matches Overview's pattern) -- connecting a team here persists
+  // squad ids straight to localStorage via ConnectTeam's onConnected callback below, but savedSquad()
+  // is only re-read when this memo's deps change. Without meta here, the page showed the "connected"
+  // success message yet kept rendering the connect screen until an unrelated revision bump (e.g. a
+  // full data refresh) happened to fire.
+  const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);
+  const[tab,setTab]=useState<"routes"|"moves"|"watchlist">("routes");const[fts,setFts]=useState(readFreeTransfers);
   const[routeHorizon,setRouteHorizon]=useState<3|5|8>(5);const[maxWeeklyHit,setMaxWeeklyHit]=useState<0|4|8>(4);
   const[watchIds,setWatchIds]=useState<number[]>([]);useEffect(()=>setWatchIds(readIds("fpl-edge-watchlist")),[]);
   const[expanded,setExpanded]=useState<Set<string>>(new Set());
@@ -531,7 +537,7 @@ function Transfers({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:n
   const baseRows=useMemo(()=>a?bestTransfers(data,squad,bank,fts,60,sellingPricesFor(meta)):[],[data,squad,bank,fts,a,meta]);
   const rows=useMemo(()=>withModelUtilityChange(baseRows,squad,optimizer),[baseRows,squad,optimizer]);
   const routes=useMemo(()=>solveTransferRoutes(data,squad,bank,{horizon:routeHorizon,freeTransfers:fts,maxWeeklyHit,sellingPrices,resultLimit:4}),[data,squad,bank,fts,routeHorizon,maxWeeklyHit,sellingPrices]);
-  if(!a)return <><ConnectTeam data={data}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></>;
+  if(!a)return <><ConnectTeam data={data} onConnected={setMeta}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></>;
   const best=selectPrimaryTransfer(rows);const roll=!best;
   const actionableRows=rows.filter(row=>row.qualityStatus==="actionable");
   const watchlistRows=rows.filter(row=>row.qualityStatus==="watchlist");
@@ -1110,15 +1116,15 @@ export function captaincyRiskFraming(candidates:CaptainCandidate[],defaultCaptai
 }
 
 function FinalCheck({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
-  const squad=useMemo(()=>savedSquad(data),[data,revision]);
-  const[meta]=useManager();
+  const[meta,setMeta]=useManager();
+  const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);
   const a=analysis(data,squad);
   const[lockVersion,setLockVersion]=useState(0);
   const[lockError,setLockError]=useState("");
   const players=a?.xi.players??[];
   const ranked=[...players].sort((x,y)=>a?playerProjection(y,a.first,data.fixtures,a.first)-playerProjection(x,a.first,data.fixtures,a.first):0);
   const captaincy=useCaptaincy(players,a?.first??0,a?.xi.captain??ranked[0],ranked[1]);
-  if(!a)return <><ConnectTeam data={data}/><button className="wide-action" onClick={()=>go("draft")}>Build a team first →</button></>;
+  if(!a)return <><ConnectTeam data={data} onConnected={setMeta}/><button className="wide-action" onClick={()=>go("draft")}>Build a team first →</button></>;
   const{captain,vice,chooseCaptain,chooseVice}=captaincy;
   const xiBase=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0);
   const predicted=xiBase+playerProjection(captain,a.first,data.fixtures,a.first);

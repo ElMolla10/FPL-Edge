@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FplData as Data, FplPlayer as Player, futureEvents, isValidSquad, playerCalibrationProfile, playerProjection, projectionMetrics } from "../lib/fpl";
+import { FplData as Data, FplPlayer as Player, futureEvents, isCompleteSquad, playerCalibrationProfile, playerProjection, projectionMetrics } from "../lib/fpl";
 import { HorizonMode, RiskMode, SquadEvaluation, SquadPhilosophy, createOptimizer, validateSquadEvaluation } from "../lib/optimizer";
 import { persist, readFreeTransfers } from "../lib/persistence";
 import { blankProbability, haulProbability, playerPointsDistribution, pointsRange } from "../lib/projection-distribution";
@@ -95,7 +95,12 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
     optimizedSettings.philosophy!==philosophy?`Squad Philosophy (built with ${optimizedSettings.philosophy}, now ${philosophy})`:null,
     optimizedSettings.resultMode!==resultMode?`Result Mode (built with ${optimizedSettings.resultMode}, now ${resultMode})`:null,
   ].filter((x):x is string=>x!==null):[];
-  const complete=!!data&&isValidSquad(squad,data); const cost=squad.reduce((sum,p)=>sum+p.price,0);
+  // isCompleteSquad, not the stricter isValidSquad -- a squad imported here via "Fetch my squad"
+  // (a real, live account) can legitimately be worth more than £100m today due to price rises since
+  // it was assembled. Manual construction can never exceed budget in the first place (add() below
+  // already blocks that at add-time), so relaxing this check only affects imported real squads, which
+  // is exactly the case that needs it.
+  const complete=!!data&&isCompleteSquad(squad,data); const cost=squad.reduce((sum,p)=>sum+p.price,0);
   const bank=data?Math.max(0,data.rules.budget-cost):0;
   const buildBestSquad=()=>{
     if(!optimizer)return;
@@ -129,7 +134,7 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
   const rating=manualEvaluation?.scores.overall??null;
   const consistencyWarnings=useMemo(()=>{if(!data)return[];const warnings:string[]=[];if(manualEvaluation)validateSquadEvaluation(manualEvaluation,squad,data).forEach(w=>warnings.push(`Your squad — ${w}`));if(optimized)validateSquadEvaluation(optimized.evaluation,optimized.squad,data).forEach(w=>warnings.push(`Model suggestion — ${w}`));return warnings;},[manualEvaluation,optimized,squad,data]);
   // Diff between squad and optimized.squad, paired by position (both share the same per-position
-  // quota via isValidSquad, so this pairing is exact, not approximate). A different computation
+  // quota via isCompleteSquad, so this pairing is exact, not approximate). A different computation
   // from solveTransferRoutes -- that's a forward multi-week search from a known starting squad;
   // this is a one-time diff between two already-fully-known squads.
   const recommendedChanges=useMemo(()=>{

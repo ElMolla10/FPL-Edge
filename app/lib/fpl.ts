@@ -296,6 +296,16 @@ export function attachIntegrityWarnings<T extends {players:FplPlayer[]}>(payload
 
 export const eventTotals=(squad:FplPlayer[],eventIds:number[],fixtures:FplFixture[])=>eventIds.map(id=>bestXi(squad,id,fixtures,eventIds[0]).total);
 export function isValidSquad(squad:FplPlayer[],data:FplData){if(squad.length!==data.rules.squadSize||squad.reduce((s,p)=>s+p.price,0)>data.rules.budget+.001||data.rules.positions.some(r=>squad.filter(p=>p.positionId===r.id).length!==r.squad))return false;const clubs=new Map<number,number>();squad.forEach(p=>clubs.set(p.teamId,(clubs.get(p.teamId)??0)+1));return [...clubs.values()].every(n=>n<=data.rules.teamLimit)}
+// Same structural checks as isValidSquad (size, position quotas, club limit) but without the total
+// cost <= budget check. isValidSquad's budget check is correct for a squad being actively CONSTRUCTED
+// against a fixed £100m budget (manual add(), the optimizer's search candidates) -- but a real
+// manager's already-assembled squad legitimately has a CURRENT market value that can exceed the
+// original budget as player prices rise over the season (extremely common, not a bug in their squad).
+// Gating "do we have a usable saved/connected squad" on the strict budget check meant any manager
+// whose squad had appreciated even slightly above £100.0m saw every page silently fall back to the
+// "connect your team" screen forever, with no error and no explanation -- found via a live connected
+// account (real squad cost £100.1m vs the £100.0m budget) reported as "not working".
+export function isCompleteSquad(squad:FplPlayer[],data:FplData){if(squad.length!==data.rules.squadSize||data.rules.positions.some(r=>squad.filter(p=>p.positionId===r.id).length!==r.squad))return false;const clubs=new Map<number,number>();squad.forEach(p=>clubs.set(p.teamId,(clubs.get(p.teamId)??0)+1));return [...clubs.values()].every(n=>n<=data.rules.teamLimit)}
 
 export function optimizeSquad(data:FplData,eventIds:number[]){
   if(!eventIds.length)return[];const projectionCache=new Map<number,number>();const projection=(p:FplPlayer)=>{if(!projectionCache.has(p.id))projectionCache.set(p.id,eventIds.reduce((s,e)=>s+playerProjection(p,e,data.fixtures,eventIds[0]),0));return projectionCache.get(p.id)!};const eligible=data.players.filter(p=>p.status!=="u").sort((a,b)=>a.price-b.price||projection(b)-projection(a));const squad:FplPlayer[]=[];const clubs=new Map<number,number>();

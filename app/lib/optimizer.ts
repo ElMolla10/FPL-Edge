@@ -113,8 +113,15 @@ export function createOptimizer(data:FplData,mode:HorizonMode="Balanced 5 GWs",r
   // squad already at the 3-per-club cap in two clubs, 0 of 1351 raw combos were legal without this
   // filter. Same check bestTransfers() already applies per-swap in app/lib/transfers.ts.
   //
-  // Precondition: squad must already satisfy isValidSquad(squad,data), same precondition evaluate()
-  // and optimize() rely on -- enforced at the call site by "complete" gating, not re-checked here.
+  // Precondition: squad must already satisfy isCompleteSquad(squad,data) -- size, position quotas,
+  // club limit -- same precondition evaluate() and optimize() rely on, enforced at the call site by
+  // "complete" gating, not re-checked here. Deliberately NOT the stricter isValidSquad (which also
+  // requires cost<=budget): a real manager's connected squad can legitimately be worth more than the
+  // original £100m budget today due to price rises, and that must not block using this function. An
+  // over-budget input squad is still handled safely without a separate check -- the unmodified
+  // baseline (changes:[]) is used as-is without re-validating it, and every swap candidate is
+  // independently checked via isValidSquad(candidate,data) in tryCombo below, so the search can never
+  // select a new candidate that violates budget even if the squad it started from already did.
   const optimizeConstrained=(squad:FplPlayer[],options:{maxChanges:number;lockedPlayerIds?:Set<number>;shortlistSize?:number}):ConstrainedOptimizeResult=>{
     const lockedPlayerIds=options.lockedPlayerIds??new Set<number>();
     const shortlistSize=options.shortlistSize??20;
