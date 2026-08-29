@@ -1,4 +1,5 @@
-import type { FplPlayer, ProjectionMetrics } from "./fpl";
+import { projectionMetrics } from "./fpl";
+import type { FplFixture, FplPlayer, ProjectionMetrics } from "./fpl";
 
 // A discrete probability mass function over non-negative integer point totals: pmf[k] = P(points = k).
 // Always sums to 1 (within floating-point tolerance), no negative entries. Everything in this file
@@ -265,3 +266,72 @@ export const BLANK_THRESHOLD = 2;
 export const HAUL_THRESHOLD = 10;
 export const blankProbability = (pmf: Pmf): number => pmfAtMost(pmf, BLANK_THRESHOLD);
 export const haulProbability = (pmf: Pmf): number => pmfAtLeast(pmf, HAUL_THRESHOLD);
+
+export type PlayerFixtureOutcomeModel = {
+  fixtureId: number;
+  teamId: number;
+  appearanceProbability: number;
+  reached60Probability: number;
+  pointsWhenAppearedPmf: Pmf;
+  cleanSheetProbability: number;
+  cleanSheetPoints: number;
+};
+
+export type PlayerEventOutcomeModel = {
+  player: FplPlayer;
+  eventId: number;
+  fixtures: PlayerFixtureOutcomeModel[];
+};
+
+// Reads an integer outcome from a PMF's inverse CDF. Keeping this here makes the scenario engine
+// consume the same distributions as the player-level floor/median/ceiling views. The caller owns
+// the deterministic uniform sequence; this function contains no random state.
+export function samplePmf(pmf: Pmf, uniform: number): number {
+  const target = clamp(uniform, 0, 1 - Number.EPSILON);
+  let cumulative = 0;
+  for (let value = 0; value < pmf.length; value++) {
+    cumulative += pmf[value] ?? 0;
+    if (target < cumulative) return value;
+  }
+  return Math.max(0, pmf.length - 1);
+}
+
+// Builds a joint-capable event model from real fixture-level projection inputs. Scoring PMFs are
+// conditional on appearing: the projection rates are unconditional, so dividing their means by
+// P(appearance) preserves those component means after the scenario engine gates every component
+// behind an appearance. Clean sheets stay separate so one fixture/team factor can be shared by all
+// teammates. A blank produces fixtures=[]; a double retains both official fixture ids.
+export function buildPlayerEventOutcomeModel(
+  player: FplPlayer,
+  eventId: number,
+  fixtures: FplFixture[],
+  firstEvent: number,
+): PlayerEventOutcomeModel {
+  const games = fixtures.filter(fixture => fixture.event === eventId && (fixture.teamH === player.teamId || fixture.teamA === player.teamId));
+  const fixtureModels = games.map(fixture => {
+    const metrics = projectionMetrics(player, eventId, [fixture], firstEvent);
+    // This is exactly the probability mass represented by singleFixtureAppearancePmf at 1 or 2
+    // points: start*(1-sixty)+sixty. It is coherent with the existing marginal distribution and
+    // guarantees reached60 is a subset of appeared.
+    const reached60Probability = clamp(metrics.sixtyProbability, 0, 1);
+    const appearanceProbability = clamp(metrics.startProbability * (1 - reached60Probability) + reached60Probability, reached60Probability, 1);
+    const conditional = Math.max(.01, appearanceProbability);
+    const pointsWhenAppearedPmf = convolvePmfs([
+      goalsPointsPmf(metrics.xG / conditional, metrics.confidence, player.positionShort),
+      assistsPointsPmf(metrics.xA / conditional, metrics.confidence),
+      defensiveContributionPmf(metrics.defensiveContribution / conditional, player.positionShort, 1),
+      bonusPointsPmf(metrics.bonus / conditional, 1),
+      savesPointsPmf(metrics.saves / conditional, player.positionShort),
+    ]);
+    return {
+      fixtureId: fixture.id,
+      teamId: player.teamId,
+      appearanceProbability,
+      reached60Probability,
+      pointsWhenAppearedPmf,
+      cleanSheetProbability: metrics.cleanSheetProbability,
+      cleanSheetPoints: CLEAN_SHEET_POINTS[player.positionShort] ?? 0,
+    };
+  });
+  return { player, eventId, fixtures: fixtureModels };
+}
