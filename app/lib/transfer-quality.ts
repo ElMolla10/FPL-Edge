@@ -9,6 +9,11 @@ import { PlayerCalibrationGroup, ROLE_SECURITY_FLOOR } from "./fpl";
 // piece of selectPrimaryTransfer Draft Lab actually needs: the same 2.2-point bar, applied directly
 // to a squad-level net-of-hit-cost figure instead of a single Transfer row's rankScore.
 export const TRANSFER_ACTION_THRESHOLD = 2.2;
+export const OFFICIAL_TRANSFER_HIT = 4;
+
+export function transferHitCost(transferCount: number, freeTransfers: number): number {
+  return Math.max(0, transferCount - freeTransfers) * OFFICIAL_TRANSFER_HIT;
+}
 
 export type TransferQualityStatus = "actionable" | "watchlist" | "blocked";
 export type TransferQualityReason = { code: string; message: string };

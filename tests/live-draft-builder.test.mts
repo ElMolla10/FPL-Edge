@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import * as liveDraftBuilder from "../app/components/LiveDraftBuilder.tsx";
 import { resolveResultModeDispatch, validateSwap } from "../app/components/LiveDraftBuilder.tsx";
 import { FplPlayer } from "../app/lib/fpl.ts";
 
@@ -32,6 +35,27 @@ function baseSquad(): FplPlayer[] {
 }
 const rules = { budget: 100, teamLimit: 3 };
 
+test("occupied pitch card renders transfer selection, pin and remove as sibling keyboard buttons", () => {
+  assert.equal(typeof liveDraftBuilder.BuilderPitchPlayerCard, "function", "occupied player-card markup must be directly testable");
+  const player = makePlayer({ id: 21, name: "Bruno" });
+  const html = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, {
+    player,
+    projectedPoints: "5.4",
+    complete: true,
+    selected: false,
+    swapTarget: false,
+    showPin: true,
+    pinned: false,
+    onSelect: () => {},
+    onTogglePin: () => {},
+    onRemove: () => {},
+  }));
+
+  assert.match(html, /<article[^>]*><button type="button" class="player-transfer-select" aria-label="Select Bruno for transfer"/);
+  assert.match(html, /<\/button><button type="button" class="pin-toggle/);
+  assert.match(html, /<\/button><button type="button" class="remove-player" aria-label="Remove Bruno"/);
+});
+
 test("validateSwap rejects a wrong-position incoming player, even though the UI's own position filter would normally have prevented this", () => {
   const squad = baseSquad();
   const outPlayer = squad.find(p => p.id === 21)!; // MID
@@ -50,6 +74,16 @@ test("validateSwap rejects a player already in the squad", () => {
   assert.equal(result.ok, false);
   if (result.ok) throw new Error("unreachable");
   assert.match(result.message, /already in your squad/);
+});
+
+test("validateSwap rejects an unavailable player even when position, club and budget are legal", () => {
+  const squad = baseSquad();
+  const outPlayer = squad.find(p => p.id === 21)!;
+  const incoming = makePlayer({ id: 993, name: "Unavailable", status: "u", positionShort: "MID", positionId: 3, teamId: 999, teamName: "Other FC", price: 6 });
+  const result = validateSwap(squad, outPlayer, incoming, rules);
+  assert.equal(result.ok, false);
+  if (result.ok) throw new Error("unreachable");
+  assert.match(result.message, /unavailable/);
 });
 
 test("validateSwap rejects a club swap that would put the squad AT the club limit and allows one below it", () => {
@@ -97,6 +131,38 @@ test("validateSwap rejects a swap that exceeds budget by the smallest realistic 
   assert.equal(rejected.ok, false);
   if (rejected.ok) throw new Error("unreachable");
   assert.match(rejected.message, /exceeds the/);
+});
+
+test("official bank and selling prices allow an affordable transfer from an imported squad worth more than £100m", () => {
+  const squad = baseSquad().map(player => ({ ...player, price: player.price + 2 }));
+  const outPlayer = squad.find(player => player.id === 21)!;
+  const incoming = makePlayer({ id: 992, name: "Affordable", positionShort: "MID", positionId: 3, teamId: 999, teamName: "Other FC", price: 8 });
+  const financialContext = {
+    baselineBank: 1,
+    baselineSellingPrices: new Map(squad.map(player => [player.id, player.id === outPlayer.id ? 7 : player.price])),
+    source: "official" as const,
+  };
+
+  const result = validateSwap(squad, outPlayer, incoming, rules, { baselineSquad: squad, financialContext });
+
+  assert.equal(result.ok, true, "market value above £100m must not block a plan affordable from official sale value plus bank");
+});
+
+test("official selling price rejects a transfer that current market price would incorrectly afford", () => {
+  const squad = baseSquad().map(player => player.id === 21 ? { ...player, price: 10 } : player);
+  const outPlayer = squad.find(player => player.id === 21)!;
+  const incoming = makePlayer({ id: 991, name: "TooExpensive", positionShort: "MID", positionId: 3, teamId: 999, teamName: "Other FC", price: 6.6 });
+  const financialContext = {
+    baselineBank: .5,
+    baselineSellingPrices: new Map(squad.map(player => [player.id, player.id === outPlayer.id ? 6 : player.price])),
+    source: "official" as const,
+  };
+
+  const result = validateSwap(squad, outPlayer, incoming, rules, { baselineSquad: squad, financialContext });
+
+  assert.equal(result.ok, false, "£6.0m official sale plus £0.5m bank cannot buy a £6.6m player");
+  if (result.ok) throw new Error("unreachable");
+  assert.match(result.message, /bank|afford/i);
 });
 
 test("Pure Optimum dispatches to optimize(), ignoring any pinned players", () => {

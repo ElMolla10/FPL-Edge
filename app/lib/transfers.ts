@@ -1,6 +1,6 @@
 import { FplData, FplPlayer, ProjectionMetrics, futureEvents, isCompleteSquad, playerCalibrationProfile, playerProjection, projectionMetrics } from "./fpl";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "./anomalies";
-import { TRANSFER_ACTION_THRESHOLD, TransferQualityReason, TransferQualityStatus, evaluateTransferQuality } from "./transfer-quality";
+import { TRANSFER_ACTION_THRESHOLD, TransferQualityReason, TransferQualityStatus, evaluateTransferQuality, transferHitCost } from "./transfer-quality";
 
 // Moved from CoachApp.tsx (Phase 1 of the Draft Lab result-mode work) so LiveDraftBuilder.tsx's
 // "Best available transfer right now" can call the real, already-battle-tested single-transfer
@@ -53,11 +53,11 @@ type TransferBaseline={
   squadWeekTotal:(players:FplPlayer[],eventId:number)=>number;
   baselineSquadByEvent:number[];
 };
-function buildTransferBaseline(data:FplData,squad:FplPlayer[],freeTransfers:number):TransferBaseline|null{
+function buildTransferBaseline(data:FplData,squad:FplPlayer[],freeTransfers:number,hitCostOverride?:number):TransferBaseline|null{
   const events=futureEvents(data,5);
   if(!events.length)return null;
   const first=events[0].id;
-  const hitCost=freeTransfers>=1?0:4;
+  const hitCost=hitCostOverride??transferHitCost(1,freeTransfers);
   const projectionCache=new Map<string,number>();
   const projected=(player:FplPlayer,eventId:number)=>{const key=`${player.id}:${eventId}`;if(!projectionCache.has(key))projectionCache.set(key,playerProjection(player,eventId,data.fixtures,first));return projectionCache.get(key)!};
   const squadWeekTotal=(players:FplPlayer[],eventId:number)=>{let best=0;const score=(p:FplPlayer)=>projected(p,eventId);const keepers=players.filter(p=>p.positionShort==="GKP").sort((a,b)=>score(b)-score(a));for(let def=3;def<=5;def++)for(let mid=2;mid<=5;mid++){const fwd=10-def-mid;if(fwd<1||fwd>3)continue;const xi=[keepers[0],...players.filter(p=>p.positionShort==="DEF").sort((a,b)=>score(b)-score(a)).slice(0,def),...players.filter(p=>p.positionShort==="MID").sort((a,b)=>score(b)-score(a)).slice(0,mid),...players.filter(p=>p.positionShort==="FWD").sort((a,b)=>score(b)-score(a)).slice(0,fwd)].filter(Boolean);if(xi.length!==11)continue;const captain=[...xi].sort((a,b)=>score(b)-score(a))[0];best=Math.max(best,xi.reduce((sum,p)=>sum+score(p),0)+score(captain))}return best};
@@ -129,8 +129,8 @@ function buildTransferRow(data:FplData,squad:FplPlayer[],baseline:TransferBaseli
 // real call site already requires live event data to reach this point at all (Draft Lab hides the
 // swap interaction whenever eventIds is empty), so this is a genuine precondition, not a normal
 // control-flow path to render around.
-export function evaluateTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer,incoming:FplPlayer,freeTransfers=1):Transfer{
-  const baseline=buildTransferBaseline(data,squad,freeTransfers);
+export function evaluateTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer,incoming:FplPlayer,freeTransfers=1,hitCostOverride?:number):Transfer{
+  const baseline=buildTransferBaseline(data,squad,freeTransfers,hitCostOverride);
   if(!baseline)throw new Error("No future gameweek to project this transfer against.");
   const om=projectionMetrics(out,baseline.first,data.fixtures,baseline.first);
   const outByEvent=baseline.events.map(e=>baseline.projected(out,e.id));

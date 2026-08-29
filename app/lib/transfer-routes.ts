@@ -1,4 +1,5 @@
 import { FplData, FplPlayer, ROLE_SECURITY_FLOOR, bestXi, futureEvents, playerProjection, projectionMetrics } from "./fpl";
+import { transferHitCost } from "./transfer-quality";
 
 export type RouteTransfer={
   out:FplPlayer;
@@ -131,7 +132,7 @@ export function solveTransferRoutes(data:FplData,initialSquad:FplPlayer[],initia
     const squad=state.squad.map(player=>replacements.get(player.id)??player);
     if(!legalSquadShape(squad,data))return null;
     const transferCount=proposals.length;
-    const hitCost=Math.max(0,transferCount-state.freeTransfers)*4;
+    const hitCost=transferHitCost(transferCount,state.freeTransfers);
     if(hitCost>maxWeeklyHit)return null;
     const projectedPoints=weekTotal(squad,events[index].id);
     const nextFreeTransfers=Math.min(5,Math.max(0,state.freeTransfers-transferCount)+1);

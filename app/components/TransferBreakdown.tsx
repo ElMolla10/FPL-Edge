@@ -18,6 +18,7 @@ export default function TransferBreakdown({r}:{r:Transfer}){
   const signed=(value:number,places=1)=>`${value>=0?"+":""}${value.toFixed(places)}`;
   const outDist=playerPointsDistribution(r.outMetrics,r.out.positionShort),inDist=playerPointsDistribution(r.inMetrics,r.incoming.positionShort);
   const outRange=pointsRange(outDist),inRange=pointsRange(inDist);
+  const hitCopy=r.hitCost>0?`${r.hitCost}-point cost included`:r.hitCost<0?`${Math.abs(r.hitCost)} modelled hit points avoided`:"No additional hit required";
   return <div className={`transfer-detail ${r.qualityStatus}`}>
     <header className="transfer-detail-head">
       <div><span>MODEL VERDICT</span><h3>{r.out.name} <i>→</i> {r.incoming.name}</h3><p>{statusCopy}</p></div>
@@ -57,10 +58,10 @@ export default function TransferBreakdown({r}:{r:Transfer}){
     </section>
 
     <section className="transfer-decision-math">
-      <p><span>After transfer hit</span><b>{signed(r.netDifference)} pts</b><small>{r.hitCost?`${r.hitCost}-point cost included`:"No hit required"}</small></p>
+      <p><span>After transfer-hit change</span><b>{signed(r.netDifference)} pts</b><small>{hitCopy}</small></p>
       <p><span>Risk-adjusted score</span><b>{r.rankScore.toFixed(1)}</b><small>{r.risk} minutes risk</small></p>
       <p><span>Multi-week robustness</span><b>{r.positiveWeeks}/{r.weeklyGains.length} positive</b><small>{signed(r.gainWithoutBestWeek)} without best GW</small></p>
-      <p><span>Squad utility change</span><b>{r.utilityChange===null?"—":signed(r.utilityChange)}</b><small>structure, bench and flexibility</small></p>
+      <p><span>Risk-adjusted objective</span><b>{r.utilityChange===null?"—":signed(r.utilityChange)}</b><small>optimizer objective; not the /100 team rating</small></p>
     </section>
 
     {(r.qualityReasons.length>0||r.anomalies.length>0)&&<section className="transfer-detail-warnings">
