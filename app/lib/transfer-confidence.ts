@@ -1,21 +1,12 @@
 import type { FplFixture, FplPlayer } from "./fpl";
-import type { SquadEvaluation, WeekPlan } from "./optimizer";
+import type { SquadEvaluation } from "./optimizer";
 import type { Transfer } from "./transfers";
-import { buildPlayerEventOutcomeModel } from "./projection-distribution";
-import { DecisionConfidenceResult, DecisionWeekInput, analyzeDecisionConfidence, decisionScenarioCountUnavailableReason, freezeDecisionPlan } from "./decision-confidence";
+import { DecisionConfidenceResult, decisionScenarioCountUnavailableReason } from "./decision-confidence";
+import { DEFAULT_DECISION_SCENARIO_COUNT, analyzeSquadDecisionConfidence } from "./squad-confidence";
 
-// Batch-shaped default (not re-run on every keystroke): the top-ranked candidate only, computed once
-// per squad/transfer pair the caller memoizes. 1024 is the batch default measured for this engine, not
-// the interactive one -- a future live per-swap recompute should pass a lower override.
-const DEFAULT_SCENARIO_COUNT = 1024;
-
-// No chip is modeled yet (Bench Boost/Triple Captain/Free Hit are a later phase), so every week is
-// frozen at the standard x2 captain multiplier, matching what optimizer.evaluate() itself assumes.
-const STANDARD_CAPTAIN_MULTIPLIER = 2 as const;
-
-function toDecisionWeek(week: WeekPlan): DecisionWeekInput {
-  return { eventId: week.eventId, xi: week.xi, bench: week.bench, captain: week.captain, vice: week.vice, captainMultiplier: STANDARD_CAPTAIN_MULTIPLIER };
-}
+// Canonical analysis size. Interactive callers move this work off the render thread; they do not
+// reduce scenario count to conceal latency.
+const DEFAULT_SCENARIO_COUNT = DEFAULT_DECISION_SCENARIO_COUNT;
 
 export type TransferDecisionConfidenceInput = {
   fixtures: FplFixture[];
@@ -51,24 +42,14 @@ export function analyzeTransferDecisionConfidence(input: TransferDecisionConfide
   const swappedSquad = input.squad.map(player => player.id === input.transfer.out.id ? input.transfer.incoming : player);
   const baselineEvaluation = input.evaluate([...input.squad]);
   const candidateEvaluation = input.evaluate(swappedSquad);
-  const baselineEvents = baselineEvaluation.weeks.map(week => week.eventId);
-  const candidateEvents = candidateEvaluation.weeks.map(week => week.eventId);
-  const matchesHorizon = (eventIds: readonly number[]) => eventIds.length === input.futureEventIds.length && eventIds.every((eventId, index) => eventId === input.futureEventIds[index]);
-  if (!matchesHorizon(baselineEvents) || !matchesHorizon(candidateEvents)) {
-    return { status: "unavailable", reason: "Baseline and candidate evaluations do not cover the explicit future event horizon." };
-  }
-  const baseline = freezeDecisionPlan({ id: "baseline", weeks: baselineEvaluation.weeks.map(toDecisionWeek) });
-  const candidate = freezeDecisionPlan({ id: "candidate", weeks: candidateEvaluation.weeks.map(toDecisionWeek) });
-  const firstEventId = input.futureEventIds[0];
-  const players = new Map<number, FplPlayer>();
-  for (const evaluation of [baselineEvaluation, candidateEvaluation]) for (const week of evaluation.weeks) for (const player of [...week.xi, ...week.bench]) players.set(player.id, player);
-  const playerEventModels = baselineEvaluation.weeks.flatMap(week =>
-    [...players.values()].map(player => buildPlayerEventOutcomeModel(player, week.eventId, input.fixtures, firstEventId)),
-  );
-  return analyzeDecisionConfidence({
-    baseline,
-    candidate,
-    playerEventModels,
+  return analyzeSquadDecisionConfidence({
+    fixtures: input.fixtures,
+    futureEventIds: input.futureEventIds,
+    dataUpdatedAt: "",
+    baselineSquad: input.squad,
+    candidateSquad: swappedSquad,
+    baselineEvaluation,
+    candidateEvaluation,
     candidateAdditionalHitCost: input.transfer.hitCost,
     scenarioCount: input.scenarioCount ?? DEFAULT_SCENARIO_COUNT,
   });

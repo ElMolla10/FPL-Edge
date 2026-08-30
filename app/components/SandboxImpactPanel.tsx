@@ -1,9 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import type { FplData } from "../lib/fpl";
 import { buildSandboxReasoning, DeltaState, sandboxEconomics, sandboxFinancialSourceLabel, SandboxComparisonResult, SquadComparison } from "../lib/squad-comparison";
+import type { SandboxState } from "../lib/squad-comparison";
 import { Transfer } from "../lib/transfers";
+import DecisionConfidencePanel from "./DecisionConfidencePanel";
 import TransferBreakdown from "./TransferBreakdown";
+import { useSandboxDecisionConfidence } from "./useSandboxDecisionConfidence";
 
 const signed = (value: number, places = 1) => `${value >= 0 ? "+" : ""}${value.toFixed(places)}`;
 const stateFor = (value: number) => value > .0001 ? "positive" : value < -.0001 ? "negative" : "neutral";
@@ -37,12 +41,35 @@ function StructuralChanges({ comparison, label }: { comparison: SquadComparison;
   </div> : <p>No structural changes.</p>}</section>;
 }
 
-export default function SandboxImpactPanel({ comparison, latestTransfer, freeTransfers, onUndo, onReset }: {
+export type SandboxConfidenceInput = {
+  data: FplData;
+  futureEventIds: readonly number[];
+  sandbox: SandboxState;
+  settingsKey: string;
+};
+
+function SandboxDecisionConfidenceBlocks({ input, comparison, freeTransfers }: {
+  input: SandboxConfidenceInput;
+  comparison: SandboxComparisonResult;
+  freeTransfers: number;
+}) {
+  const confidence = useSandboxDecisionConfidence({ ...input, comparison, freeTransfers });
+  return <section className="sandbox-decision-confidence" aria-label="Decision Confidence">
+    <header><span>DECISION CONFIDENCE</span><h3>Modeled outcomes, separate from the transfer-quality gate</h3><p>These deterministic scenario frequencies compare frozen optimizer plans. They do not change transfer ordering or the /100 rating.</p></header>
+    <div>
+      <DecisionConfidencePanel title="Latest transfer confidence" state={confidence.latest} candidateLabel="Make transfer" baselineLabel="Keep previous squad" />
+      <DecisionConfidencePanel title="Cumulative sandbox confidence" state={confidence.cumulative} candidateLabel="Make transfers" baselineLabel="Keep baseline squad" />
+    </div>
+  </section>;
+}
+
+export default function SandboxImpactPanel({ comparison, latestTransfer, freeTransfers, onUndo, onReset, confidenceInput }: {
   comparison: SandboxComparisonResult;
   latestTransfer: Transfer;
   freeTransfers: number;
   onUndo: () => void;
   onReset: () => void;
+  confidenceInput?: SandboxConfidenceInput;
 }) {
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const { latest, cumulative } = comparison;
@@ -64,7 +91,7 @@ export default function SandboxImpactPanel({ comparison, latestTransfer, freeTra
   return <section className="sandbox-impact-panel">
     <header className="sandbox-impact-head">
       <div><span>TRANSFER SANDBOX · LATEST TRANSFER</span><h2>{latestTransfer.out.name} <i>→</i> {latestTransfer.incoming.name}</h2><p>Latest impact and cumulative change from the squad you entered the sandbox with.</p></div>
-      <div className="sandbox-head-actions"><strong className={latestTransfer.qualityStatus}>{status}</strong><button type="button" onClick={onUndo}>Undo last transfer</button><button type="button" onClick={onReset}>Reset all sandbox transfers</button></div>
+      <div className="sandbox-head-actions"><div className="sandbox-quality-gate"><small>Transfer quality gate</small><strong className={latestTransfer.qualityStatus}>{status}</strong></div><button type="button" onClick={onUndo}>Undo last transfer</button><button type="button" onClick={onReset}>Reset all sandbox transfers</button></div>
     </header>
 
     <div className="sandbox-rating-heroes">
@@ -91,6 +118,8 @@ export default function SandboxImpactPanel({ comparison, latestTransfer, freeTra
       <StructuralChanges comparison={latest} label="LATEST STRUCTURAL CHANGES" />
       <StructuralChanges comparison={cumulative} label="CUMULATIVE STRUCTURAL CHANGES" />
     </div>
+
+    {confidenceInput && <SandboxDecisionConfidenceBlocks input={confidenceInput} comparison={comparison} freeTransfers={freeTransfers} />}
 
     <section className="sandbox-economics">
       <header><span>TRANSFER ECONOMICS</span><small>{sandboxFinancialSourceLabel(financialSource)}</small></header>
