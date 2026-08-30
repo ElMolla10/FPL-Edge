@@ -60,6 +60,7 @@ export type DecisionConfidenceAvailable = {
    */
   preferredAlternativeScenarioWinRate: number | null;
   label: DecisionConfidenceLabel;
+  assumptions: readonly string[];
 };
 
 export type DecisionConfidenceUnavailable = {
@@ -76,6 +77,12 @@ export type DecisionConfidenceInput = {
   candidateAdditionalHitCost: number;
   scenarioCount?: number;
 };
+
+export function decisionScenarioCountUnavailableReason(scenarioCount = 1024): string | null {
+  return Number.isInteger(scenarioCount) && scenarioCount >= 1 && scenarioCount <= 2048
+    ? null
+    : "Scenario count must be an integer from 1 to 2048.";
+}
 
 // Selection is frozen into id lists before simulation. The optimizer is never called here and no
 // scenario can revise the XI, bench order, captain, vice or multiplier after outcomes are known.
@@ -95,63 +102,74 @@ export const playerEventOutcomeKey = (eventId: number, playerId: number) => `${e
 
 const clamp = (value: number, min = 0, max = 1) => Math.max(min, Math.min(max, value));
 
-const fnv1a = (text: string) => {
-  let hash = 0x811c9dc5;
+// cyrb128 + sfc32 are deterministic integer-only hash/PRNG primitives. They are not used as a
+// probability source: each factor's PRNG only shuffles the complete [0,N) stratum list, so every
+// factor still visits every stratum exactly once. Four seeded words avoid collapsing unrelated
+// football factor keys onto the shared slope/intercept structure of the previous affine scheme.
+function cyrb128(text: string): [number, number, number, number] {
+  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762;
   for (let index = 0; index < text.length; index++) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
+    const code = text.charCodeAt(index);
+    h1 = h2 ^ Math.imul(h1 ^ code, 597399067);
+    h2 = h3 ^ Math.imul(h2 ^ code, 2869860233);
+    h3 = h4 ^ Math.imul(h3 ^ code, 951274213);
+    h4 = h1 ^ Math.imul(h4 ^ code, 2716044179);
   }
-  return hash >>> 0;
-};
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+  return [(h1 ^ h2 ^ h3 ^ h4) >>> 0, (h2 ^ h1) >>> 0, (h3 ^ h1) >>> 0, (h4 ^ h1) >>> 0];
+}
 
-const gcd = (left: number, right: number) => {
-  let a = Math.abs(left), b = Math.abs(right);
-  while (b) [a, b] = [b, a % b];
-  return a;
-};
+function seededUnit(seed: [number, number, number, number]): () => number {
+  let [a, b, c, d] = seed;
+  return () => {
+    a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
+    const result = (a + b + d) >>> 0;
+    d = (d + 1) >>> 0;
+    a = (b ^ (b >>> 9)) >>> 0;
+    b = (c + (c << 3)) >>> 0;
+    c = ((c << 21) | (c >>> 11)) >>> 0;
+    c = (c + result) >>> 0;
+    return result / 4294967296;
+  };
+}
 
-// The (multiplier, offset) pair below depends only on (factorKey, scenarioCount), never on
-// scenarioIndex -- but analyzeDecisionConfidence calls deterministicStratifiedUnit once per
-// scenario, so without this cache the coprime search and both fnv1a hashes were being redone from
-// scratch on every single scenario for the same factor. Measured directly (5-gameweek plan, 16
-// players/week, 1 fixture each, matching production access patterns): ~97ms -> ~7ms for the same
-// 245,760 calls at scenarioCount=1024, with zero output differences across an 1,800-triple spot
-// check spanning three different scenarioCounts.
-//
-// Two-level cache -- outer keyed by scenarioCount (a number, no string build needed), inner keyed
-// by factorKey alone (already a string the caller built) -- rather than a single map keyed by a
-// concatenated `${factorKey}:${scenarioCount}` string. Both give the same safety: multiplier/offset
-// are only valid for the modulus they were computed under, and analyzeDecisionConfidence's
-// scenarioCount varies by call site (a lower interactive default vs. a higher batch value), so a
-// factorKey-only cache would silently reuse a stale multiplier computed under a different
-// scenarioCount. The two-level form was kept because building a fresh concatenated string on every
-// call measurably cost more than the coprime search it was meant to avoid (~5x slower than this).
-const stratifiedFactorCache = new Map<number, Map<string, { multiplier: number; offset: number }>>();
-function stratifiedFactor(scenarioCount: number, factorKey: string): { multiplier: number; offset: number } {
-  let byFactorKey = stratifiedFactorCache.get(scenarioCount);
-  if (!byFactorKey) { byFactorKey = new Map(); stratifiedFactorCache.set(scenarioCount, byFactorKey); }
-  const cached = byFactorKey.get(factorKey);
+const MAX_CACHED_PERMUTATIONS = 2048;
+const keyedPermutationCache = new Map<string, Uint16Array>();
+
+function keyedPermutation(scenarioCount: number, factorKey: string): Uint16Array {
+  const cacheKey = `${scenarioCount}\0${factorKey}`;
+  const cached = keyedPermutationCache.get(cacheKey);
   if (cached) return cached;
-  let multiplier = (fnv1a(`a:${factorKey}`) % scenarioCount) || 1;
-  while (gcd(multiplier, scenarioCount) !== 1) multiplier = (multiplier + 1) % scenarioCount || 1;
-  const offset = fnv1a(`b:${factorKey}`) % scenarioCount;
-  const entry = { multiplier, offset };
-  byFactorKey.set(factorKey, entry);
-  return entry;
+  const permutation = Uint16Array.from({ length: scenarioCount }, (_, index) => index);
+  const random = seededUnit(cyrb128(cacheKey));
+  for (let index = scenarioCount - 1; index > 0; index--) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    const value = permutation[index];
+    permutation[index] = permutation[swapIndex];
+    permutation[swapIndex] = value;
+  }
+  if (keyedPermutationCache.size >= MAX_CACHED_PERMUTATIONS) {
+    const oldest = keyedPermutationCache.keys().next().value;
+    if (oldest !== undefined) keyedPermutationCache.delete(oldest);
+  }
+  keyedPermutationCache.set(cacheKey, permutation);
+  return permutation;
 }
 
 /**
- * Deterministic stratified sampling. For N scenarios, each factor visits every stratum
- * `(k+.5)/N` exactly once. A stable FNV-1a hash chooses a factor-specific affine permutation
- * `(a*i+b) mod N`; `a` is advanced until coprime with N, making it a true permutation for any N.
- * Identical factor keys therefore receive identical samples in baseline and candidate plans.
- * There is no PRNG, Math.random(), clock or mutable global state.
+ * Deterministic keyed Fisher-Yates stratification. For N scenarios, each factor visits every
+ * stratum `(k+.5)/N` exactly once. Identical keys reproduce the same permutation; different keys
+ * receive independently seeded shuffles rather than sharing affine dependence. The FIFO cache is
+ * capped at 2,048 permutations (at most 8 MiB at the supported N=2,048), and eviction cannot alter
+ * results because a key's permutation is reproducible from the key itself. No Math.random or clock.
  */
 export function deterministicStratifiedUnit(scenarioIndex: number, scenarioCount: number, factorKey: string): number {
   if (!Number.isInteger(scenarioCount) || scenarioCount < 1) throw new Error("scenarioCount must be a positive integer");
   if (!Number.isInteger(scenarioIndex) || scenarioIndex < 0 || scenarioIndex >= scenarioCount) throw new Error("scenarioIndex is outside the scenario range");
-  const { multiplier, offset } = stratifiedFactor(scenarioCount, factorKey);
-  const stratum = (multiplier * scenarioIndex + offset) % scenarioCount;
+  const stratum = keyedPermutation(scenarioCount, factorKey)[scenarioIndex];
   return (stratum + .5) / scenarioCount;
 }
 
@@ -162,6 +180,7 @@ export function sampleDecisionScenario(
 ): ReadonlyMap<string, JointPlayerOutcome> {
   const outcomes = new Map<string, JointPlayerOutcome>();
   for (const model of models) {
+    if (model.status === "unavailable") throw new Error(model.reason);
     let appeared = false, reached60 = false, points = 0;
     for (const fixture of model.fixtures) {
       const base = `${model.eventId}:${model.player.id}:${fixture.fixtureId}`;
@@ -219,11 +238,19 @@ function unavailableReason(input: DecisionConfidenceInput): string | null {
   const baselineEvents = planEventIds(input.baseline), candidateEvents = planEventIds(input.candidate);
   if (!baselineEvents.length || !candidateEvents.length) return "No shared future events are available for decision analysis.";
   if (baselineEvents.length !== candidateEvents.length || baselineEvents.some((eventId, index) => eventId !== candidateEvents[index])) return "Baseline and candidate plans do not cover the same future events.";
-  const modelKeys = new Set(input.playerEventModels.map(model => playerEventOutcomeKey(model.eventId, model.player.id)));
+  const unavailableModel = input.playerEventModels.find(model => model.status === "unavailable");
+  if (unavailableModel?.status === "unavailable") return unavailableModel.reason;
+  const modelKeys = new Set<string>();
+  for (const model of input.playerEventModels) {
+    const key = playerEventOutcomeKey(model.eventId, model.player.id);
+    if (modelKeys.has(key)) return `Duplicate outcome model for player ${model.player.id} in event ${model.eventId}.`;
+    modelKeys.add(key);
+  }
   for (const plan of [input.baseline, input.candidate]) for (const week of plan.weeks) for (const player of [...week.xi, ...week.bench]) {
     if (!modelKeys.has(playerEventOutcomeKey(week.eventId, player.id))) return `Missing outcome model for player ${player.id} in event ${week.eventId}.`;
   }
-  if (!Number.isInteger(input.scenarioCount ?? 1024) || (input.scenarioCount ?? 1024) < 1 || (input.scenarioCount ?? 1024) > 2048) return "Scenario count must be an integer from 1 to 2048.";
+  const scenarioReason = decisionScenarioCountUnavailableReason(input.scenarioCount);
+  if (scenarioReason) return scenarioReason;
   if (!Number.isFinite(input.candidateAdditionalHitCost)) return "Candidate additional hit cost must be finite.";
   return null;
 }
@@ -247,6 +274,11 @@ export function analyzeDecisionConfidence(input: DecisionConfidenceInput): Decis
   const expectedDelta = total === 0 ? 0 : total / scenarioCount;
   const preferred = expectedDelta > 0 ? "candidate" : expectedDelta < 0 ? "baseline" : "tie";
   const preferredAlternativeScenarioWinRate = preferred === "candidate" ? gainCount / scenarioCount : preferred === "baseline" ? lossCount / scenarioCount : null;
+  const assumptions = [...new Set([
+    "Modeled scenario frequencies and the modeled scenario win rate are deterministic simulation frequencies, not calibrated probabilities or guarantees.",
+    "Baseline and candidate selections, bench order, captaincy and captain multiplier are frozen before scenario outcomes are sampled.",
+    ...input.playerEventModels.flatMap(model => model.status === "available" ? model.audit.assumptions : []),
+  ])];
   return {
     status: "available",
     scenarioCount,
@@ -263,5 +295,6 @@ export function analyzeDecisionConfidence(input: DecisionConfidenceInput): Decis
     preferred,
     preferredAlternativeScenarioWinRate,
     label: classifyDecisionConfidence(deltas, expectedDelta),
+    assumptions,
   };
 }

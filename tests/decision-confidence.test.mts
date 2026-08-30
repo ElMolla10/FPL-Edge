@@ -3,12 +3,13 @@ import test from "node:test";
 import {
   analyzeDecisionConfidence,
   classifyDecisionConfidence,
+  deterministicStratifiedUnit,
   freezeDecisionPlan,
   playerEventOutcomeKey,
   sampleDecisionScenario,
   scoreDecisionPlanWeek,
 } from "../app/lib/decision-confidence.ts";
-import { buildPlayerEventOutcomeModel, samplePmf } from "../app/lib/projection-distribution.ts";
+import { AvailablePlayerEventOutcomeModel, buildPlayerEventOutcomeModel, samplePmf } from "../app/lib/projection-distribution.ts";
 import { FplData, FplFixture, FplPlayer } from "../app/lib/fpl.ts";
 import { createOptimizer } from "../app/lib/optimizer.ts";
 
@@ -60,12 +61,22 @@ type ModelOptions = {
   eventId?: number;
   cleanSheetProbability?: number;
   cleanSheetPoints?: number;
+  reconciliation?: "none" | "thinned" | "added";
 };
 
-function model(p: FplPlayer, options: ModelOptions = {}) {
+const testAudit = {
+  targetExpectedPoints: 0, rawModeledMean: 0, reconciledModeledMean: 0, reconciliationGap: 0,
+  tolerance: 1e-6, sampledMeanTolerance: .2,
+  components: { appearancePoints: 0, goalPoints: 0, assistPoints: 0, cleanSheetPoints: 0, bonusPoints: 0,
+    defensiveContributionPoints: 0, continuousSavePoints: 0, discreteSavePoints: 0, penaltySavePoints: 0 },
+  assumptions: ["Synthetic test outcome model."],
+} as const;
+
+function model(p: FplPlayer, options: ModelOptions = {}): AvailablePlayerEventOutcomeModel {
   const eventId = options.eventId ?? 1;
   const fixtureId = options.fixtureId ?? 100 + eventId;
   return {
+    status: "available",
     player: p,
     eventId,
     fixtures: [{
@@ -76,12 +87,14 @@ function model(p: FplPlayer, options: ModelOptions = {}) {
       pointsWhenAppearedPmf: options.pointsPmf ?? [1],
       cleanSheetProbability: options.cleanSheetProbability ?? 0,
       cleanSheetPoints: options.cleanSheetPoints ?? 0,
+      reconciliation: options.reconciliation ?? "none",
     }],
+    audit: testAudit,
   };
 }
 
-function blankModel(p: FplPlayer, eventId = 1) {
-  return { player: p, eventId, fixtures: [] };
+function blankModel(p: FplPlayer, eventId = 1): AvailablePlayerEventOutcomeModel {
+  return { status: "available", player: p, eventId, fixtures: [], audit: testAudit };
 }
 
 function deterministicModels(players: FplPlayer[], overrides = new Map<number, ModelOptions>()) {
@@ -181,6 +194,44 @@ test("identical inputs produce byte-identical decision results", () => {
   assert.equal(JSON.stringify(first), JSON.stringify(second));
 });
 
+test("keyed strata stay independently mixed across realistic appearance, scoring and clean-sheet factors", () => {
+  const scenarioCount = 1024;
+  const tolerance = .04;
+  const lower = .25 - tolerance, upper = .25 + tolerance;
+  let checkedPairs = 0;
+  for (let index = 0; index < 700; index++) {
+    const fixtureId = 5_000 + index;
+    const base = `1:${1_000 + index}:${fixtureId}`;
+    const appearanceKey = `appearance:${base}`;
+    const pairs = [
+      [appearanceKey, `scoring:${base}`],
+      [appearanceKey, `clean-sheet:${fixtureId}:${1 + index % 20}`],
+    ] as const;
+    for (const [leftKey, rightKey] of pairs) {
+      let intersection = 0;
+      for (let scenario = 0; scenario < scenarioCount; scenario++) {
+        const left = deterministicStratifiedUnit(scenario, scenarioCount, leftKey) < .5;
+        const right = deterministicStratifiedUnit(scenario, scenarioCount, rightKey) < .5;
+        if (left && right) intersection++;
+      }
+      const rate = intersection / scenarioCount;
+      assert.ok(rate >= lower && rate <= upper,
+        `${leftKey} vs ${rightKey}: independent 50% factors should intersect near 25% ` +
+        `(fixed +/-${tolerance * 100}pp tolerance is >5 hypergeometric standard deviations at N=1024); got ${rate}`);
+      checkedPairs++;
+    }
+  }
+  assert.equal(checkedPairs, 1_400);
+});
+
+test("a keyed factor visits every stratum exactly once and is byte-deterministic", () => {
+  const scenarioCount = 1024, key = "appearance:3:42:9001";
+  const first = Array.from({ length: scenarioCount }, (_, scenario) => deterministicStratifiedUnit(scenario, scenarioCount, key));
+  const second = Array.from({ length: scenarioCount }, (_, scenario) => deterministicStratifiedUnit(scenario, scenarioCount, key));
+  assert.deepEqual(second, first);
+  assert.equal(new Set(first.map(value => Math.floor(value * scenarioCount))).size, scenarioCount);
+});
+
 test("freezing a plan prevents later mutation of selected player metadata", () => {
   const squad = standardSquad();
   const plan = frozenPlan("immutable", squad);
@@ -251,11 +302,11 @@ test("legal autosubs count the first eligible bench player", () => {
   assert.equal(scoreDecisionPlanWeek(week, outcomes), 27);
 });
 
-test("a non-appearing player receives no points from scoring or clean-sheet factors", () => {
+test("a non-appearing player receives no points from scoring, clean-sheet or reconciliation factors", () => {
   const p = player(10, "DEF", { teamId: 7 });
   const highScoringPmf = new Array(13).fill(0);
   highScoringPmf[12] = 1;
-  const outcomes = sampleDecisionScenario([model(p, { appeared: 0, reached60: 0, pointsPmf: highScoringPmf, cleanSheetProbability: 1, cleanSheetPoints: 4 })], 0, 16);
+  const outcomes = sampleDecisionScenario([model(p, { appeared: 0, reached60: 0, pointsPmf: highScoringPmf, cleanSheetProbability: 1, cleanSheetPoints: 4, reconciliation: "added" })], 0, 16);
   assert.deepEqual(outcomes.get(playerEventOutcomeKey(1, p.id)), { appeared: false, reached60: false, points: 0 });
 });
 
@@ -361,12 +412,14 @@ test("blank events produce no appearance while double gameweeks sum both fixture
   const blank = sampleDecisionScenario([blankModel(p)], 0, 16).get(playerEventOutcomeKey(1, p.id))!;
   assert.deepEqual(blank, { appeared: false, reached60: false, points: 0 });
   const double = {
+    status: "available" as const,
     player: p,
     eventId: 2,
     fixtures: [
       { ...model(p, { eventId: 2, fixtureId: 201, pointsPmf: [0, 1] }).fixtures[0] },
       { ...model(p, { eventId: 2, fixtureId: 202, pointsPmf: [0, 1] }).fixtures[0] },
     ],
+    audit: testAudit,
   };
   const outcome = sampleDecisionScenario([double], 0, 16).get(playerEventOutcomeKey(2, p.id))!;
   assert.deepEqual(outcome, { appeared: true, reached60: true, points: 6 });
@@ -378,8 +431,13 @@ test("the real projection adapter preserves fixture IDs for doubles and emits an
     { id: 101, event: 1, teamH: 1, teamA: 2, teamHDifficulty: 3, teamADifficulty: 3, finished: false, kickoff: null, started: false, teamHScore: null, teamAScore: null },
     { id: 102, event: 1, teamH: 3, teamA: 1, teamHDifficulty: 3, teamADifficulty: 3, finished: false, kickoff: null, started: false, teamHScore: null, teamAScore: null },
   ];
-  assert.deepEqual(buildPlayerEventOutcomeModel(p, 1, fixtures, 1).fixtures.map(fixture => fixture.fixtureId), [101, 102]);
-  assert.deepEqual(buildPlayerEventOutcomeModel(p, 2, fixtures, 1).fixtures, []);
+  const double = buildPlayerEventOutcomeModel(p, 1, fixtures, 1);
+  const blank = buildPlayerEventOutcomeModel(p, 2, fixtures, 1);
+  assert.equal(double.status, "available");
+  assert.equal(blank.status, "available");
+  if (double.status !== "available" || blank.status !== "available") return;
+  assert.deepEqual(double.fixtures.map(fixture => fixture.fixtureId), [101, 102]);
+  assert.deepEqual(blank.fixtures, []);
 });
 
 test("zero future events returns unavailable without confidence, quantiles or a label", () => {

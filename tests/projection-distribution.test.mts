@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   Pmf,
+  buildPlayerEventOutcomeModel,
   appearancePointsPmf,
   bernoulliPmf,
   blankProbability,
@@ -23,6 +24,7 @@ import {
   savesPointsPmf,
 } from "../app/lib/projection-distribution.ts";
 import { FplFixture, FplPlayer, ProjectionMetrics, projectionMetrics } from "../app/lib/fpl.ts";
+import { playerEventOutcomeKey, sampleDecisionScenario } from "../app/lib/decision-confidence.ts";
 
 const sum = (pmf: Pmf) => pmf.reduce((total, p) => total + p, 0);
 const approx = (a: number, b: number, tol = 1e-6) => Math.abs(a - b) < tol;
@@ -380,4 +382,90 @@ test("end-to-end: a blank gameweek through real projectionMetrics() collapses th
   // array's raw length.
   assert.ok(approx(pmf[0],1),`a genuine blank must have 100% probability at 0 points, got P(0)=${pmf[0]}`);
   assert.ok(approx(pmfMean(pmf),0),"a genuine blank's mean must be exactly 0, not a residual distribution left over from startProbability/sixtyProbability");
+});
+
+test("event outcome model reconciles an epNext-only first-event change to the full visible xPts target",()=>{
+  const fixture=makeRealFixture({id:41,event:20});
+  const lower=makeDefender({epNext:2});
+  const higher=makeDefender({epNext:8});
+  const lowModel=buildPlayerEventOutcomeModel(lower,20,[fixture],20);
+  const highModel=buildPlayerEventOutcomeModel(higher,20,[fixture],20);
+  assert.equal(lowModel.status,"available");
+  assert.equal(highModel.status,"available");
+  if(lowModel.status!=="available"||highModel.status!=="available")return;
+  const visibleLow=projectionMetrics(lower,20,[fixture],20).xPts;
+  const visibleHigh=projectionMetrics(higher,20,[fixture],20).xPts;
+  assert.ok(visibleHigh>visibleLow,"the precondition must isolate a positive epNext-only target change");
+  assert.ok(approx(lowModel.audit.targetExpectedPoints,visibleLow));
+  assert.ok(approx(highModel.audit.targetExpectedPoints,visibleHigh));
+  assert.ok(approx(highModel.audit.reconciledModeledMean-lowModel.audit.reconciledModeledMean,visibleHigh-visibleLow));
+});
+
+test("DGW event model builds the epNext blend once from the complete fixture list",()=>{
+  const p=makeDefender({epNext:8});
+  const fixtures=[makeRealFixture({id:51,event:21,teamA:3}),makeRealFixture({id:52,event:21,teamA:4})];
+  const model=buildPlayerEventOutcomeModel(p,21,fixtures,21);
+  assert.equal(model.status,"available");
+  if(model.status!=="available")return;
+  const fullTarget=projectionMetrics(p,21,fixtures,21).xPts;
+  const incorrectlyRepeatedBlend=fixtures.reduce((sum,fixture)=>sum+projectionMetrics(p,21,[fixture],21).xPts,0);
+  assert.ok(approx(model.audit.targetExpectedPoints,fullTarget));
+  assert.ok(incorrectlyRepeatedBlend-fullTarget>1,
+    `test precondition: per-fixture epNext blending must materially overcount the full-event target; full=${fullTarget}, repeated=${incorrectlyRepeatedBlend}`);
+  assert.ok(approx(model.audit.reconciledModeledMean,fullTarget));
+});
+
+test("blank event outcome model remains exactly zero with an auditable zero target",()=>{
+  const model=buildPlayerEventOutcomeModel(makeDefender({epNext:12}),99,[],99);
+  assert.equal(model.status,"available");
+  if(model.status!=="available")return;
+  assert.equal(model.fixtures.length,0);
+  assert.deepEqual({target:model.audit.targetExpectedPoints,raw:model.audit.rawModeledMean,reconciled:model.audit.reconciledModeledMean,gap:model.audit.reconciliationGap},
+    {target:0,raw:0,reconciled:0,gap:0});
+});
+
+test("an honestly unreconcilable target returns unavailable instead of suppressing guaranteed appearance points",()=>{
+  const player=makeDefender({
+    positionId:4,position:"Forward",positionShort:"FWD",epNext:.01,selectedBy:0,
+    priorExpectedGoals:0,priorExpectedAssists:0,priorBonus:0,priorDefensiveContribution:0,
+    form:0,pointsPerGame:0,priorPointsPerGame:0,
+  });
+  const fixture=makeRealFixture({id:55,event:24,teamHDifficulty:5});
+  const model=buildPlayerEventOutcomeModel(player,24,[fixture],24);
+  assert.equal(model.status,"unavailable");
+  if(model.status!=="unavailable")return;
+  assert.match(model.reason,/below appearance and clean-sheet mean/);
+});
+
+test("goalkeeper event model retains discrete save points and the existing penalty-save expectation",()=>{
+  const keeper=makeDefender({
+    id:2,positionId:1,position:"Goalkeeper",positionShort:"GKP",priorSaves:150,priorPenaltiesSaved:5,
+    priorExpectedGoals:0,priorExpectedAssists:0,priorDefensiveContribution:0,
+  });
+  const fixture=makeRealFixture({id:61,event:22,teamHDifficulty:4});
+  const metrics=projectionMetrics(keeper,22,[fixture],22);
+  const model=buildPlayerEventOutcomeModel(keeper,22,[fixture],22);
+  assert.equal(model.status,"available");
+  if(model.status!=="available")return;
+  assert.ok((metrics.penaltySavePoints??0)>0,"the existing point model must expose its penalty-save expectation");
+  assert.ok(model.audit.components.discreteSavePoints>0,"save counts must still be discretized through floor(saves/3)");
+  assert.ok(model.audit.components.penaltySavePoints>0,"penalty-save expected points must not disappear from the scenario model");
+  assert.ok(approx(model.audit.reconciledModeledMean,metrics.xPts));
+});
+
+test("real player/event scenario samples stay close to displayed xPts after exact analytic reconciliation",()=>{
+  const p=makeDefender({epNext:6});
+  const fixtures=[makeRealFixture({id:71,event:23,teamA:3}),makeRealFixture({id:72,event:23,teamA:4})];
+  const model=buildPlayerEventOutcomeModel(p,23,fixtures,23);
+  assert.equal(model.status,"available");
+  if(model.status!=="available")return;
+  const scenarioCount=1024;
+  let total=0;
+  for(let scenario=0;scenario<scenarioCount;scenario++){
+    total+=sampleDecisionScenario([model],scenario,scenarioCount).get(playerEventOutcomeKey(23,p.id))!.points;
+  }
+  const sampledMean=total/scenarioCount;
+  assert.ok(approx(model.audit.reconciledModeledMean,model.audit.targetExpectedPoints,model.audit.tolerance));
+  assert.ok(Math.abs(sampledMean-model.audit.targetExpectedPoints)<=model.audit.sampledMeanTolerance,
+    `sample mean ${sampledMean} must stay within documented tolerance ${model.audit.sampledMeanTolerance} of xPts ${model.audit.targetExpectedPoints}`);
 });

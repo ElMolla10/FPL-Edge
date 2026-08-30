@@ -224,6 +224,17 @@ export function savesPointsPmf(expectedSaves: number, positionShort: FplPlayer["
   return remapPmf(counts, index => Math.floor(index / 3), Math.floor(SAVE_COUNT_CAP / 3));
 }
 
+export function penaltySavePointsPmf(expectedPoints: number, positionShort: FplPlayer["positionShort"]): Pmf {
+  if (positionShort !== "GKP" || expectedPoints <= 0) return pointMass(0);
+  const lowerSaves = Math.floor(expectedPoints / 5), upperSaves = Math.ceil(expectedPoints / 5);
+  if (lowerSaves === upperSaves) return pointMass(lowerSaves * 5);
+  const upperProbability = expectedPoints / 5 - lowerSaves;
+  const pmf = new Array(upperSaves * 5 + 1).fill(0);
+  pmf[lowerSaves * 5] = 1 - upperProbability;
+  pmf[upperSaves * 5] = upperProbability;
+  return pmf;
+}
+
 // The full points distribution: an exact discrete convolution of independent component
 // distributions built entirely from the existing ProjectionMetrics a player already has -- no new
 // upstream computation, no Math.random, deterministic given identical input. Position-inapplicable
@@ -252,6 +263,7 @@ export function playerPointsDistribution(metrics: ProjectionMetrics, positionSho
     defensiveContributionPmf(metrics.defensiveContribution, positionShort, fixtureCount),
     bonusPointsPmf(metrics.bonus, fixtureCount),
     savesPointsPmf(metrics.saves, positionShort),
+    penaltySavePointsPmf(metrics.penaltySavePoints ?? 0, positionShort),
   ]);
 }
 
@@ -275,13 +287,74 @@ export type PlayerFixtureOutcomeModel = {
   pointsWhenAppearedPmf: Pmf;
   cleanSheetProbability: number;
   cleanSheetPoints: number;
+  reconciliation: "none" | "thinned" | "added";
 };
 
-export type PlayerEventOutcomeModel = {
+export type PlayerEventModelAudit = {
+  targetExpectedPoints: number;
+  rawModeledMean: number;
+  reconciledModeledMean: number;
+  reconciliationGap: number;
+  tolerance: number;
+  sampledMeanTolerance: number;
+  components: {
+    appearancePoints: number;
+    goalPoints: number;
+    assistPoints: number;
+    cleanSheetPoints: number;
+    bonusPoints: number;
+    defensiveContributionPoints: number;
+    continuousSavePoints: number;
+    discreteSavePoints: number;
+    penaltySavePoints: number;
+  };
+  assumptions: readonly string[];
+};
+
+export type AvailablePlayerEventOutcomeModel = {
+  status: "available";
   player: FplPlayer;
   eventId: number;
   fixtures: PlayerFixtureOutcomeModel[];
+  audit: PlayerEventModelAudit;
 };
+
+export type UnavailablePlayerEventOutcomeModel = {
+  status: "unavailable";
+  player: FplPlayer;
+  eventId: number;
+  reason: string;
+};
+
+export type PlayerEventOutcomeModel = AvailablePlayerEventOutcomeModel | UnavailablePlayerEventOutcomeModel;
+
+const RECONCILIATION_TOLERANCE = 1e-6;
+const SAMPLED_MEAN_TOLERANCE = .2;
+const MAX_ADDED_POINTS_WHEN_APPEARED = 16;
+
+const EVENT_MODEL_ASSUMPTIONS = Object.freeze([
+  "The xPts target is projectionMetrics(...).xPts computed once from the complete player/event fixture list, so first-event epNext blending is applied once per event.",
+  "Fixture appearances reuse the event-level start and 60-minute rates; clean-sheet draws are shared by official fixture and team.",
+  "Goals and assists use confidence-shaped negative-binomial counts; saves use Poisson counts with floor(saves/3); bonus uses the documented 3:2:1 approximation; defensive contribution uses the threshold probability already embedded in xPts; penalty saves use five-point outcomes from the existing expectation.",
+  "Integer outcome means are reconciled to visible xPts only while the player appears, by deterministic conditional thinning or an additive two-point integer mixture.",
+  "Cards, own goals, penalty misses and other events absent from projectionMetrics are omitted; no rates are invented for them.",
+]);
+
+function thinPmf(pmf: Pmf, keepProbability: number): Pmf {
+  const keep = clamp(keepProbability, 0, 1), result = pmf.map(probability => probability * keep);
+  result[0] = (result[0] ?? 0) + 1 - keep;
+  return result;
+}
+
+function exactIntegerMeanPmf(expectedPoints: number): Pmf {
+  const lower = Math.floor(Math.max(0, expectedPoints)), upper = Math.ceil(Math.max(0, expectedPoints));
+  if (lower === upper) return pointMass(lower);
+  const upperProbability = expectedPoints - lower;
+  const pmf = new Array(upper + 1).fill(0);
+  pmf[lower] = 1 - upperProbability;
+  pmf[upper] = upperProbability;
+  return pmf;
+}
 
 // Reads an integer outcome from a PMF's inverse CDF. Keeping this here makes the scenario engine
 // consume the same distributions as the player-level floor/median/ceiling views. The caller owns
@@ -296,11 +369,9 @@ export function samplePmf(pmf: Pmf, uniform: number): number {
   return Math.max(0, pmf.length - 1);
 }
 
-// Builds a joint-capable event model from real fixture-level projection inputs. Scoring PMFs are
-// conditional on appearing: the projection rates are unconditional, so dividing their means by
-// P(appearance) preserves those component means after the scenario engine gates every component
-// behind an appearance. Clean sheets stay separate so one fixture/team factor can be shared by all
-// teammates. A blank produces fixtures=[]; a double retains both official fixture ids.
+// Builds one auditable event model from the complete fixture list. The visible target is computed
+// once, then its event totals are allocated across the real fixtures so appearance and team clean
+// sheets remain fixture-level. All non-appearance points stay behind the appearance gate.
 export function buildPlayerEventOutcomeModel(
   player: FplPlayer,
   eventId: number,
@@ -308,30 +379,107 @@ export function buildPlayerEventOutcomeModel(
   firstEvent: number,
 ): PlayerEventOutcomeModel {
   const games = fixtures.filter(fixture => fixture.event === eventId && (fixture.teamH === player.teamId || fixture.teamA === player.teamId));
+  const metrics = projectionMetrics(player, eventId, fixtures, firstEvent);
+  const goalPointValue = GOAL_POINTS[player.positionShort] ?? GOAL_POINTS.MID;
+  const cleanSheetPointValue = CLEAN_SHEET_POINTS[player.positionShort] ?? 0;
+  const baseComponents = {
+    appearancePoints: 0,
+    goalPoints: metrics.xG * goalPointValue,
+    assistPoints: metrics.xA * ASSIST_POINTS,
+    cleanSheetPoints: 0,
+    bonusPoints: metrics.bonus,
+    defensiveContributionPoints: metrics.defensiveContribution,
+    continuousSavePoints: metrics.saves / 3,
+    discreteSavePoints: 0,
+    penaltySavePoints: metrics.penaltySavePoints ?? 0,
+  };
+  if (!games.length) {
+    const audit: PlayerEventModelAudit = {
+      targetExpectedPoints: metrics.xPts, rawModeledMean: 0, reconciledModeledMean: 0,
+      reconciliationGap: metrics.xPts, tolerance: RECONCILIATION_TOLERANCE,
+      sampledMeanTolerance: SAMPLED_MEAN_TOLERANCE, components: baseComponents,
+      assumptions: EVENT_MODEL_ASSUMPTIONS,
+    };
+    if (Math.abs(metrics.xPts) > RECONCILIATION_TOLERANCE) {
+      return { status: "unavailable", player, eventId, reason: `Blank event ${eventId} has non-zero xPts target ${metrics.xPts}.` };
+    }
+    return { status: "available", player, eventId, fixtures: [], audit };
+  }
+
+  const fixtureCount = games.length;
+  const reached60Probability = clamp(metrics.sixtyProbability, 0, 1);
+  const appearanceProbability = clamp(metrics.startProbability * (1 - reached60Probability) + reached60Probability, reached60Probability, 1);
+  const conditionalAppearance = Math.max(.01, appearanceProbability);
+  const rawFixturePmfs: Pmf[] = [];
   const fixtureModels = games.map(fixture => {
-    const metrics = projectionMetrics(player, eventId, [fixture], firstEvent);
-    // This is exactly the probability mass represented by singleFixtureAppearancePmf at 1 or 2
-    // points: start*(1-sixty)+sixty. It is coherent with the existing marginal distribution and
-    // guarantees reached60 is a subset of appeared.
-    const reached60Probability = clamp(metrics.sixtyProbability, 0, 1);
-    const appearanceProbability = clamp(metrics.startProbability * (1 - reached60Probability) + reached60Probability, reached60Probability, 1);
-    const conditional = Math.max(.01, appearanceProbability);
-    const pointsWhenAppearedPmf = convolvePmfs([
-      goalsPointsPmf(metrics.xG / conditional, metrics.confidence, player.positionShort),
-      assistsPointsPmf(metrics.xA / conditional, metrics.confidence),
-      defensiveContributionPmf(metrics.defensiveContribution / conditional, player.positionShort, 1),
-      bonusPointsPmf(metrics.bonus / conditional, 1),
-      savesPointsPmf(metrics.saves / conditional, player.positionShort),
+    const savesPmf = savesPointsPmf(metrics.saves / fixtureCount / conditionalAppearance, player.positionShort);
+    baseComponents.discreteSavePoints += appearanceProbability * pmfMean(savesPmf);
+    const rawPointsWhenAppearedPmf = convolvePmfs([
+      goalsPointsPmf(metrics.xG / fixtureCount / conditionalAppearance, metrics.confidence, player.positionShort),
+      assistsPointsPmf(metrics.xA / fixtureCount / conditionalAppearance, metrics.confidence),
+      defensiveContributionPmf(metrics.defensiveContribution / fixtureCount / conditionalAppearance, player.positionShort, 1),
+      bonusPointsPmf(metrics.bonus / fixtureCount / conditionalAppearance, 1),
+      savesPmf,
+      penaltySavePointsPmf((metrics.penaltySavePoints ?? 0) / fixtureCount / conditionalAppearance, player.positionShort),
     ]);
-    return {
+    rawFixturePmfs.push(rawPointsWhenAppearedPmf);
+    const model: PlayerFixtureOutcomeModel = {
       fixtureId: fixture.id,
       teamId: player.teamId,
       appearanceProbability,
       reached60Probability,
-      pointsWhenAppearedPmf,
+      pointsWhenAppearedPmf: rawPointsWhenAppearedPmf,
       cleanSheetProbability: metrics.cleanSheetProbability,
-      cleanSheetPoints: CLEAN_SHEET_POINTS[player.positionShort] ?? 0,
+      cleanSheetPoints: cleanSheetPointValue,
+      reconciliation: "none",
     };
+    return model;
   });
-  return { player, eventId, fixtures: fixtureModels };
+  baseComponents.appearancePoints = fixtureCount * (appearanceProbability + reached60Probability);
+  baseComponents.cleanSheetPoints = fixtureCount * reached60Probability * metrics.cleanSheetProbability * cleanSheetPointValue;
+  const fixedMean = baseComponents.appearancePoints + baseComponents.cleanSheetPoints;
+  const rawConditionalMean = rawFixturePmfs.reduce((sum, pmf) => sum + appearanceProbability * pmfMean(pmf), 0);
+  const rawModeledMean = fixedMean + rawConditionalMean;
+  const reconciliationGap = metrics.xPts - rawModeledMean;
+  const targetConditionalMean = metrics.xPts - fixedMean;
+  if (!Number.isFinite(metrics.xPts) || !Number.isFinite(rawModeledMean)) {
+    return { status: "unavailable", player, eventId, reason: `Player ${player.id} event ${eventId} produced a non-finite xPts reconciliation input.` };
+  }
+  if (targetConditionalMean < -RECONCILIATION_TOLERANCE) {
+    return { status: "unavailable", player, eventId, reason: `Player ${player.id} event ${eventId} xPts target ${metrics.xPts.toFixed(3)} is below appearance and clean-sheet mean ${fixedMean.toFixed(3)}; non-negative conditional reconciliation is impossible.` };
+  }
+  if (targetConditionalMean + RECONCILIATION_TOLERANCE < rawConditionalMean) {
+    const keepProbability = rawConditionalMean > 0 ? Math.max(0, targetConditionalMean) / rawConditionalMean : 0;
+    fixtureModels.forEach(model => {
+      model.pointsWhenAppearedPmf = thinPmf(model.pointsWhenAppearedPmf, keepProbability);
+      model.reconciliation = "thinned";
+    });
+  } else if (targetConditionalMean > rawConditionalMean + RECONCILIATION_TOLERANCE) {
+    const totalAppearanceWeight = fixtureCount * appearanceProbability;
+    if (totalAppearanceWeight <= 0) {
+      return { status: "unavailable", player, eventId, reason: `Player ${player.id} event ${eventId} requires reconciliation points but has zero appearance probability.` };
+    }
+    const addedMeanWhenAppeared = (targetConditionalMean - rawConditionalMean) / totalAppearanceWeight;
+    if (addedMeanWhenAppeared > MAX_ADDED_POINTS_WHEN_APPEARED) {
+      return { status: "unavailable", player, eventId, reason: `Player ${player.id} event ${eventId} requires ${addedMeanWhenAppeared.toFixed(3)} reconciliation points per appearance, above the honest ${MAX_ADDED_POINTS_WHEN_APPEARED}-point limit.` };
+    }
+    const addition = exactIntegerMeanPmf(addedMeanWhenAppeared);
+    fixtureModels.forEach(model => {
+      model.pointsWhenAppearedPmf = convolvePmfs([model.pointsWhenAppearedPmf, addition]);
+      model.reconciliation = "added";
+    });
+  }
+  const reconciledConditionalMean = fixtureModels.reduce((sum, fixture) => sum + fixture.appearanceProbability * pmfMean(fixture.pointsWhenAppearedPmf), 0);
+  const reconciledModeledMean = fixedMean + reconciledConditionalMean;
+  if (Math.abs(reconciledModeledMean - metrics.xPts) > RECONCILIATION_TOLERANCE) {
+    return { status: "unavailable", player, eventId, reason: `Player ${player.id} event ${eventId} modeled mean ${reconciledModeledMean.toFixed(6)} does not reconcile with xPts ${metrics.xPts.toFixed(6)}.` };
+  }
+  return {
+    status: "available", player, eventId, fixtures: fixtureModels,
+    audit: {
+      targetExpectedPoints: metrics.xPts, rawModeledMean, reconciledModeledMean, reconciliationGap,
+      tolerance: RECONCILIATION_TOLERANCE, sampledMeanTolerance: SAMPLED_MEAN_TOLERANCE,
+      components: baseComponents, assumptions: EVENT_MODEL_ASSUMPTIONS,
+    },
+  };
 }
