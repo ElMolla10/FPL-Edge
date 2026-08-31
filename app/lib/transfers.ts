@@ -92,12 +92,24 @@ function buildTransferRow(data:FplData,squad:FplPlayer[],baseline:TransferBaseli
   const calibration=playerCalibrationProfile(incoming);
   const quality=evaluateTransferQuality({gain1,gain3,gain5,weeklyGains:squadDeltas,expectedMinutes:im.expectedMinutes,startProbability:im.startProbability,confidence:im.confidence,calibrationGroup:calibration.group,lowPlContinuityClub:calibration.lowPlContinuityClub,anomalyCodes:anomalies.map(flag=>flag.code)});
   const reviewRequired=quality.status==="blocked";
-  // Standing decision (reviewed ac6a221): bounded 0.55-1.0x discount on positive gain, sized so
-  // it can never invert a ranking. This is a stopgap point-estimate risk adjustment for exactly
-  // the failure class this projection engine review started from (Hull City's Mendy/Ajayi --
-  // see the ac6a221 review). When the Probabilistic Projection Simulator's distribution engine
-  // ships, IT should own risk-adjusted ranking and this multiplier should be REMOVED, not kept
-  // stacked alongside it as a second, redundant risk adjustment. Flag this for that review round.
+  // Standing decision (reviewed ac6a221, re-affirmed in the Decision Confidence Engine
+  // integration review): bounded 0.55-1.0x discount on positive gain, sized so it can never invert
+  // a ranking. This is a point-estimate risk adjustment for exactly the failure class this
+  // projection engine review started from (Hull City's Mendy/Ajayi -- see the ac6a221 review).
+  //
+  // The joint squad-level Monte Carlo Decision Confidence Engine (008867b onward) is NOT a
+  // replacement for this multiplier and this is not a removal-pending stopgap anymore: the engine
+  // is deliberately too expensive to run across bestTransfers()'s full ~200-candidate sweep, so it
+  // was scoped from the start to run once, opt-in, on an already-ranked single candidate (primary
+  // transfer or a user-selected alternative) as deep verification -- not as the ranking mechanism.
+  // confidenceMultiplier remains the only risk adjustment applied across the full sweep and is not
+  // stacked with the engine's output; they answer different questions at different candidate counts.
+  //
+  // Replacing confidenceMultiplier still needs either (a) a cheap per-candidate approximation built
+  // from the engine's own cheap-to-compute primitives -- e.g. playerPointsDistribution's per-player
+  // blank/haul probabilities, not a full per-candidate Monte Carlo run -- or (b) a fundamentally
+  // different ranking architecture that doesn't require re-scoring every candidate at simulation
+  // cost. Neither exists yet. This is real future design work, not a pending removal.
   const confidenceMultiplier=clamp(.55+im.startProbability*.25+im.confidence*.2,.55,1);
   const riskAdjustedGain=(gain5>0?gain5*confidenceMultiplier:gain5)-hitCost;
   const qualityAdjustedGain=riskAdjustedGain*(.7+quality.score*.003);
