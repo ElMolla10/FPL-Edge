@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
+import MiniLeagueWarRoom from "./MiniLeagueWarRoom";
 import TransferBreakdown from "./TransferBreakdown";
 import DecisionConfidencePanel from "./DecisionConfidencePanel";
 import TransferSensitivityPanel from "./TransferSensitivityPanel";
@@ -21,7 +22,7 @@ import { TransferQualityStatus } from "../lib/transfer-quality";
 import { Transfer, bestTransfers, selectPrimaryTransfer, sortTransfersByQuality } from "../lib/transfers";
 import { ManagerMeta, OfficialPick, sellingPricesFor } from "../lib/squad-comparison";
 
-type View="overview"|"team"|"transfers"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
+type View="overview"|"team"|"transfers"|"league"|"draft"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history";
 export type { ManagerMeta, OfficialPick } from "../lib/squad-comparison";
 
 export{evaluateTransferQuality,TRANSFER_ACTION_THRESHOLD}from"../lib/transfer-quality";
@@ -30,9 +31,9 @@ export{bestTransfers,selectPrimaryTransfer,sortTransfersByQuality}from"../lib/tr
 export type{Transfer}from"../lib/transfers";
 
 const nav:[View,string,string][]=[
-  ["overview","Overview","⌂"],["team","My team","◫"],["transfers","Transfers","⇄"],["draft","Draft lab","◇"],["players","Players","⌕"],["fixtures","Fixtures","▦"],["news","News","●"],["deadline","Final check","✓"],["chips","Chips","★"],["model","Points model","∑"],["history","History","↗"],
+  ["overview","Overview","⌂"],["team","My team","◫"],["transfers","Transfers","⇄"],["league","Mini-League","◎"],["draft","Draft lab","◇"],["players","Players","⌕"],["fixtures","Fixtures","▦"],["news","News","●"],["deadline","Final check","✓"],["chips","Chips","★"],["model","Points model","∑"],["history","History","↗"],
 ];
-const titles:Record<View,string>={overview:"Your gameweek command centre",team:"My team",transfers:"Transfer centre",draft:"Draft & Wildcard lab",players:"Player research",fixtures:"Fixture intelligence",news:"Personalised news",deadline:"Deadline final check",chips:"Chip planner",model:"How the model thinks",history:"Decision history"};
+const titles:Record<View,string>={overview:"Your gameweek command centre",team:"My team",transfers:"Transfer centre",league:"Mini-League War Room",draft:"Draft & Wildcard lab",players:"Player research",fixtures:"Fixture intelligence",news:"Personalised news",deadline:"Deadline final check",chips:"Chip planner",model:"How the model thinks",history:"Decision history"};
 const fmt=(n:number|null|undefined)=>n?Math.round(n).toLocaleString():"—";
 const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
 const readIds=(key:string)=>{try{return JSON.parse(localStorage.getItem(key)||"[]") as number[]}catch{return[]}};
@@ -64,6 +65,7 @@ function Page({view,data,go,revision,onTeamChange}:{view:View;data:FplData;go:(v
   if(view==="overview")return <Overview data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="team")return <Team data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="transfers")return <Transfers data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
+  if(view==="league")return <MiniLeagueWarRoom revision={revision} onGoToTeam={()=>go("team")}/>;
   if(view==="draft")return <LiveDraftBuilder/>;
   if(view==="players")return <Players data={data} go={go} revision={revision}/>;
   if(view==="fixtures")return <div className="coach-page"><TeamQualityPanel data={data}/><TeamQualityFixtures data={data}/></div>;
