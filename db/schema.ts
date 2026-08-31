@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // Email is the single identity anchor across both auth methods (password and ChatGPT
 // sign-in) -- see app/lib/auth.ts for the resolution rules that keep this one coherent
@@ -30,4 +30,17 @@ export const squadData = sqliteTable("squad_data", {
   entry: text("entry"), // official FPL Team ID
   manager: text("manager"), // JSON ManagerMeta blob
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Singleton row (id is always "overall") -- population-wide, identical for every user, so this is
+// one shared row refreshed on a TTL, not one row per user like squadData above. See
+// app/lib/population-percentile-core.ts for the staleness/refresh logic that reads and writes it.
+export const populationPercentiles = sqliteTable("population_percentiles", {
+  id: text("id").primaryKey(),
+  eventId: integer("event_id").notNull(),
+  eventFinished: integer("event_finished", { mode: "boolean" }).notNull(),
+  totalPlayers: integer("total_players").notNull(), // bootstrap-static's total_players at sample time
+  curve: text("curve").notNull(), // JSON: {rank:number; points:number}[], ascending by rank
+  omittedSamples: integer("omitted_samples").notNull(),
+  sampledAt: text("sampled_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

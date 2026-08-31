@@ -1,4 +1,7 @@
 import type { MiniLeagueStandingRow, MiniLeagueStandingsResult } from "./mini-league";
+import { type ConcurrencyLimiter, GatewayTimeoutError, createConcurrencyLimiter, fetchWithTimeout } from "./fpl-gateway";
+
+export { createConcurrencyLimiter, type ConcurrencyLimiter } from "./fpl-gateway";
 
 const FPL = "https://fantasy.premierleague.com/api";
 export const MINI_LEAGUE_MAX_CONCURRENCY = 3;
@@ -75,29 +78,6 @@ export class BoundedTtlCache<T> {
   }
 }
 
-export type ConcurrencyLimiter = { run<T>(operation: () => Promise<T>): Promise<T> };
-export function createConcurrencyLimiter(maximum: number): ConcurrencyLimiter {
-  if (!Number.isInteger(maximum) || maximum < 1) throw new Error("Concurrency must be a positive integer.");
-  let active = 0;
-  const queue: (() => void)[] = [];
-  const release = () => {
-    active--;
-    queue.shift()?.();
-  };
-  return {
-    run<T>(operation: () => Promise<T>): Promise<T> {
-      return new Promise<T>((resolve, reject) => {
-        const start = () => {
-          active++;
-          operation().then(resolve, reject).finally(release);
-        };
-        if (active < maximum) start();
-        else queue.push(start);
-      });
-    },
-  };
-}
-
 function isRecord(value: unknown): value is JsonRecord {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -158,37 +138,11 @@ export function createMiniLeagueGateway(options: GatewayOptions = {}) {
   const cache = new BoundedTtlCache<unknown>(options.cacheMaxEntries ?? MINI_LEAGUE_CACHE_MAX_ENTRIES);
   const limiter = options.limiter ?? createConcurrencyLimiter(MINI_LEAGUE_MAX_CONCURRENCY);
 
-  async function fetchWithTimeout(url: string): Promise<Response> {
-    return limiter.run(async () => {
-      const controller = new AbortController();
-      let timedOut = false;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const timeoutPromise = new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          timedOut = true;
-          controller.abort(new Error("Official FPL request timed out."));
-          reject(new MiniLeagueGatewayError(504, "The Official FPL Mini-League request timed out after eight seconds.", "fpl-timeout", true));
-        }, timeoutMs);
-      });
-      try {
-        return await Promise.race([
-          fetcher(url, { headers: { Accept: "application/json", "User-Agent": "FPL-Edge/1.0" }, signal: controller.signal }),
-          timeoutPromise,
-        ]);
-      } catch (error) {
-        if (timedOut) throw new MiniLeagueGatewayError(504, "The Official FPL Mini-League request timed out after eight seconds.", "fpl-timeout", true);
-        throw error;
-      } finally {
-        if (timeout) clearTimeout(timeout);
-      }
-    });
-  }
-
   async function officialJson(url: string, kind: "entry" | "bootstrap" | "standings", ttlMs: number): Promise<OfficialRead> {
     const cached = cache.get(url, now(), ttlMs, staleIfErrorMs);
     if (cached?.state === "fresh") return { data: cached.value, stale: false };
     try {
-      const response = await fetchWithTimeout(url);
+      const response = await fetchWithTimeout(url, { fetcher, limiter, timeoutMs });
       if (!response.ok) throw upstreamError(kind, response.status);
       let data: unknown;
       try { data = await response.json(); }
@@ -198,6 +152,8 @@ export function createMiniLeagueGateway(options: GatewayOptions = {}) {
     } catch (error) {
       const normalized = error instanceof MiniLeagueGatewayError
         ? error
+        : error instanceof GatewayTimeoutError
+        ? new MiniLeagueGatewayError(504, "The Official FPL Mini-League request timed out after eight seconds.", "fpl-timeout", true)
         : new MiniLeagueGatewayError(502, "Official FPL could not provide the Mini-League data.", "fpl-upstream", true);
       if (cached?.state === "stale" && normalized.retryable) return { data: cached.value, stale: true };
       throw normalized;
