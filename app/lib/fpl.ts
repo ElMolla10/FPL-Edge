@@ -13,7 +13,7 @@ export type FplPlayer = {
   teamQualityAttackHome?:number;teamQualityAttackAway?:number;teamQualityDefenceHome?:number;teamQualityDefenceAway?:number;teamQualityConfidence?:number;
 };
 export type FplFixture = { id:number; event:number|null; teamH:number; teamA:number; teamHDifficulty:number; teamADifficulty:number; finished:boolean; kickoff:string|null; started:boolean; teamHScore:number|null; teamAScore:number|null;teamHAttackQuality?:number;teamHDefenceQuality?:number;teamAAttackQuality?:number;teamADefenceQuality?:number };
-export type FplEvent = { id:number; name:string; deadline:string; current:boolean; next:boolean; finished:boolean; dataChecked:boolean };
+export type FplEvent = { id:number; name:string; deadline:string; current:boolean; next:boolean; finished:boolean; dataChecked:boolean; averageEntryScore?:number|null };
 export type PositionRule = { id:number; name:string; short:string; squad:number; minPlay:number; maxPlay:number };
 export type FplData = { updatedAt:string; source:string; seasonStatsThrough:number; players:FplPlayer[]; fixtures:FplFixture[]; events:FplEvent[]; teams:{id:number;name:string;short:string;strengthHome?:number;strengthAway?:number;attackHome?:number|null;attackAway?:number|null;defenceHome?:number|null;defenceAway?:number|null;plPriorCoverage?:number;lowPlContinuity?:boolean;quality?:TeamQualityProfile}[]; rules:{budget:number;squadSize:number;teamLimit:number;positions:PositionRule[]}; dataIntegrityWarnings?:string[] };
 
@@ -27,6 +27,17 @@ export const availability=(player:FplPlayer)=>player.chance!==null?Math.max(0,pl
 // regardless of whether its matches have finished being played. That's a separate "results"
 // concept (official post-event history), not this function's job.
 export const futureEvents=(data:FplData,count=8)=>data.events.filter(event=>!event.finished&&new Date(event.deadline).getTime()>Date.now()).slice(0,count);
+
+export type DisplayedGameweekAverage={value:number;provisional:boolean};
+
+/** Selects only the official average attached to the gameweek currently displayed by the Team page. */
+export function displayedGameweekAverage(events:readonly FplEvent[],eventId:number):DisplayedGameweekAverage|null{
+  const event=events.find(candidate=>candidate.id===eventId);
+  if(!event)return null;
+  const value=event.averageEntryScore;
+  if(typeof value!=="number"||!Number.isFinite(value))return null;
+  return{value,provisional:event.current&&!event.finished};
+}
 
 const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
 

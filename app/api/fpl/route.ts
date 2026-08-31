@@ -1,4 +1,4 @@
-import { accumulateLiveStats, attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile, seasonStatsThroughEvent } from "../../lib/fpl";
+import { accumulateLiveStats, attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile, seasonStatsThroughEvent, type FplEvent } from "../../lib/fpl";
 import { buildTeamQualityProfiles } from "../../lib/team-quality";
 import priorSeasonSnapshot from "../../data/prior-season-2025-26.json";
 
@@ -8,6 +8,20 @@ const FIXTURES_URL = "https://fantasy.premierleague.com/api/fixtures/";
 const number = (value: unknown) => Number(value) || 0;
 type PriorSeasonRecord = (typeof priorSeasonSnapshot.players)[number];
 const priorByPlayerId = new Map<number, PriorSeasonRecord>(priorSeasonSnapshot.players.map((player) => [player.id, player]));
+
+export function mapOfficialEvent(event:Record<string,any>):FplEvent{
+  const averageEntryScore=typeof event.average_entry_score==="number"&&Number.isFinite(event.average_entry_score)?event.average_entry_score:null;
+  return{
+    id:event.id,
+    name:event.name,
+    deadline:event.deadline_time,
+    current:event.is_current,
+    next:event.is_next,
+    finished:event.finished,
+    dataChecked:event.data_checked,
+    averageEntryScore,
+  };
+}
 
 export async function GET() {
   try {
@@ -81,15 +95,7 @@ export async function GET() {
           maxPlay: position.squad_max_play,
         })),
       },
-      events: bootstrap.events.map((event: any) => ({
-        id: event.id,
-        name: event.name,
-        deadline: event.deadline_time,
-        current: event.is_current,
-        next: event.is_next,
-        finished: event.finished,
-        dataChecked: event.data_checked,
-      })),
+      events: bootstrap.events.map(mapOfficialEvent),
       teams: bootstrap.teams.map((team: any) => ({
         id: team.id,
         name: team.name,

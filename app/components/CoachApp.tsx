@@ -8,7 +8,7 @@ import TransferSensitivityPanel from "./TransferSensitivityPanel";
 import { useTransferDecisionConfidence } from "./useTransferDecisionConfidence";
 import Pitch from "./Pitch";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
-import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, fetchFplData, futureEvents, isCompleteSquad, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
+import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, displayedGameweekAverage, fetchFplData, futureEvents, isCompleteSquad, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
 import { createOptimizer } from "../lib/optimizer";
 import { FiveGwGainBand } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
@@ -407,6 +407,17 @@ function GameweekNav({event,branch,onBack,onForward,canBack,canForward}:{event:F
   </section>;
 }
 
+export function GameweekAverage({events,eventId}:{events:readonly FplEvent[];eventId:number}){
+  const average=displayedGameweekAverage(events,eventId);
+  if(!average)return null;
+  const status=average.provisional?"Live · provisional":"Official FPL average";
+  return <div className="gw-average" aria-label={`GW Average: ${average.value}. ${status}`}>
+    <span>GW Average</span>
+    <b>{average.value}</b>
+    <small>{status}</small>
+  </div>;
+}
+
 function Team({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
   const[manager,setManager]=useManager(revision);
   let entry:string|null=null;
@@ -494,9 +505,12 @@ function PastGameweekView({data,event,history}:{data:FplData;event:FplEvent;hist
 
   return <div className="gw-past">
     <section className="gw-past-summary">
-      <div>
-        <span>{resolved.source==="official"?"OFFICIAL RESULT":"YOUR LOCKED PLAN"}</span>
-        <h2>{resolved.totalPoints!==null?`${resolved.totalPoints} points`:resolved.predictedPoints!==null?`${resolved.predictedPoints} projected`:"—"}</h2>
+      <div className="gw-past-scoreline">
+        <div>
+          <span>{resolved.source==="official"?"OFFICIAL RESULT":"YOUR LOCKED PLAN"}</span>
+          <h2>{resolved.totalPoints!==null?`${resolved.totalPoints} points`:resolved.predictedPoints!==null?`${resolved.predictedPoints} projected`:"—"}</h2>
+        </div>
+        <GameweekAverage events={data.events} eventId={event.id}/>
       </div>
       {resolved.source==="locked-prediction"&&<p className="gw-pending-note">This is the plan you locked before the deadline, not the confirmed result -- connect an official FPL Team ID to see the real outcome for this week.</p>}
     </section>
@@ -527,7 +541,7 @@ function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,se
   const planningFirst=futureEvents(data,5)[0]?.id??event.id;
 
   return <div className="gw-current">
-    <section className="team-toolbar"><div><span>FORMATION</span><b>{formation(scoring.effectiveXi)}</b></div><div><span>{hasStarted?"LIVE POINTS":"KICKOFF PENDING"}</span><b>{hasStarted?scoring.liveTotal:"—"}</b></div>{scoring.activeChip&&<div><span>ACTIVE CHIP</span><b>{scoring.activeChip==="3xc"?"Triple Captain":scoring.activeChip==="bboost"?"Bench Boost":scoring.activeChip}</b></div>}<div className="segmented">{(["Pitch","List"] as const).map(x=><button className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div><button onClick={()=>go("draft")}>Edit squad</button></section>
+    <section className="team-toolbar"><div><span>FORMATION</span><b>{formation(scoring.effectiveXi)}</b></div><div><span>{hasStarted?"LIVE POINTS":"KICKOFF PENDING"}</span><b>{hasStarted?scoring.liveTotal:"—"}</b></div><GameweekAverage events={data.events} eventId={event.id}/>{scoring.activeChip&&<div><span>ACTIVE CHIP</span><b>{scoring.activeChip==="3xc"?"Triple Captain":scoring.activeChip==="bboost"?"Bench Boost":scoring.activeChip}</b></div>}<div className="segmented">{(["Pitch","List"] as const).map(x=><button className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div><button onClick={()=>go("draft")}>Edit squad</button></section>
     {!hasStarted&&<p className="gw-pending-note">{event.name}'s matches haven't kicked off yet -- live points will appear here once they do.</p>}
     {hasStarted&&!allFixturesFinished&&<p className="gw-pending-note">Some of this gameweek's matches are still in progress -- a player showing 0 minutes may not have played yet. Final XI and automatic substitutions appear once every match finishes.</p>}
     {allFixturesFinished&&!event.dataChecked&&<p className="gw-pending-note">Bonus points aren't final yet -- FPL confirms them a few hours after the last match of the gameweek.</p>}
