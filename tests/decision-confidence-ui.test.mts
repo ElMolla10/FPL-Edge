@@ -20,7 +20,7 @@ const available: DecisionConfidenceAvailable = {
 };
 
 test("DecisionConfidencePanel renders pending, unavailable, and unexpected-error states accessibly", () => {
-  const common = { title: "Latest transfer confidence", candidateLabel: "Make transfer", baselineLabel: "Keep previous squad" };
+  const common = { title: "Latest transfer confidence", candidateLabel: "Make transfer", baselineLabel: "Keep previous squad", metricDirection: "Current sandbox squad minus previous squad", metricLabel: "latest sandbox delta" };
   const pending = renderToStaticMarkup(createElement(DecisionConfidencePanel, { ...common, state: { status: "pending" } }));
   assert.match(pending, /aria-live="polite"/);
   assert.match(pending, /Calculating 1,024 modeled scenarios/);
@@ -37,6 +37,7 @@ test("DecisionConfidencePanel renders pending, unavailable, and unexpected-error
 test("DecisionConfidencePanel renders all available metrics with qualified wording and finite values", () => {
   const html = renderToStaticMarkup(createElement(DecisionConfidencePanel, {
     title: "Latest transfer confidence", candidateLabel: "Make transfer", baselineLabel: "Keep previous squad",
+    metricDirection: "Transfer minus current squad", metricLabel: "transfer delta",
     state: { status: "available", result: available },
   }));
 
@@ -44,8 +45,9 @@ test("DecisionConfidencePanel renders all available metrics with qualified wordi
   assert.match(html, /High-risk/);
   assert.match(html, /Modeled scenario win rate[^]*60\.0%/);
   assert.match(html, /Gain[^]*60\.0%[^]*Tie[^]*10\.1%[^]*Loss[^]*30\.0%/);
-  assert.match(html, /Expected net points delta after hit cost[^]*\+2\.3/);
-  assert.match(html, /P10 downside[^]*−7\.0[^]*P50 median[^]*\+2\.0[^]*P90 upside[^]*\+12\.0/);
+  assert.match(html, /Signed metrics[^]*Transfer minus current squad/);
+  assert.match(html, /Expected transfer delta after hit cost[^]*\+2\.3/);
+  assert.match(html, /P10 transfer delta[^]*−7\.0[^]*P50 transfer delta[^]*\+2\.0[^]*P90 transfer delta[^]*\+12\.0/);
   assert.match(html, /1,024 modeled scenarios[^]*5 available gameweeks/);
   assert.match(html, /<details/);
   assert.match(html, /Assumptions and disclosure/);
@@ -55,6 +57,7 @@ test("DecisionConfidencePanel renders all available metrics with qualified wordi
 test("DecisionConfidencePanel replaces non-finite engine output with an honest failure state", () => {
   const html = renderToStaticMarkup(createElement(DecisionConfidencePanel, {
     title: "Cumulative sandbox confidence", candidateLabel: "Make transfers", baselineLabel: "Keep baseline squad",
+    metricDirection: "Current sandbox squad minus original baseline", metricLabel: "cumulative sandbox delta",
     state: { status: "available", result: { ...available, p50: Number.NaN } },
   }));
   assert.match(html, /Unexpected calculation failure/);
@@ -64,12 +67,15 @@ test("DecisionConfidencePanel replaces non-finite engine output with an honest f
 test("DecisionConfidencePanel uses previous/baseline squad and tie wording for non-candidate preferences", () => {
   const latest = renderToStaticMarkup(createElement(DecisionConfidencePanel, {
     title: "Latest transfer confidence", candidateLabel: "Make transfer", baselineLabel: "Keep previous squad",
+    metricDirection: "Transfer minus current squad", metricLabel: "transfer delta",
     state: { status: "available", result: { ...available, preferred: "baseline", expectedDelta: -1, preferredAlternativeScenarioWinRate: .55 } },
   }));
   assert.match(latest, /Preferred decision[^]*Keep previous squad/);
+  assert.match(latest, /Transfer minus current squad[^]*Expected transfer delta after hit cost[^]*−1\.0/);
 
   const cumulativeTie = renderToStaticMarkup(createElement(DecisionConfidencePanel, {
     title: "Cumulative sandbox confidence", candidateLabel: "Make transfers", baselineLabel: "Keep baseline squad",
+    metricDirection: "Current sandbox squad minus original baseline", metricLabel: "cumulative sandbox delta",
     state: { status: "available", result: { ...available, preferred: "tie", expectedDelta: 0, preferredAlternativeScenarioWinRate: null } },
   }));
   assert.match(cumulativeTie, /Preferred decision[^]*Tie/);

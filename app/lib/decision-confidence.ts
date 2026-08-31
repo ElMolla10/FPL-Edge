@@ -78,6 +78,22 @@ export type DecisionConfidenceInput = {
   scenarioCount?: number;
 };
 
+type OutcomeLookup = Pick<ReadonlyMap<string, JointPlayerOutcome>, "get">;
+
+export type PreparedDecisionScenarioContext = Readonly<{
+  input: DecisionConfidenceInput;
+  scenarioCount: number;
+  scenarioOutcomes: readonly ReadonlyMap<string, JointPlayerOutcome>[];
+  scenarioFactorDraws: ReadonlyMap<string, Float64Array>;
+  baselineScenarioScores: readonly number[];
+  canonicalCandidateScores: readonly number[];
+  canonicalDeltas: readonly number[];
+}>;
+
+export type PreparedDecisionScenarioResult =
+  | { status: "prepared"; context: PreparedDecisionScenarioContext }
+  | DecisionConfidenceUnavailable;
+
 export function decisionScenarioCountUnavailableReason(scenarioCount = 1024): string | null {
   return Number.isInteger(scenarioCount) && scenarioCount >= 1 && scenarioCount <= 2048
     ? null
@@ -177,22 +193,24 @@ export function sampleDecisionScenario(
   models: readonly PlayerEventOutcomeModel[],
   scenarioIndex: number,
   scenarioCount: number,
+  preparedDraws?: ReadonlyMap<string, Float64Array>,
 ): ReadonlyMap<string, JointPlayerOutcome> {
   const outcomes = new Map<string, JointPlayerOutcome>();
+  const draw = (factorKey: string) => preparedDraws?.get(factorKey)?.[scenarioIndex] ?? deterministicStratifiedUnit(scenarioIndex, scenarioCount, factorKey);
   for (const model of models) {
     if (model.status === "unavailable") throw new Error(model.reason);
     let appeared = false, reached60 = false, points = 0;
     for (const fixture of model.fixtures) {
       const base = `${model.eventId}:${model.player.id}:${fixture.fixtureId}`;
-      const appearanceDraw = deterministicStratifiedUnit(scenarioIndex, scenarioCount, `appearance:${base}`);
+      const appearanceDraw = draw(`appearance:${base}`);
       const fixtureAppeared = appearanceDraw < clamp(fixture.appearanceProbability);
       if (!fixtureAppeared) continue;
       const fixtureReached60 = appearanceDraw < clamp(fixture.reached60Probability, 0, fixture.appearanceProbability);
       appeared = true;
       reached60 ||= fixtureReached60;
       points += fixtureReached60 ? 2 : 1;
-      points += samplePmf(fixture.pointsWhenAppearedPmf, deterministicStratifiedUnit(scenarioIndex, scenarioCount, `scoring:${base}`));
-      const cleanSheetDraw = deterministicStratifiedUnit(scenarioIndex, scenarioCount, `clean-sheet:${fixture.fixtureId}:${fixture.teamId}`);
+      points += samplePmf(fixture.pointsWhenAppearedPmf, draw(`scoring:${base}`));
+      const cleanSheetDraw = draw(`clean-sheet:${fixture.fixtureId}:${fixture.teamId}`);
       if (fixtureReached60 && cleanSheetDraw < clamp(fixture.cleanSheetProbability)) points += fixture.cleanSheetPoints;
     }
     outcomes.set(playerEventOutcomeKey(model.eventId, model.player.id), { appeared, reached60, points });
@@ -200,13 +218,13 @@ export function sampleDecisionScenario(
   return outcomes;
 }
 
-function playerWithOutcome(player: FplPlayer, eventId: number, outcomes: ReadonlyMap<string, JointPlayerOutcome>): FplPlayer {
+function playerWithOutcome(player: FplPlayer, eventId: number, outcomes: OutcomeLookup): FplPlayer {
   const outcome = outcomes.get(playerEventOutcomeKey(eventId, player.id));
   if (!outcome) throw new Error(`Missing modeled outcome for player ${player.id} in event ${eventId}.`);
   return { ...player, eventMinutes: outcome.appeared ? outcome.reached60 ? 60 : 1 : 0, eventPoints: outcome.points };
 }
 
-export function scoreDecisionPlanWeek(week: FrozenDecisionWeek, outcomes: ReadonlyMap<string, JointPlayerOutcome>): number {
+export function scoreDecisionPlanWeek(week: FrozenDecisionWeek, outcomes: OutcomeLookup): number {
   const xi = week.xi.map(player => playerWithOutcome(player, week.eventId, outcomes));
   const bench = week.bench.map(player => playerWithOutcome(player, week.eventId, outcomes));
   const resolved = simulateAutosubs(xi, bench, week.captainId, week.viceId);
@@ -215,6 +233,9 @@ export function scoreDecisionPlanWeek(week: FrozenDecisionWeek, outcomes: Readon
   const captain = resolved.effectiveXi.find(player => player.id === resolved.effectiveCaptainId);
   return basePoints + (captain?.eventPoints ?? 0) * (week.captainMultiplier - 1);
 }
+
+const scoreDecisionPlan = (plan: FrozenDecisionPlan, outcomes: OutcomeLookup) =>
+  plan.weeks.reduce((sum, week) => sum + scoreDecisionPlanWeek(week, outcomes), 0);
 
 function quantile(sorted: readonly number[], probability: number): number {
   const index = Math.max(0, Math.ceil(clamp(probability) * sorted.length) - 1);
@@ -255,17 +276,8 @@ function unavailableReason(input: DecisionConfidenceInput): string | null {
   return null;
 }
 
-export function analyzeDecisionConfidence(input: DecisionConfidenceInput): DecisionConfidenceResult {
-  const reason = unavailableReason(input);
-  if (reason) return { status: "unavailable", reason };
-  const scenarioCount = input.scenarioCount ?? 1024;
-  const deltas: number[] = [];
-  for (let scenario = 0; scenario < scenarioCount; scenario++) {
-    const outcomes = sampleDecisionScenario(input.playerEventModels, scenario, scenarioCount);
-    const baselinePoints = input.baseline.weeks.reduce((sum, week) => sum + scoreDecisionPlanWeek(week, outcomes), 0);
-    const candidatePoints = input.candidate.weeks.reduce((sum, week) => sum + scoreDecisionPlanWeek(week, outcomes), 0);
-    deltas.push(candidatePoints - baselinePoints - input.candidateAdditionalHitCost);
-  }
+function summarizeDecisionDeltas(input: DecisionConfidenceInput, deltas: readonly number[]): DecisionConfidenceAvailable {
+  const scenarioCount = deltas.length;
   const sorted = [...deltas].sort((a, b) => a - b);
   const gainCount = deltas.filter(delta => delta > 0).length;
   const tieCount = deltas.filter(delta => delta === 0).length;
@@ -297,4 +309,94 @@ export function analyzeDecisionConfidence(input: DecisionConfidenceInput): Decis
     label: classifyDecisionConfidence(deltas, expectedDelta),
     assumptions,
   };
+}
+
+/**
+ * Builds the reusable deterministic scenario context used by both canonical analysis and transfer
+ * sensitivity. Every player/event outcome is sampled once, while baseline and canonical candidate
+ * scores are retained so later sensitivity evaluations only need to overlay the affected models.
+ */
+export function prepareDecisionScenarioContext(input: DecisionConfidenceInput): PreparedDecisionScenarioResult {
+  const reason = unavailableReason(input);
+  if (reason) return { status: "unavailable", reason };
+  const scenarioCount = input.scenarioCount ?? 1024;
+  const scenarioOutcomes: ReadonlyMap<string, JointPlayerOutcome>[] = [];
+  const baselineScenarioScores: number[] = [];
+  const canonicalCandidateScores: number[] = [];
+  const canonicalDeltas: number[] = [];
+  const factorKeys = new Set<string>();
+  for (const model of input.playerEventModels) {
+    if (model.status === "unavailable") continue;
+    for (const fixture of model.fixtures) {
+      const base = `${model.eventId}:${model.player.id}:${fixture.fixtureId}`;
+      factorKeys.add(`appearance:${base}`);
+      factorKeys.add(`scoring:${base}`);
+      factorKeys.add(`clean-sheet:${fixture.fixtureId}:${fixture.teamId}`);
+    }
+  }
+  const scenarioFactorDraws = new Map<string, Float64Array>();
+  for (const factorKey of factorKeys) {
+    const draws = new Float64Array(scenarioCount);
+    for (let scenario = 0; scenario < scenarioCount; scenario++) draws[scenario] = deterministicStratifiedUnit(scenario, scenarioCount, factorKey);
+    scenarioFactorDraws.set(factorKey, draws);
+  }
+  for (let scenario = 0; scenario < scenarioCount; scenario++) {
+    const outcomes = sampleDecisionScenario(input.playerEventModels, scenario, scenarioCount, scenarioFactorDraws);
+    const baselinePoints = scoreDecisionPlan(input.baseline, outcomes);
+    const candidatePoints = scoreDecisionPlan(input.candidate, outcomes);
+    scenarioOutcomes.push(outcomes);
+    baselineScenarioScores.push(baselinePoints);
+    canonicalCandidateScores.push(candidatePoints);
+    canonicalDeltas.push(candidatePoints - baselinePoints - input.candidateAdditionalHitCost);
+  }
+  return {
+    status: "prepared",
+    context: Object.freeze({
+      input,
+      scenarioCount,
+      scenarioOutcomes: Object.freeze(scenarioOutcomes),
+      scenarioFactorDraws,
+      baselineScenarioScores: Object.freeze(baselineScenarioScores),
+      canonicalCandidateScores: Object.freeze(canonicalCandidateScores),
+      canonicalDeltas: Object.freeze(canonicalDeltas),
+    }),
+  };
+}
+
+export function analyzePreparedDecisionContext(context: PreparedDecisionScenarioContext): DecisionConfidenceResult {
+  return summarizeDecisionDeltas(context.input, context.canonicalDeltas);
+}
+
+export function analyzePreparedDecisionDeltas(
+  context: PreparedDecisionScenarioContext,
+  deltas: readonly number[],
+): DecisionConfidenceResult {
+  if (deltas.length !== context.scenarioCount || deltas.some(delta => !Number.isFinite(delta))) {
+    return { status: "unavailable", reason: "Prepared scenario deltas must be finite and match the canonical scenario count." };
+  }
+  return summarizeDecisionDeltas(context.input, deltas);
+}
+
+export function rescorePreparedDecisionCandidate(
+  context: PreparedDecisionScenarioContext,
+  affectedModels: readonly PlayerEventOutcomeModel[],
+): DecisionConfidenceResult {
+  const unavailable = affectedModels.find(model => model.status === "unavailable");
+  if (unavailable?.status === "unavailable") return unavailable;
+  const deltas: number[] = [];
+  for (let scenario = 0; scenario < context.scenarioCount; scenario++) {
+    const affectedOutcomes = sampleDecisionScenario(affectedModels, scenario, context.scenarioCount, context.scenarioFactorDraws);
+    const canonicalOutcomes = context.scenarioOutcomes[scenario];
+    const overlay: OutcomeLookup = {
+      get(key) { return affectedOutcomes.get(key) ?? canonicalOutcomes.get(key); },
+    };
+    const candidatePoints = scoreDecisionPlan(context.input.candidate, overlay);
+    deltas.push(candidatePoints - context.baselineScenarioScores[scenario] - context.input.candidateAdditionalHitCost);
+  }
+  return summarizeDecisionDeltas(context.input, deltas);
+}
+
+export function analyzeDecisionConfidence(input: DecisionConfidenceInput): DecisionConfidenceResult {
+  const prepared = prepareDecisionScenarioContext(input);
+  return prepared.status === "prepared" ? analyzePreparedDecisionContext(prepared.context) : prepared;
 }

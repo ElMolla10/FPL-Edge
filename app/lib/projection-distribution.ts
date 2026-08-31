@@ -290,6 +290,25 @@ export type PlayerFixtureOutcomeModel = {
   reconciliation: "none" | "thinned" | "added";
 };
 
+export type PlayerFixtureSensitivityMetadata = Readonly<{
+  fixtureId: number;
+  conditionalExpectedGoals: number;
+  conditionalExpectedAssists: number;
+  confidence: number;
+  nonAttackingPointsWhenAppearedPmf: readonly number[];
+  reconciliation: Readonly<
+    | { mode: "none" }
+    | { mode: "thinned"; keepProbability: number }
+    | { mode: "added"; additionPmf: readonly number[] }
+  >;
+}>;
+
+export type PlayerEventSensitivityMetadata = Readonly<{
+  expectedMinutes: number;
+  attackingReturnRate: number;
+  fixtures: readonly PlayerFixtureSensitivityMetadata[];
+}>;
+
 export type PlayerEventModelAudit = {
   targetExpectedPoints: number;
   rawModeledMean: number;
@@ -317,6 +336,7 @@ export type AvailablePlayerEventOutcomeModel = {
   eventId: number;
   fixtures: PlayerFixtureOutcomeModel[];
   audit: PlayerEventModelAudit;
+  sensitivity?: PlayerEventSensitivityMetadata;
 };
 
 export type UnavailablePlayerEventOutcomeModel = {
@@ -403,7 +423,10 @@ export function buildPlayerEventOutcomeModel(
     if (Math.abs(metrics.xPts) > RECONCILIATION_TOLERANCE) {
       return { status: "unavailable", player, eventId, reason: `Blank event ${eventId} has non-zero xPts target ${metrics.xPts}.` };
     }
-    return { status: "available", player, eventId, fixtures: [], audit };
+    return {
+      status: "available", player, eventId, fixtures: [], audit,
+      sensitivity: Object.freeze({ expectedMinutes: metrics.expectedMinutes, attackingReturnRate: metrics.xG + metrics.xA, fixtures: Object.freeze([]) }),
+    };
   }
 
   const fixtureCount = games.length;
@@ -411,18 +434,39 @@ export function buildPlayerEventOutcomeModel(
   const appearanceProbability = clamp(metrics.startProbability * (1 - reached60Probability) + reached60Probability, reached60Probability, 1);
   const conditionalAppearance = Math.max(.01, appearanceProbability);
   const rawFixturePmfs: Pmf[] = [];
+  const sensitivitySources: Array<{
+    fixtureId: number;
+    conditionalExpectedGoals: number;
+    conditionalExpectedAssists: number;
+    confidence: number;
+    nonAttackingPointsWhenAppearedPmf: Pmf;
+    reconciliation: PlayerFixtureSensitivityMetadata["reconciliation"];
+  }> = [];
   const fixtureModels = games.map(fixture => {
+    const conditionalExpectedGoals = metrics.xG / fixtureCount / conditionalAppearance;
+    const conditionalExpectedAssists = metrics.xA / fixtureCount / conditionalAppearance;
     const savesPmf = savesPointsPmf(metrics.saves / fixtureCount / conditionalAppearance, player.positionShort);
     baseComponents.discreteSavePoints += appearanceProbability * pmfMean(savesPmf);
-    const rawPointsWhenAppearedPmf = convolvePmfs([
-      goalsPointsPmf(metrics.xG / fixtureCount / conditionalAppearance, metrics.confidence, player.positionShort),
-      assistsPointsPmf(metrics.xA / fixtureCount / conditionalAppearance, metrics.confidence),
+    const nonAttackingPointsWhenAppearedPmf = convolvePmfs([
       defensiveContributionPmf(metrics.defensiveContribution / fixtureCount / conditionalAppearance, player.positionShort, 1),
       bonusPointsPmf(metrics.bonus / fixtureCount / conditionalAppearance, 1),
       savesPmf,
       penaltySavePointsPmf((metrics.penaltySavePoints ?? 0) / fixtureCount / conditionalAppearance, player.positionShort),
     ]);
+    const rawPointsWhenAppearedPmf = convolvePmfs([
+      goalsPointsPmf(conditionalExpectedGoals, metrics.confidence, player.positionShort),
+      assistsPointsPmf(conditionalExpectedAssists, metrics.confidence),
+      nonAttackingPointsWhenAppearedPmf,
+    ]);
     rawFixturePmfs.push(rawPointsWhenAppearedPmf);
+    sensitivitySources.push({
+      fixtureId: fixture.id,
+      conditionalExpectedGoals,
+      conditionalExpectedAssists,
+      confidence: metrics.confidence,
+      nonAttackingPointsWhenAppearedPmf,
+      reconciliation: Object.freeze({ mode: "none" }),
+    });
     const model: PlayerFixtureOutcomeModel = {
       fixtureId: fixture.id,
       teamId: player.teamId,
@@ -450,9 +494,10 @@ export function buildPlayerEventOutcomeModel(
   }
   if (targetConditionalMean + RECONCILIATION_TOLERANCE < rawConditionalMean) {
     const keepProbability = rawConditionalMean > 0 ? Math.max(0, targetConditionalMean) / rawConditionalMean : 0;
-    fixtureModels.forEach(model => {
+    fixtureModels.forEach((model, index) => {
       model.pointsWhenAppearedPmf = thinPmf(model.pointsWhenAppearedPmf, keepProbability);
       model.reconciliation = "thinned";
+      sensitivitySources[index].reconciliation = Object.freeze({ mode: "thinned", keepProbability });
     });
   } else if (targetConditionalMean > rawConditionalMean + RECONCILIATION_TOLERANCE) {
     const totalAppearanceWeight = fixtureCount * appearanceProbability;
@@ -464,9 +509,10 @@ export function buildPlayerEventOutcomeModel(
       return { status: "unavailable", player, eventId, reason: `Player ${player.id} event ${eventId} requires ${addedMeanWhenAppeared.toFixed(3)} reconciliation points per appearance, above the honest ${MAX_ADDED_POINTS_WHEN_APPEARED}-point limit.` };
     }
     const addition = exactIntegerMeanPmf(addedMeanWhenAppeared);
-    fixtureModels.forEach(model => {
+    fixtureModels.forEach((model, index) => {
       model.pointsWhenAppearedPmf = convolvePmfs([model.pointsWhenAppearedPmf, addition]);
       model.reconciliation = "added";
+      sensitivitySources[index].reconciliation = Object.freeze({ mode: "added", additionPmf: Object.freeze([...addition]) });
     });
   }
   const reconciledConditionalMean = fixtureModels.reduce((sum, fixture) => sum + fixture.appearanceProbability * pmfMean(fixture.pointsWhenAppearedPmf), 0);
@@ -481,5 +527,13 @@ export function buildPlayerEventOutcomeModel(
       tolerance: RECONCILIATION_TOLERANCE, sampledMeanTolerance: SAMPLED_MEAN_TOLERANCE,
       components: baseComponents, assumptions: EVENT_MODEL_ASSUMPTIONS,
     },
+    sensitivity: Object.freeze({
+      expectedMinutes: metrics.expectedMinutes,
+      attackingReturnRate: metrics.xG + metrics.xA,
+      fixtures: Object.freeze(sensitivitySources.map(source => Object.freeze({
+        ...source,
+        nonAttackingPointsWhenAppearedPmf: Object.freeze([...source.nonAttackingPointsWhenAppearedPmf]),
+      }))),
+    }),
   };
 }

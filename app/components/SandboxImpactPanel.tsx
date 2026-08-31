@@ -57,8 +57,8 @@ function SandboxDecisionConfidenceBlocks({ input, comparison, freeTransfers }: {
   return <section className="sandbox-decision-confidence" aria-label="Decision Confidence">
     <header><span>DECISION CONFIDENCE</span><h3>Modeled outcomes, separate from the transfer-quality gate</h3><p>These deterministic scenario frequencies compare frozen optimizer plans. They do not change transfer ordering or the /100 rating.</p></header>
     <div>
-      <DecisionConfidencePanel title="Latest transfer confidence" state={confidence.latest} candidateLabel="Make transfer" baselineLabel="Keep previous squad" />
-      <DecisionConfidencePanel title="Cumulative sandbox confidence" state={confidence.cumulative} candidateLabel="Make transfers" baselineLabel="Keep baseline squad" />
+      <DecisionConfidencePanel title="Latest transfer confidence" state={confidence.latest} candidateLabel="Make transfer" baselineLabel="Keep previous squad" metricDirection="Current sandbox squad minus previous squad" metricLabel="latest sandbox delta" />
+      <DecisionConfidencePanel title="Cumulative sandbox confidence" state={confidence.cumulative} candidateLabel="Make transfers" baselineLabel="Keep baseline squad" metricDirection="Current sandbox squad minus original baseline" metricLabel="cumulative sandbox delta" />
     </div>
   </section>;
 }

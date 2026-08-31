@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   analyzeDecisionConfidence,
+  analyzePreparedDecisionContext,
   classifyDecisionConfidence,
   deterministicStratifiedUnit,
   freezeDecisionPlan,
   playerEventOutcomeKey,
+  prepareDecisionScenarioContext,
   sampleDecisionScenario,
   scoreDecisionPlanWeek,
 } from "../app/lib/decision-confidence.ts";
@@ -192,6 +194,32 @@ test("identical inputs produce byte-identical decision results", () => {
   const first = compareOneChange([.2, .3, .3, .2], 0, 256);
   const second = compareOneChange([.2, .3, .3, .2], 0, 256);
   assert.equal(JSON.stringify(first), JSON.stringify(second));
+});
+
+test("the reusable prepared scenario context is exactly equivalent to canonical analysis", () => {
+  const baselineSquad = standardSquad();
+  const outgoing = baselineSquad.find(p => p.positionShort === "MID")!;
+  const incoming = player(999, "MID");
+  const candidateSquad = swapPlayer(baselineSquad, outgoing, incoming);
+  const input = {
+    baseline: frozenPlan("baseline", baselineSquad),
+    candidate: frozenPlan("candidate", candidateSquad),
+    playerEventModels: deterministicModels([...baselineSquad, incoming], new Map([
+      [outgoing.id, { pointsPmf: [.35, .3, .2, .15] }],
+      [incoming.id, { pointsPmf: [.15, .2, .3, .2, .15] }],
+    ])),
+    candidateAdditionalHitCost: 4,
+    scenarioCount: 1024,
+  };
+
+  const canonical = analyzeDecisionConfidence(input);
+  const prepared = prepareDecisionScenarioContext(input);
+  assert.equal(prepared.status, "prepared");
+  if (prepared.status !== "prepared") return;
+  const optimized = analyzePreparedDecisionContext(prepared.context);
+
+  assert.deepEqual(optimized, canonical);
+  assert.deepEqual(prepared.context.canonicalDeltas, prepared.context.canonicalDeltas.slice());
 });
 
 test("keyed strata stay independently mixed across realistic appearance, scoring and clean-sheet factors", () => {

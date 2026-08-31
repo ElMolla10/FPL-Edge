@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeTransferDecisionConfidence } from "../app/lib/transfer-confidence.ts";
+import { analyzeTransferDecisionConfidence, prepareTransferDecisionConfidence } from "../app/lib/transfer-confidence.ts";
 import { createOptimizer } from "../app/lib/optimizer.ts";
 import { FplData, FplFixture, FplPlayer } from "../app/lib/fpl.ts";
 
@@ -89,6 +89,22 @@ test("the transfer's own hit cost is passed through as the candidate's additiona
   assert.equal(noHit.preferred, "candidate");
   assert.equal(hugeHit.preferred, "baseline", "a hit cost far larger than any plausible points gain must reverse the preference to baseline");
   assert.ok(noHit.assumptions.some(assumption => assumption.includes("modeled scenario win rate") && assumption.includes("not calibrated probabilities")));
+});
+
+test("prepared primary transfer input retains the row's real hit cost and exact five-event optimizer horizon", () => {
+  const { squad, outgoing, incoming } = weakOutgoingAndStrongIncoming();
+  const data = makeData(squad, [incoming.teamId]);
+  const optimizer = createOptimizer(data, "Balanced 5 GWs", "Balanced", "Maximum xPts");
+  const prepared = prepareTransferDecisionConfidence({
+    fixtures: data.fixtures, futureEventIds: optimizer.eventIds, dataUpdatedAt: data.updatedAt, squad,
+    transfer: { out: outgoing, incoming, hitCost: 4 }, evaluate: optimizer.evaluate, scenarioCount: 1024,
+  });
+  assert.equal(prepared.status, "prepared");
+  if (prepared.status !== "prepared") return;
+  assert.equal(prepared.analysis.candidateAdditionalHitCost, 4);
+  assert.equal(prepared.analysis.scenarioCount, 1024);
+  assert.deepEqual(prepared.analysis.baseline.weeks.map(week => week.eventId), optimizer.eventIds);
+  assert.deepEqual(prepared.analysis.candidate.weeks.map(week => week.eventId), optimizer.eventIds);
 });
 
 test("identical inputs produce byte-identical results", () => {

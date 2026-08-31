@@ -2,13 +2,16 @@
 
 import { Transfer } from "../lib/transfers";
 import { blankProbability, haulProbability, playerPointsDistribution, pointsRange } from "../lib/projection-distribution";
+import type { TransferAnalysisEntry } from "../lib/transfer-decision-ui";
+import DecisionConfidencePanel from "./DecisionConfidencePanel";
+import TransferSensitivityPanel from "./TransferSensitivityPanel";
 
 // Extracted from CoachApp.tsx so LiveDraftBuilder.tsx's pitch-click swap can reuse the same full
 // breakdown the Transfers page already shows for its ranked candidates -- CoachApp.tsx already
 // imports LiveDraftBuilder, so LiveDraftBuilder importing this back from CoachApp.tsx would cycle.
 // Same pattern as the Pitch.tsx extraction. Behavior and markup are unchanged from the original;
 // the Transfers page's own usage is untouched (just imported from here instead of defined inline).
-export default function TransferBreakdown({r}:{r:Transfer}){
+export default function TransferBreakdown({r,decision,onAnalyze,analysisActive=false,analysisBusy=false}:{r:Transfer;decision?:TransferAnalysisEntry;onAnalyze?:()=>void;analysisActive?:boolean;analysisBusy?:boolean}){
   const horizons=[
     {label:"NEXT GAMEWEEK",out:r.outGw1,incoming:r.inGw1,gain:r.gain1,individual:r.individualGain1},
     {label:"NEXT 3 GWs",out:r.outGw3,incoming:r.inGw3,gain:r.gain3,individual:r.individualGain3},
@@ -38,7 +41,7 @@ export default function TransferBreakdown({r}:{r:Transfer}){
         <p><span>Start probability</span><b>{Math.round(r.startProbOut*100)}%</b><strong>{Math.round(r.startProbIn*100)}%</strong></p>
         <p><span>Attacking threat</span><b>{r.attackingOut.toFixed(2)}</b><strong>{r.attackingIn.toFixed(2)}</strong></p>
         <p><span>Defensive contribution</span><b>{r.dcOut.toFixed(2)}</b><strong>{r.dcIn.toFixed(2)}</strong></p>
-        <p><span>Model confidence</span><b>{Math.round(r.confidenceOut*100)}%</b><strong>{Math.round(r.confidenceIn*100)}%</strong></p>
+        <p><span>Projection evidence</span><b>{Math.round(r.confidenceOut*100)}%</b><strong>{Math.round(r.confidenceIn*100)}%</strong></p>
       </section>
 
       <section className="fixture-context-card">
@@ -68,5 +71,12 @@ export default function TransferBreakdown({r}:{r:Transfer}){
       <span>{r.qualityStatus==="blocked"?"WHY THIS ROUTE IS BLOCKED":"WHAT TO WATCH"}</span>
       {[...r.qualityReasons.map(reason=>({key:`quality-${reason.code}`,message:reason.message})),...r.anomalies.map(flag=>({key:`anomaly-${flag.code}`,message:flag.message}))].map(item=><p key={item.key}>{item.message}</p>)}
     </section>}
+    <section className="transfer-breakdown-confidence" aria-label={`Decision Confidence for ${r.out.name} to ${r.incoming.name}`}>
+      <header><span>DECISION CONFIDENCE</span><h3>Transfer versus current squad</h3><p>Scenario analysis stays separate from the {r.qualityStatus} quality-gate verdict above.</p></header>
+      {decision?<>
+        <DecisionConfidencePanel title="Expanded transfer confidence" state={decision.main} candidateLabel="Make transfer" baselineLabel="Keep current squad" metricDirection="Transfer minus current squad" metricLabel="transfer delta" />
+        <TransferSensitivityPanel state={decision.sensitivity} onRetry={onAnalyze} retryDisabled={analysisBusy}/>
+      </>:<button type="button" onClick={onAnalyze} disabled={!onAnalyze||analysisActive}>{analysisActive?"Calculating Decision Confidence…":"Analyze Decision Confidence"}</button>}
+    </section>
   </div>;
 }

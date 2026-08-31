@@ -48,12 +48,12 @@ export function evaluateTransferQuality(input: TransferQualityInput): TransferQu
   if (severeFlags.length) hard("projection-plausibility", `Projection failed ${severeFlags.length} hard plausibility check${severeFlags.length === 1 ? "" : "s"}: ${severeFlags.join(", ")}.`);
   if (input.startProbability < ROLE_SECURITY_FLOOR.startProbability) hard("insufficient-start-probability", `Only ${Math.round(input.startProbability * 100)}% start probability; this cannot be an actionable transfer.`);
   if (input.expectedMinutes < ROLE_SECURITY_FLOOR.expectedMinutes) hard("insufficient-expected-minutes", `Only ${Math.round(input.expectedMinutes)} expected minutes; role security is below the action floor.`);
-  if (input.confidence < ROLE_SECURITY_FLOOR.confidence) hard("insufficient-model-confidence", `Model confidence is only ${Math.round(input.confidence * 100)}%, below the hard safety floor.`);
+  if (input.confidence < ROLE_SECURITY_FLOOR.confidence) hard("insufficient-model-confidence", `Projection evidence is only ${Math.round(input.confidence * 100)}%, below the hard safety floor.`);
   const hasHard = reasons.length > 0;
   if (!hasHard) {
     if (input.startProbability < 0.70) watch("start-probability-watch", `${Math.round(input.startProbability * 100)}% start probability needs confirmation before acting.`);
     if (input.expectedMinutes < 60) watch("minutes-watch", `${Math.round(input.expectedMinutes)} expected minutes makes the route too role-sensitive for the primary recommendation.`);
-    if (input.confidence < 0.60) watch("confidence-watch", `${Math.round(input.confidence * 100)}% model confidence is below the actionable threshold.`);
+    if (input.confidence < 0.60) watch("confidence-watch", `${Math.round(input.confidence * 100)}% projection evidence is below the actionable threshold.`);
     if (input.calibrationGroup === "no-pl-prior") watch("no-pl-evidence", `No genuine prior-season Premier League evidence; wait for a stable top-flight sample.`);
     if (input.calibrationGroup === "limited-pl") watch("limited-pl-evidence", `Limited prior-season Premier League evidence; recommendation remains provisional.`);
     if (input.lowPlContinuityClub) watch("low-club-continuity", `The incoming player's club has limited roster-level Premier League continuity.`);
