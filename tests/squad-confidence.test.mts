@@ -83,6 +83,31 @@ test("generic squad adapter rejects incomplete squads and mismatched optimizer h
   assert.deepEqual(mismatched, { status: "unavailable", reason: "Baseline and candidate evaluations do not cover the explicit future event horizon." });
 });
 
+test("MAX_DECISION_HORIZON accepts exactly 8 future events (matching the app's own Long-term 8 GWs ceiling) and rejects 9", () => {
+  const baselineSquad = squad();
+  const candidateSquad = squad(100);
+  const eightEvents = Array.from({ length: 8 }, (_, i) => i + 1);
+  const nineEvents = Array.from({ length: 9 }, (_, i) => i + 1);
+
+  const atCeiling = analyzeSquadDecisionConfidence({
+    fixtures: [], futureEventIds: eightEvents, dataUpdatedAt: "stamp", baselineSquad, candidateSquad,
+    baselineEvaluation: evaluation(baselineSquad, eightEvents), candidateEvaluation: evaluation(candidateSquad, eightEvents),
+    candidateAdditionalHitCost: 0, scenarioCount: 8,
+  });
+  assert.equal(atCeiling.status, "available");
+  if (atCeiling.status === "available") {
+    assert.equal(atCeiling.availableGameweeks, 8);
+    assert.equal(atCeiling.horizonTier, "extended");
+  }
+
+  const overCeiling = analyzeSquadDecisionConfidence({
+    fixtures: [], futureEventIds: nineEvents, dataUpdatedAt: "stamp", baselineSquad, candidateSquad,
+    baselineEvaluation: evaluation(baselineSquad, nineEvents), candidateEvaluation: evaluation(candidateSquad, nineEvents),
+    candidateAdditionalHitCost: 0,
+  });
+  assert.deepEqual(overCeiling, { status: "unavailable", reason: "Decision Confidence supports at most 8 future events." });
+});
+
 test("player/event preparation cache is bounded, stable by data update/event/player, and deterministic when warm", () => {
   const baselineSquad = squad();
   const candidateSquad = [...baselineSquad.slice(0, 14), player(999, "FWD")];

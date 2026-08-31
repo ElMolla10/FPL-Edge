@@ -62,7 +62,9 @@ export function useSandboxDecisionConfidence(input: HookInput): SandboxDecisionC
     const economics = sandboxEconomics(input.comparison, input.freeTransfers);
     const comparisons = deriveSandboxConfidenceComparisons(input.sandbox, economics);
     if (!comparisons) return;
-    const eventIds = input.futureEventIds.slice(0, 5);
+    // No re-truncation here: input.futureEventIds already reflects the active horizon mode (up to
+    // MAX_DECISION_HORIZON), which is the engine's own single source of truth for the ceiling.
+    const eventIds = input.futureEventIds;
     const preparationStarted = performance.now();
     let latestPrepared: ReturnType<typeof prepareSquadDecisionConfidence>;
     let cumulativePrepared: ReturnType<typeof prepareSquadDecisionConfidence>;

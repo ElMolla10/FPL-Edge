@@ -190,6 +190,69 @@ test("an exact 50/50 gain-loss distribution remains an exact tie rather than rou
   assert.equal(result.preferredAlternativeScenarioWinRate, null);
 });
 
+function multiWeekPlan(id: string, squad: FplPlayer[], eventIds: number[], captainMultiplier: 2 | 3 = 2) {
+  const { xi, bench } = formation442(squad);
+  return freezeDecisionPlan({
+    id,
+    weeks: eventIds.map(eventId => ({ eventId, xi, bench, captain: xi.at(-1)!, vice: xi.at(-2)!, captainMultiplier })),
+  });
+}
+
+function deterministicModelsForEvents(players: FplPlayer[], eventIds: number[]) {
+  return eventIds.flatMap(eventId => players.map(p => model(p, { eventId })));
+}
+
+function analyzeAtHorizon(gameweeks: number) {
+  const squad = standardSquad();
+  const eventIds = Array.from({ length: gameweeks }, (_, index) => index + 1);
+  return analyzeDecisionConfidence({
+    baseline: multiWeekPlan("baseline", squad, eventIds),
+    candidate: multiWeekPlan("candidate", squad, eventIds),
+    playerEventModels: deterministicModelsForEvents(squad, eventIds),
+    candidateAdditionalHitCost: 0,
+    scenarioCount: 10,
+  });
+}
+
+test("horizonTier is near-term for 1-5 available gameweeks and extended for 6-8, exactly at the boundary", () => {
+  for (const gameweeks of [1, 2, 5]) {
+    const result = analyzeAtHorizon(gameweeks);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    assert.equal(result.availableGameweeks, gameweeks);
+    assert.equal(result.horizonTier, "near-term", `${gameweeks} gameweeks must be near-term`);
+  }
+  for (const gameweeks of [6, 7, 8]) {
+    const result = analyzeAtHorizon(gameweeks);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    assert.equal(result.availableGameweeks, gameweeks);
+    assert.equal(result.horizonTier, "extended", `${gameweeks} gameweeks must be extended`);
+  }
+});
+
+test("every horizon discloses that only the first gameweek blends the official estimate -- this was true at 1-5 GW before Phase 2 too, just never surfaced", () => {
+  for (const gameweeks of [1, 5, 8]) {
+    const result = analyzeAtHorizon(gameweeks);
+    assert.equal(result.status, "available");
+    if (result.status !== "available") return;
+    assert.ok(
+      result.assumptions.some(text => /only the first modeled gameweek blends/i.test(text)),
+      `${gameweeks}-gameweek result must disclose the epNext-blend limitation`,
+    );
+  }
+});
+
+test("only the extended tier (6-8 GW) adds the compounding-risk disclosure -- near-term stays as before", () => {
+  const nearTerm = analyzeAtHorizon(5);
+  const extended = analyzeAtHorizon(6);
+  assert.equal(nearTerm.status, "available");
+  assert.equal(extended.status, "available");
+  if (nearTerm.status !== "available" || extended.status !== "available") return;
+  assert.equal(nearTerm.assumptions.some(text => /spans 6 or more gameweeks/i.test(text)), false);
+  assert.equal(extended.assumptions.some(text => /spans 6 or more gameweeks/i.test(text)), true);
+});
+
 test("identical inputs produce byte-identical decision results", () => {
   const first = compareOneChange([.2, .3, .3, .2], 0, 256);
   const second = compareOneChange([.2, .3, .3, .2], 0, 256);

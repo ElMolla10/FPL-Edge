@@ -50,7 +50,7 @@ function analysis(): DecisionConfidenceInput {
 }
 
 const available = {
-  status: "available" as const, scenarioCount: 1024, availableGameweeks: 1,
+  status: "available" as const, scenarioCount: 1024, availableGameweeks: 1, horizonTier: "near-term" as const,
   frequencies: { gain: { count: 1024, rate: 1 }, tie: { count: 0, rate: 0 }, loss: { count: 0, rate: 0 } },
   expectedDelta: 3, p10: 3, p50: 3, p90: 3, preferred: "candidate" as const,
   preferredAlternativeScenarioWinRate: 1, label: "Robust" as const, assumptions: [],

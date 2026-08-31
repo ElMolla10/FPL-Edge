@@ -12,7 +12,13 @@ import {
 } from "./decision-confidence";
 
 export const DEFAULT_DECISION_SCENARIO_COUNT = 1024;
-export const MAX_DECISION_HORIZON = 5;
+// Matches this app's own existing "Long-term 8 GWs" optimizer ceiling (optimizer.ts,
+// LiveDraftBuilder.tsx) rather than a freshly invented number -- there is no principled point
+// between 6 and 8 GW where the model's constant-rate assumption becomes newly wrong; degradation
+// is continuous, not a cliff. Results at 6-8 GW carry a visible "extended" disclosure (see
+// DecisionHorizonTier in decision-confidence.ts) rather than presenting with the same confidence
+// as the 1-5 GW range this engine has always run at.
+export const MAX_DECISION_HORIZON = 8;
 const STANDARD_CAPTAIN_MULTIPLIER = 2 as const;
 
 const toDecisionWeek = (week: WeekPlan): DecisionWeekInput => ({

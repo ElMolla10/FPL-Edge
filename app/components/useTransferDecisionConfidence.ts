@@ -57,7 +57,7 @@ export function useTransferDecisionConfidence(input: HookInput): TransferDecisio
     squadPlayerIds: input.squad.map(player => player.id),
     freeTransfers: input.freeTransfers,
     selectedRoute: input.selectedRoute,
-    optimizerEventIds: input.optimizer.eventIds.slice(0, 5),
+    optimizerEventIds: input.optimizer.eventIds,
   }), [input.data.updatedAt, input.squad, input.freeTransfers, input.selectedRoute, input.optimizer.eventIds]);
 
   const keyFor = useCallback((transfer: Transfer) => transferDecisionAnalysisKey({
@@ -111,7 +111,12 @@ export function useTransferDecisionConfidence(input: HookInput): TransferDecisio
     try {
       prepared = prepareTransferDecisionConfidence({
         fixtures: input.data.fixtures,
-        futureEventIds: input.optimizer.eventIds.slice(0, 5),
+        // No re-truncation: input.optimizer.eventIds already reflects whatever horizon the active
+        // optimizer produced, and the engine's own MAX_DECISION_HORIZON is the single source of
+        // truth for the ceiling. Currently a no-op for the Transfers page specifically (its
+        // optimizer is fixed at "Balanced 5 GWs"), but this must not silently re-impose an
+        // independent cap that could drift from the engine's real policy.
+        futureEventIds: input.optimizer.eventIds,
         dataUpdatedAt: input.data.updatedAt,
         squad: input.squad,
         transfer,

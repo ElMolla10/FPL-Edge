@@ -33,6 +33,7 @@ export default function DecisionConfidencePanel({ title, state, candidateLabel, 
     <div className="decision-confidence-frequencies"><article><span>Gain</span><b>{percent(result.frequencies.gain.rate)}</b></article><article><span>Tie</span><b>{percent(result.frequencies.tie.rate)}</b></article><article><span>Loss</span><b>{percent(result.frequencies.loss.rate)}</b></article></div>
     <div className="decision-confidence-percentiles"><article><span>P10 {metricLabel}</span><b>{signed(result.p10)}</b></article><article><span>P50 {metricLabel}</span><b>{signed(result.p50)}</b></article><article><span>P90 {metricLabel}</span><b>{signed(result.p90)}</b></article></div>
     <p className="decision-confidence-scope">{result.scenarioCount.toLocaleString("en-GB")} modeled scenarios · {result.availableGameweeks} available gameweek{result.availableGameweeks === 1 ? "" : "s"}</p>
+    {result.horizonTier === "extended" && <p className="decision-confidence-extended-horizon">Extended horizon: current form and fixtures held constant across {result.availableGameweeks} gameweeks — treat as directional, not precise.</p>}
     <details><summary>Assumptions and disclosure</summary>{result.assumptions.map(assumption => <p key={assumption}>{assumption}</p>)}</details>
   </section>;
 }

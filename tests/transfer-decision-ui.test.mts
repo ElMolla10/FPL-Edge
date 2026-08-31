@@ -10,7 +10,7 @@ const available = {
   status: "available" as const,
   direction: "reduction" as const,
   factorOneResult: {
-    status: "available" as const, scenarioCount: 1024, availableGameweeks: 5,
+    status: "available" as const, scenarioCount: 1024, availableGameweeks: 5, horizonTier: "near-term" as const,
     frequencies: { gain: { count: 600, rate: 600 / 1024 }, tie: { count: 24, rate: 24 / 1024 }, loss: { count: 400, rate: 400 / 1024 } },
     expectedDelta: 1, p10: -5, p50: 1, p90: 8, preferred: "candidate" as const,
     preferredAlternativeScenarioWinRate: 600 / 1024, label: "High-risk" as const, assumptions: [],

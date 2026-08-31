@@ -12,7 +12,7 @@ import { DecisionConfidenceAvailable, DecisionConfidenceInput, freezeDecisionPla
 import { FplPlayer } from "../app/lib/fpl.ts";
 
 const available: DecisionConfidenceAvailable = {
-  status: "available", scenarioCount: 1024, availableGameweeks: 5,
+  status: "available", scenarioCount: 1024, availableGameweeks: 5, horizonTier: "near-term",
   frequencies: { gain: { count: 614, rate: 614 / 1024 }, tie: { count: 103, rate: 103 / 1024 }, loss: { count: 307, rate: 307 / 1024 } },
   expectedDelta: 2.25, p10: -7, p50: 2, p90: 12, preferred: "candidate",
   preferredAlternativeScenarioWinRate: 614 / 1024, label: "High-risk",
@@ -52,6 +52,19 @@ test("DecisionConfidencePanel renders all available metrics with qualified wordi
   assert.match(html, /<details/);
   assert.match(html, /Assumptions and disclosure/);
   assert.doesNotMatch(html, /guaranteed chance|accuracy|\bprobability\b/i);
+});
+
+test("DecisionConfidencePanel shows the extended-horizon warning only for the extended tier, not near-term", () => {
+  const common = { title: "Latest transfer confidence", candidateLabel: "Make transfer", baselineLabel: "Keep previous squad", metricDirection: "Transfer minus current squad", metricLabel: "transfer delta" };
+
+  const nearTerm = renderToStaticMarkup(createElement(DecisionConfidencePanel, { ...common, state: { status: "available", result: available } }));
+  assert.doesNotMatch(nearTerm, /Extended horizon/);
+
+  const extended = renderToStaticMarkup(createElement(DecisionConfidencePanel, {
+    ...common,
+    state: { status: "available", result: { ...available, availableGameweeks: 7, horizonTier: "extended" } },
+  }));
+  assert.match(extended, /Extended horizon[^]*7 gameweeks/);
 });
 
 test("DecisionConfidencePanel replaces non-finite engine output with an honest failure state", () => {

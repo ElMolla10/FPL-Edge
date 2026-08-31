@@ -39,11 +39,24 @@ export type DecisionPlanInput = {
 
 export type ScenarioFrequency = { count: number; rate: number };
 export type DecisionConfidenceLabel = "Robust" | "Close call" | "High-risk";
+/**
+ * Describes which projection regime produced the result, not a calibrated confidence score (this
+ * app has no basis to calibrate one). Only the first modeled gameweek ever blends in FPL's own
+ * official estimate; "extended" names the range where more gameweeks of this app's own
+ * current-form-held-constant model have accumulated without that anchor.
+ */
+export type DecisionHorizonTier = "near-term" | "extended";
+// 1-5 GW is the range this engine has always run at (matches this app's own existing "Balanced 5
+// GWs" convention elsewhere); 6-8 GW is the range Phase 2 newly unlocks (matches the app's own
+// "Long-term 8 GWs" optimizer ceiling), and it deserves visibly stronger disclosure, not the same
+// confident presentation as a 1-5 GW result.
+export const EXTENDED_DECISION_HORIZON_GAMEWEEKS = 6;
 
 export type DecisionConfidenceAvailable = {
   status: "available";
   scenarioCount: number;
   availableGameweeks: number;
+  horizonTier: DecisionHorizonTier;
   frequencies: {
     gain: ScenarioFrequency;
     tie: ScenarioFrequency;
@@ -286,15 +299,22 @@ function summarizeDecisionDeltas(input: DecisionConfidenceInput, deltas: readonl
   const expectedDelta = total === 0 ? 0 : total / scenarioCount;
   const preferred = expectedDelta > 0 ? "candidate" : expectedDelta < 0 ? "baseline" : "tie";
   const preferredAlternativeScenarioWinRate = preferred === "candidate" ? gainCount / scenarioCount : preferred === "baseline" ? lossCount / scenarioCount : null;
+  const availableGameweeks = input.baseline.weeks.length;
+  const horizonTier: DecisionHorizonTier = availableGameweeks >= EXTENDED_DECISION_HORIZON_GAMEWEEKS ? "extended" : "near-term";
   const assumptions = [...new Set([
     "Modeled scenario frequencies and the modeled scenario win rate are deterministic simulation frequencies, not calibrated probabilities or guarantees.",
     "Baseline and candidate selections, bench order, captaincy and captain multiplier are frozen before scenario outcomes are sampled.",
+    "Only the first modeled gameweek blends in FPL's own official next-gameweek estimate; every gameweek after that runs entirely on this app's current-form projection model, held constant for the rest of the horizon.",
+    ...(horizonTier === "extended"
+      ? ["This analysis spans 6 or more gameweeks. The longer the horizon, the more it assumes today's form, team strength and fixtures hold unchanged -- squad transfers, injuries and role changes that would normally occur over that many weeks are not modeled. Treat this as a directional read, not a precise forecast."]
+      : []),
     ...input.playerEventModels.flatMap(model => model.status === "available" ? model.audit.assumptions : []),
   ])];
   return {
     status: "available",
     scenarioCount,
-    availableGameweeks: input.baseline.weeks.length,
+    availableGameweeks,
+    horizonTier,
     frequencies: {
       gain: { count: gainCount, rate: gainCount / scenarioCount },
       tie: { count: tieCount, rate: tieCount / scenarioCount },
