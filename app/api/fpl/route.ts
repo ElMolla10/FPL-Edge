@@ -169,6 +169,8 @@ export async function GET() {
           totalPoints: number(season.total_points),
           eventPoints: number(latest.total_points),
           eventMinutes: number(latest.minutes),
+          eventBonus: number(latest.bonus),
+          eventDefensiveContribution: number(latest.defensive_contribution),
           goals: number(season.goals_scored),
           assists: number(season.assists),
           expectedGoals: number(season.expected_goals),

@@ -17,7 +17,7 @@ function player(id: number, positionShort: Position): FplPlayer {
     position: positionShort, positionShort, price: 5, status: "a", chance: null, epNext: 0, form: 0,
     pointsPerGame: 0, priorPointsPerGame: 0, priorMinutes: 0, priorStarts: 0, priorExpectedGoals: 0,
     priorExpectedAssists: 0, priorBonus: 0, priorSaves: 0, priorPenaltiesSaved: 0, priorDefensiveContribution: 0,
-    totalPoints: 0, eventPoints: 0, eventMinutes: 0, selectedBy: 0, priceChange: 0, priceProjectionToday: 0,
+    totalPoints: 0, eventPoints: 0, eventMinutes: 0, eventBonus: 0, eventDefensiveContribution: 0, selectedBy: 0, priceChange: 0, priceProjectionToday: 0,
     transfersIn: 0, transfersOut: 0, goals: 0, assists: 0, expectedGoals: 0, expectedAssists: 0,
     expectedGoalInvolvements: 0, expectedGoalsConceded: 0, cleanSheets: 0, goalsConceded: 0, minutes: 0,
     starts: 0, bonus: 0, bps: 0, ictIndex: 0, influence: 0, creativity: 0, threat: 0, saves: 0,

@@ -3,7 +3,7 @@ import type { TeamQualityProfile } from "./team-quality";
 export type FplPlayer = {
   id:number; name:string; firstName:string; secondName:string; teamId:number; teamName:string; teamShort:string;
   positionId:number; position:string; positionShort:string; price:number; status:string; chance:number|null;
-  epNext:number; form:number; pointsPerGame:number; priorPointsPerGame:number; priorMinutes:number; priorStarts:number; priorExpectedGoals:number; priorExpectedAssists:number; priorBonus:number; priorSaves:number; priorPenaltiesSaved:number; priorDefensiveContribution:number; totalPoints:number; eventPoints:number; eventMinutes:number; selectedBy:number; priceChange:number; priceProjectionToday:number;
+  epNext:number; form:number; pointsPerGame:number; priorPointsPerGame:number; priorMinutes:number; priorStarts:number; priorExpectedGoals:number; priorExpectedAssists:number; priorBonus:number; priorSaves:number; priorPenaltiesSaved:number; priorDefensiveContribution:number; totalPoints:number; eventPoints:number; eventMinutes:number; eventBonus:number; eventDefensiveContribution:number; selectedBy:number; priceChange:number; priceProjectionToday:number;
   transfersIn:number; transfersOut:number; goals:number; assists:number; expectedGoals:number; expectedAssists:number;
   expectedGoalInvolvements:number; expectedGoalsConceded:number; cleanSheets:number; goalsConceded:number; minutes:number;
   starts:number; bonus:number; bps:number; ictIndex:number; influence:number; creativity:number; threat:number;saves:number;penaltiesSaved:number;defensiveContribution:number;clearancesBlocksInterceptions:number;recoveries:number;tackles:number;penaltiesOrder:number|null;directFreekicksOrder:number|null;cornersOrder:number|null;scoutRisks:string[];news:string; newsAdded:string|null;
@@ -207,6 +207,29 @@ export function projectionMetrics(player:FplPlayer,eventId:number,fixtures:FplFi
   return{...base,xPts,xG,xA,cleanSheetProbability,bonus,teamAttackFactor:avg(context=>context.teamAttack),opponentDefenceFactor:avg(context=>context.opponentDefence),teamDefenceFactor:avg(context=>context.teamDefence),opponentAttackFactor:avg(context=>context.opponentAttack),fixtureAttackMultiplier,fixtureDefenceMultiplier};
 }
 export const playerProjection=(player:FplPlayer,eventId:number,fixtures:FplFixture[],firstEvent:number)=>projectionMetrics(player,eventId,fixtures,firstEvent).xPts;
+
+export type LiveMover={player:FplPlayer;countedActual:number;countedProjected:number;delta:number};
+
+// "Currently hurting/helping rank" is scoped to players who actually count toward the live total
+// right now (pass the effective XI, or XI+bench when Bench Boost is active -- whatever the caller's
+// own liveTotal computation already treats as counted) and whose gameweek fixture has genuinely
+// started; a not-yet-kicked-off player's delta would just be "0 minus a real projection", which
+// isn't a live signal, it's every unplayed player misreported as hurting. No magnitude threshold is
+// applied to the classification itself -- these are simply the top 3 counted players by |delta| in
+// each direction, the same "no invented significance threshold" principle already used for
+// rank-estimate-core.ts's arrow-chance frequencies.
+export function liveScoringMovers(counted:FplPlayer[],captainId:number|null,captainMultiplier:number,eventId:number,fixtures:FplFixture[],projectionAnchorEvent:number):{hurting:readonly LiveMover[];helping:readonly LiveMover[]}{
+  const started=counted.filter(p=>fixtures.some(f=>f.event===eventId&&(f.teamH===p.teamId||f.teamA===p.teamId)&&f.started));
+  const movers=started.map(p=>{
+    const multiplier=p.id===captainId?captainMultiplier:1;
+    const countedActual=p.eventPoints*multiplier;
+    const countedProjected=playerProjection(p,eventId,fixtures,projectionAnchorEvent)*multiplier;
+    return{player:p,countedActual,countedProjected,delta:countedActual-countedProjected};
+  });
+  const helping=[...movers].filter(m=>m.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,3);
+  const hurting=[...movers].filter(m=>m.delta<0).sort((a,b)=>a.delta-b.delta).slice(0,3);
+  return{hurting,helping};
+}
 
 // Moved from CoachApp.tsx so Pitch.tsx (used by both CoachApp.tsx's Final Check and
 // LiveDraftBuilder.tsx's Draft Lab result view) can depend on them without a circular import --

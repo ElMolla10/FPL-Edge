@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  estimateLiveRankResult,
   estimateRankDistribution,
   estimateRankFromPoints,
 } from "../app/lib/rank-estimate-core.ts";
@@ -212,4 +213,46 @@ test("estimateRankDistribution: near-term tier does not claim the extended-horiz
   assert.equal(result.status, "available");
   if (result.status !== "available") return;
   assert.equal(result.assumptions.some(text => /extended-horizon uncertainty/i.test(text)), false);
+});
+
+test("estimateLiveRankResult: maps a real live points total through the curve exactly like a simulated one, no special-casing", () => {
+  const result = estimateLiveRankResult(populationResult(), 180);
+  assert.equal(result.status, "available");
+  if (result.status !== "available") return;
+  assert.deepEqual(result.rank, { rank: 100, clamped: "none" });
+});
+
+test("estimateLiveRankResult: propagates an unavailable population curve honestly", () => {
+  const result = estimateLiveRankResult({ status: "unavailable", reason: "Official FPL bootstrap-static request failed with status 503." }, 180);
+  assert.deepEqual(result, { status: "unavailable", reason: "Official FPL bootstrap-static request failed with status 503." });
+});
+
+test("estimateLiveRankResult: discloses the 2-hour population-vs-live-points TTL asymmetry while the gameweek is still live", () => {
+  const result = estimateLiveRankResult(populationResult({ eventFinished: false }), 150);
+  assert.equal(result.status, "available");
+  if (result.status !== "available") return;
+  assert.ok(result.assumptions.some(text => /refreshes at most every 2 hours/i.test(text)), "the live-vs-live-points asymmetry must be a real disclosed assumption, not just a code comment");
+});
+
+test("estimateLiveRankResult: does not claim the live-refresh-lag disclosure once the event is finished (a different TTL tier applies)", () => {
+  const result = estimateLiveRankResult(populationResult({ eventFinished: true }), 150);
+  assert.equal(result.status, "available");
+  if (result.status !== "available") return;
+  assert.equal(result.assumptions.some(text => /refreshes at most every 2 hours/i.test(text)), false);
+});
+
+test("estimateLiveRankResult: an above-range live total is disclosed as clamped, not silently shown as an exact rank 1", () => {
+  const result = estimateLiveRankResult(populationResult(), 250);
+  assert.equal(result.status, "available");
+  if (result.status !== "available") return;
+  assert.deepEqual(result.rank, { rank: 1, clamped: "above-range" });
+  assert.ok(result.assumptions.some(text => /exceeded the best real sampled score/i.test(text)));
+});
+
+test("estimateLiveRankResult: a below-range live total is disclosed as clamped, using the real population size not the last sample's rank", () => {
+  const result = estimateLiveRankResult(populationResult(), 10);
+  assert.equal(result.status, "available");
+  if (result.status !== "available") return;
+  assert.deepEqual(result.rank, { rank: TOTAL_PLAYERS, clamped: "below-range" });
+  assert.ok(result.assumptions.some(text => /fell below the worst real sampled score/i.test(text)));
 });

@@ -9,10 +9,10 @@ import RankEstimatePanel from "./RankEstimatePanel";
 import TransferSensitivityPanel from "./TransferSensitivityPanel";
 import { useTransferDecisionConfidence } from "./useTransferDecisionConfidence";
 import { usePopulationPercentiles } from "./usePopulationPercentiles";
-import { estimateRankDistribution } from "../lib/rank-estimate-core";
+import { estimateRankDistribution, estimateLiveRankResult, LiveRankResult } from "../lib/rank-estimate-core";
 import Pitch from "./Pitch";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
-import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, displayedGameweekAverage, fetchFplData, futureEvents, isCompleteSquad, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
+import { FplData, FplEvent, FplFixture, FplPlayer, LiveMover, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, displayedGameweekAverage, fetchFplData, futureEvents, isCompleteSquad, liveScoringMovers, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
 import { createOptimizer } from "../lib/optimizer";
 import { FiveGwGainBand } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
@@ -38,6 +38,11 @@ const nav:[View,string,string][]=[
 ];
 const titles:Record<View,string>={overview:"Your gameweek command centre",team:"My team",transfers:"Transfer centre",league:"Mini-League War Room",draft:"Draft & Wildcard lab",players:"Player research",fixtures:"Fixture intelligence",news:"Personalised news",deadline:"Deadline final check",chips:"Chip planner",model:"How the model thinks",history:"Decision history"};
 const fmt=(n:number|null|undefined)=>n?Math.round(n).toLocaleString():"—";
+// Tightened cadence while a gameweek is genuinely live (deadline passed, not yet finished). Note
+// this only bounds the client's own added latency: /api/fpl's response and internal FPL fetches are
+// both cached for ~5 minutes server-side, so real freshness is still floored there regardless of
+// this value -- tightening that cache is a separate, app-wide change, deliberately out of scope here.
+const LIVE_GAMEWEEK_REFRESH_MS=60000;
 const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
 const readIds=(key:string)=>{try{return JSON.parse(localStorage.getItem(key)||"[]") as number[]}catch{return[]}};
 const certainty=(p:FplPlayer)=>p.status!=="a"?"CONFIRMED":projectionMetrics(p,0,[],0).startProbability>.72?"LIKELY":"UNCERTAIN";
@@ -49,7 +54,10 @@ function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(p
 export default function CoachApp({onBack}:{onBack:()=>void}){
   const[view,setView]=useState<View>("overview");const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const[revision,setRevision]=useState(0);const[more,setMore]=useState(false);
   const load=async()=>{setLoading(true);setError("");try{setData(await fetchFplData())}catch(e){setError(e instanceof Error?e.message:"Official FPL data unavailable")}finally{setLoading(false)}};
-  useEffect(()=>{load();const id=window.setInterval(load,300000);return()=>window.clearInterval(id)},[]);
+  useEffect(()=>{load()},[]);
+  const currentEvent=data?.events.find(e=>e.current);
+  const isLiveWindow=!!currentEvent&&!currentEvent.finished&&Date.parse(currentEvent.deadline)<=Date.now();
+  useEffect(()=>{const id=window.setInterval(load,isLiveWindow?LIVE_GAMEWEEK_REFRESH_MS:300000);return()=>window.clearInterval(id)},[isLiveWindow]);
   const runSync=()=>{syncWithServer().then(changed=>{if(changed)setRevision(x=>x+1)})};
   useEffect(()=>{runSync()},[]);
   const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMore(false);window.scrollTo({top:0,behavior:"smooth"})};
@@ -545,6 +553,15 @@ function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,se
   const multiplierWord=scoring.captainMultiplier===3?"tripled":"doubled";
   const replacement=bestTransfers(data,squad,bank).filter(x=>selected&&x.out.id===selected.id&&x.qualityStatus!=="blocked").slice(0,3);
   const planningFirst=futureEvents(data,5)[0]?.id??event.id;
+  const populationPercentiles=usePopulationPercentiles();
+  // Gated on hasStarted: before kickoff there's no live total to estimate a rank from that would
+  // differ meaningfully from the official rank already shown elsewhere (Overview).
+  const liveRank:LiveRankResult|null=!hasStarted?null:populationPercentiles===null?null:!manager?{status:"unavailable",reason:"Connect your official FPL team to see a live rank estimate."}:estimateLiveRankResult(populationPercentiles,manager.overallPoints);
+  // Bench Boost bench players genuinely count toward liveTotal too (see resolveLiveScoring above) --
+  // movers must be scoped to the same "counted" set, not just the XI, or a boosted bench player's
+  // real swing on the live total would be invisible here.
+  const countedForMovers=scoring.activeChip==="bboost"?[...scoring.effectiveXi,...scoring.displayedBench]:scoring.effectiveXi;
+  const movers:{hurting:readonly LiveMover[];helping:readonly LiveMover[]}=hasStarted?liveScoringMovers(countedForMovers,scoring.effectiveCaptainId,scoring.captainMultiplier,event.id,data.fixtures,planningFirst):{hurting:[],helping:[]};
 
   return <div className="gw-current">
     <section className="team-toolbar"><div><span>FORMATION</span><b>{formation(scoring.effectiveXi)}</b></div><div><span>{hasStarted?"LIVE POINTS":"KICKOFF PENDING"}</span><b>{hasStarted?scoring.liveTotal:"—"}</b></div><GameweekAverage events={data.events} eventId={event.id}/>{scoring.activeChip&&<div><span>ACTIVE CHIP</span><b>{scoring.activeChip==="3xc"?"Triple Captain":scoring.activeChip==="bboost"?"Bench Boost":scoring.activeChip}</b></div>}<div className="segmented">{(["Pitch","List"] as const).map(x=><button className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div><button onClick={()=>go("draft")}>Edit squad</button></section>
@@ -555,22 +572,43 @@ function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,se
     {scoring.armbandPassedToVice&&<p className="gw-armband-note">{captain.name} didn't play -- the armband passed to {vice.name} ({vice.name}'s score is {multiplierWord}).</p>}
     {scoring.captaincyLost&&<p className="gw-armband-note">Neither {captain.name} nor {vice.name} played -- no captain multiplier applies this week.</p>}
     {scoring.activeChip==="bboost"&&<p className="gw-chip-note">Bench Boost is active · {scoring.benchBoostPoints} bench points are included in the live total.</p>}
+    {liveRank&&<LiveRankCard result={liveRank}/>}
+    {hasStarted&&(movers.hurting.length>0||movers.helping.length>0)&&<LiveMoversCard hurting={movers.hurting} helping={movers.helping}/>}
     <CaptaincyPicker players={xi} captain={captain} vice={vice} onCaptain={chooseCaptain} onVice={chooseVice} event={event.id} data={data} readOnly={officialLocked} status={captaincyStatus}/>
     {tab==="Pitch"&&<><section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{scoring.effectiveXi.filter(p=>p.positionShort===pos).map(p=>{const isArmband=p.id===scoring.effectiveCaptainId;const wasSubbedIn=scoring.swaps.some(s=>s.inId===p.id);return <button key={p.id} className={p.status!=="a"?"flagged":""} onClick={()=>setSelected(p)}><i>{pos}{wasSubbedIn?" · AUTO":""}</i><b>{p.name}{isArmband&&<em>C</em>}{p.id===scoring.viceId&&!isArmband&&<em>V</em>}</b><span>{hasStarted?`${p.eventPoints}${isArmband&&scoring.captainMultiplier>1?` × ${scoring.captainMultiplier}`:""} pts`:opponent(p,event.id,data)}</span><small>{hasStarted?`${p.eventMinutes} mins`:""}</small></button>})}</div>)}</section>
     <section className="coach-bench"><span>{scoring.activeChip==="bboost"?"BENCH BOOST":"BENCH"}</span>{scoring.displayedBench.map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><i>{i+1}</i><b>{p.name}</b><small>{hasStarted?`${p.eventPoints} pts · ${p.eventMinutes} mins${scoring.activeChip==="bboost"?" · COUNTED":""}`:opponent(p,event.id,data)}</small></button>)}</section></>}
     {tab==="List"&&<section className="team-list"><header><span>PLAYER</span><span>FIXTURE</span><span>PTS</span><span>MINS</span><span>STATUS</span></header>{[...scoring.effectiveXi,...scoring.displayedBench].map((p,i)=>{const isArmband=p.id===scoring.effectiveCaptainId;return <button key={p.id} onClick={()=>setSelected(p)}><b>{i<scoring.effectiveXi.length?"XI":"BENCH"} · {p.name}{isArmband?" (C)":p.id===scoring.viceId?" (V)":""}<small>{p.teamShort} · {p.positionShort}</small></b><span>{opponent(p,event.id,data)}</span><strong>{p.eventPoints}{isArmband&&scoring.captainMultiplier>1?` × ${scoring.captainMultiplier}`:""}</strong><span>{p.eventMinutes}</span><em className={p.status==="a"?"ok":"risk"}>{i>=scoring.effectiveXi.length&&scoring.activeChip==="bboost"?"COUNTED":p.status==="a"?"LIKELY":"FLAGGED"}</em></button>})}</section>}
-    {selected&&hasStarted&&<LivePointsPanel player={selected} scoring={scoring} close={()=>setSelected(null)}/>}
+    {selected&&hasStarted&&<LivePointsPanel player={selected} scoring={scoring} bonusFinal={!!allFixturesFinished&&event.dataChecked} close={()=>setSelected(null)}/>}
     {selected&&!hasStarted&&<PlayerPanel player={selected} data={data} first={planningFirst} replacements={replacement} close={()=>setSelected(null)}/>}
   </div>;
 }
 
-function LivePointsPanel({player,scoring,close}:{player:FplPlayer;scoring:LiveScoringResult;close:()=>void}){
+function LiveRankCard({result}:{result:LiveRankResult}){
+  return <section className="gw-live-rank-card" aria-live="polite">
+    <span>LIVE RANK ESTIMATE</span>
+    {result.status==="unavailable"?<><h3>Unavailable</h3><p>{result.reason}</p></>:<>
+      <h3>{Math.round(result.rank.rank).toLocaleString("en-GB")}</h3>
+      {result.rank.clamped!=="none"&&<p className="gw-live-rank-clamped">{result.rank.clamped==="above-range"?"Better than the best real sampled score.":"Worse than the worst real sampled score."}</p>}
+      <details><summary>Assumptions and disclosure</summary>{result.assumptions.map(a=><p key={a}>{a}</p>)}</details>
+    </>}
+  </section>;
+}
+function LiveMoversCard({hurting,helping}:{hurting:readonly LiveMover[];helping:readonly LiveMover[]}){
+  return <section className="gw-live-movers-card">
+    <span>MOVERS</span><h3>Currently hurting or helping your live total</h3>
+    <div className="gw-live-movers-columns">
+      <div><b>HELPING</b>{helping.length?helping.map(m=><p key={m.player.id}>{m.player.name}<small>+{m.delta.toFixed(1)}</small></p>):<p className="gw-live-movers-empty">None yet.</p>}</div>
+      <div><b>HURTING</b>{hurting.length?hurting.map(m=><p key={m.player.id}>{m.player.name}<small>{m.delta.toFixed(1)}</small></p>):<p className="gw-live-movers-empty">None yet.</p>}</div>
+    </div>
+  </section>;
+}
+function LivePointsPanel({player,scoring,bonusFinal,close}:{player:FplPlayer;scoring:LiveScoringResult;bonusFinal:boolean;close:()=>void}){
   const inXi=scoring.effectiveXi.some(p=>p.id===player.id);
   const onBoostedBench=scoring.activeChip==="bboost"&&scoring.displayedBench.some(p=>p.id===player.id);
   const multiplier=player.id===scoring.effectiveCaptainId?scoring.captainMultiplier:1;
   const counted=inXi||onBoostedBench;
   const countedPoints=counted?player.eventPoints*multiplier:0;
-  return <div className="player-panel-backdrop" onClick={close}><aside className="player-panel live-points-panel" onClick={e=>e.stopPropagation()}><button className="panel-close" onClick={close}>×</button><span>OFFICIAL LIVE POINTS</span><h2>{player.name}</h2><div className="panel-price">{countedPoints} counted points <small>{player.eventMinutes} minutes</small></div><div className="panel-stats"><p><span>Official raw points</span><b>{player.eventPoints}</b></p><p><span>Multiplier</span><b>×{multiplier}</b></p><p><span>Captain bonus</span><b>+{player.id===scoring.effectiveCaptainId?scoring.captainBonus:0}</b></p><p><span>Squad role</span><b>{inXi?"Starting XI":onBoostedBench?"Bench Boost":"Bench"}</b></p><p><span>Active chip</span><b>{scoring.activeChip==="3xc"?"Triple Captain":scoring.activeChip==="bboost"?"Bench Boost":"None"}</b></p><p><span>Included in total</span><b>{counted?"Yes":"No"}</b></p></div><section><span>COUNTING RULE</span><p>{player.id===scoring.effectiveCaptainId?`${player.eventPoints} raw points × ${multiplier} = ${countedPoints}.`:onBoostedBench?`${player.eventPoints} bench points are included because Bench Boost is active.`:inXi?`${player.eventPoints} official points count once in the starting XI.`:"This bench player's points are not included without Bench Boost or an automatic substitution."}</p></section></aside></div>;
+  return <div className="player-panel-backdrop" onClick={close}><aside className="player-panel live-points-panel" onClick={e=>e.stopPropagation()}><button className="panel-close" onClick={close}>×</button><span>OFFICIAL LIVE POINTS</span><h2>{player.name}</h2><div className="panel-price">{countedPoints} counted points <small>{player.eventMinutes} minutes</small></div><div className="panel-stats"><p><span>Official raw points</span><b>{player.eventPoints}</b></p><p><span>Multiplier</span><b>×{multiplier}</b></p><p><span>Captain bonus</span><b>+{player.id===scoring.effectiveCaptainId?scoring.captainBonus:0}</b></p><p><span>Bonus points{!bonusFinal?" (provisional)":""}</span><b>{player.eventBonus}</b></p><p><span>Defensive contribution</span><b>{player.eventDefensiveContribution}</b></p><p><span>Global ownership</span><b>{player.selectedBy.toFixed(1)}%</b></p><p><span>Squad role</span><b>{inXi?"Starting XI":onBoostedBench?"Bench Boost":"Bench"}</b></p><p><span>Active chip</span><b>{scoring.activeChip==="3xc"?"Triple Captain":scoring.activeChip==="bboost"?"Bench Boost":"None"}</b></p><p><span>Included in total</span><b>{counted?"Yes":"No"}</b></p></div><section><span>COUNTING RULE</span><p>{player.id===scoring.effectiveCaptainId?`${player.eventPoints} raw points × ${multiplier} = ${countedPoints}.`:onBoostedBench?`${player.eventPoints} bench points are included because Bench Boost is active.`:inXi?`${player.eventPoints} official points count once in the starting XI.`:"This bench player's points are not included without Bench Boost or an automatic substitution."}</p></section></aside></div>;
 }
 
 function FutureGameweekView({data,event,squad,tab,setTab,selected,setSelected,bank}:{data:FplData;event:FplEvent;squad:FplPlayer[];tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number}){

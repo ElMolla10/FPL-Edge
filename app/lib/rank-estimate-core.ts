@@ -148,3 +148,39 @@ export function estimateRankDistribution(input: {
     assumptions,
   };
 }
+
+export type LiveRankResult =
+  | { status: "available"; rank: RankEstimate; assumptions: readonly string[] }
+  | { status: "unavailable"; reason: string };
+
+/**
+ * Maps a real, current live overall-points total through the same real sampled curve used for
+ * simulated future scenarios -- estimateRankFromPoints has no notion of "simulated" vs "live", a
+ * points value is a points value. The one thing that genuinely differs for a live use case is
+ * disclosure: the population curve refreshes at most every 2 hours while a gameweek is live
+ * (POPULATION_PERCENTILE_TTL_LIVE_MS in population-percentile-core.ts), while a manager's own live
+ * points can move every few minutes during matches -- that asymmetry must be stated, not silently
+ * assumed away, so it's included here as a real assumptions-array entry rather than a code comment.
+ */
+export function estimateLiveRankResult(
+  populationPercentiles: PopulationPercentileResult,
+  currentOverallPoints: number,
+): LiveRankResult {
+  if (populationPercentiles.status === "unavailable") {
+    return { status: "unavailable", reason: populationPercentiles.reason };
+  }
+  const pct = populationPercentiles;
+  const rank = estimateRankFromPoints(pct.curve, pct.totalPlayers, currentOverallPoints);
+  const assumptions = [...new Set([
+    `Based on a ${pct.curve.length}-point sample of the real official "Overall" league standings, sampled ${pct.sampledAt}.`,
+    pct.stale ? "This population sample is stale: the official source could not be refreshed, so a cached snapshot is being used." : null,
+    pct.omittedSamples > 0 ? `${pct.omittedSamples} of the population sample points came back empty or malformed and were omitted.` : null,
+    !pct.eventFinished
+      ? "This population sample refreshes at most every 2 hours while a gameweek is live, while your own live points can change every few minutes -- the comparison population may lag behind live match action."
+      : null,
+    rank.clamped === "above-range" ? "Your live total exceeded the best real sampled score; rank is shown as 1 rather than extrapolated below it." : null,
+    rank.clamped === "below-range" ? "Your live total fell below the worst real sampled score; rank is shown at the real population size rather than extrapolated." : null,
+    "This is an estimate interpolated between real sampled points, not FPL's own official rank calculation -- treat it as directional.",
+  ].filter((line): line is string => line !== null))];
+  return { status: "available", rank, assumptions };
+}
