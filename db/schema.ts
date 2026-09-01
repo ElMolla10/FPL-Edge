@@ -43,4 +43,7 @@ export const populationPercentiles = sqliteTable("population_percentiles", {
   curve: text("curve").notNull(), // JSON: {rank:number; points:number}[], ascending by rank
   omittedSamples: integer("omitted_samples").notNull(),
   sampledAt: text("sampled_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  // Most recently FINISHED event's real average_entry_score (not a season-to-date average) --
+  // see population-percentile.ts's fetchCurrentEvent. Null before any gameweek has finished.
+  recentAverageGameweekScore: integer("recent_average_gameweek_score"),
 });

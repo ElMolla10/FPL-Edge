@@ -12,6 +12,7 @@ const available: PopulationPercentileResult = {
   sampledAt: "2026-09-01T00:00:00.000Z",
   stale: false,
   omittedSamples: 0,
+  recentAverageGameweekScore: 55,
 };
 
 test("route returns the available result with a public, cacheable header -- this data is population-wide, not per-user", async () => {

@@ -54,6 +54,7 @@ const available = {
   frequencies: { gain: { count: 1024, rate: 1 }, tie: { count: 0, rate: 0 }, loss: { count: 0, rate: 0 } },
   expectedDelta: 3, p10: 3, p50: 3, p90: 3, preferred: "candidate" as const,
   preferredAlternativeScenarioWinRate: 1, label: "Robust" as const, assumptions: [],
+  candidateScenarioTotals: Array.from({ length: 1024 }, () => 3),
 };
 
 test("transfer worker emits the completed main result before sensitivity and keeps it when sensitivity fails", () => {

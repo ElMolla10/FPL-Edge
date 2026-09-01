@@ -17,6 +17,7 @@ const available: DecisionConfidenceAvailable = {
   expectedDelta: 2.25, p10: -7, p50: 2, p90: 12, preferred: "candidate",
   preferredAlternativeScenarioWinRate: 614 / 1024, label: "High-risk",
   assumptions: ["Modeled scenario frequencies are not calibrated probabilities.", "Captaincy is frozen."],
+  candidateScenarioTotals: Array.from({ length: 1024 }, (_, i) => 50 + (i % 20)),
 };
 
 test("DecisionConfidencePanel renders pending, unavailable, and unexpected-error states accessibly", () => {

@@ -14,6 +14,7 @@ const available = {
     frequencies: { gain: { count: 600, rate: 600 / 1024 }, tie: { count: 24, rate: 24 / 1024 }, loss: { count: 400, rate: 400 / 1024 } },
     expectedDelta: 1, p10: -5, p50: 1, p90: 8, preferred: "candidate" as const,
     preferredAlternativeScenarioWinRate: 600 / 1024, label: "High-risk" as const, assumptions: [],
+    candidateScenarioTotals: Array.from({ length: 1024 }, (_, i) => 50 + (i % 20)),
   },
   factors: [
     { status: "available" as const, factor: "expected-minutes" as const, direction: "below" as const, threshold: 66, message: "Break-even: the transfer turns negative if Palmer’s modeled expected minutes fall below 66 per fixture." },

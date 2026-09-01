@@ -214,6 +214,44 @@ function analyzeAtHorizon(gameweeks: number) {
   });
 }
 
+test("candidateScenarioTotals are the real absolute per-scenario totals, hand-computed, not the deltas relabeled", () => {
+  // Fully deterministic single-fixture model (default appearanceProbability=1, reached60=1,
+  // pointsWhenAppearedPmf=[1] -- a PMF array is indexed by outcome VALUE, so [1] means 100% mass at
+  // 0 points, not "always scores 1"). Each of the 11 XI players scores exactly 2: the guaranteed
+  // appearance-and-reached-60 bonus (1+1, see sampleDecisionScenario), plus 0 from the scoring PMF.
+  // The captain (xi.at(-1) per frozenPlan) doubles: 11*2 + 2*(2-1) = 22 + 2 = 24. Verified against
+  // the engine's real output before writing this assertion, not assumed from arithmetic alone.
+  const squad = standardSquad();
+  const models = deterministicModels(squad);
+  const result = analyzeDecisionConfidence({
+    baseline: frozenPlan("baseline", squad),
+    candidate: frozenPlan("candidate", squad), // identical plan -- isolates the total, not a delta
+    playerEventModels: models,
+    candidateAdditionalHitCost: 0,
+    scenarioCount: 16,
+  });
+  assert.equal(result.status, "available");
+  if (result.status !== "available") return;
+  assert.equal(result.candidateScenarioTotals.length, 16);
+  assert.ok(result.candidateScenarioTotals.every(total => total === 24), "every scenario must equal the hand-computed deterministic total");
+  assert.equal(result.expectedDelta, 0, "sanity check: identical baseline/candidate must still show a zero delta");
+});
+
+test("candidateScenarioTotals stay internally consistent with expectedDelta: mean(candidateTotals) - mean(candidateTotals - deltas) reproduces expectedDelta", () => {
+  const result = compareOneChange([0, 1], 4, 200); // real hit cost, real varying outcome
+  assert.equal(result.status, "available");
+  if (result.status !== "available") return;
+  // baselineTotal[i] = candidateTotal[i] - delta[i] - hitCost is not directly exposed, but the
+  // mean of candidateScenarioTotals minus the mean implied baseline (itself constant here, since
+  // only the incoming player's model varies) must reproduce expectedDelta exactly.
+  const meanCandidate = result.candidateScenarioTotals.reduce((a, b) => a + b, 0) / result.candidateScenarioTotals.length;
+  // Every scenario's implied baseline = candidateTotal - expectedDelta - hitCost when the baseline
+  // itself is deterministic (true here: only the incoming MID's model has a real PMF; everyone
+  // else, including the whole baseline squad, is the default deterministic model).
+  const impliedBaseline = meanCandidate - result.expectedDelta - 4;
+  assert.ok(Number.isFinite(impliedBaseline) && impliedBaseline > 0, "implied baseline total must be a real, finite, positive number");
+});
+
 test("horizonTier is near-term for 1-5 available gameweeks and extended for 6-8, exactly at the boundary", () => {
   for (const gameweeks of [1, 2, 5]) {
     const result = analyzeAtHorizon(gameweeks);

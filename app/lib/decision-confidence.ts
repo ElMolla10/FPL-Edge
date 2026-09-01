@@ -74,6 +74,13 @@ export type DecisionConfidenceAvailable = {
   preferredAlternativeScenarioWinRate: number | null;
   label: DecisionConfidenceLabel;
   assumptions: readonly string[];
+  /**
+   * The candidate plan's absolute (not delta) total points per scenario -- the same simulation
+   * already run for the delta/frequency summary above, just also surfaced un-subtracted. Exists
+   * for rank-estimate-core.ts to map onto the real population-percentile curve; this engine has no
+   * concept of "rank" itself and never will -- that composition happens one layer up.
+   */
+  candidateScenarioTotals: readonly number[];
 };
 
 export type DecisionConfidenceUnavailable = {
@@ -289,7 +296,11 @@ function unavailableReason(input: DecisionConfidenceInput): string | null {
   return null;
 }
 
-function summarizeDecisionDeltas(input: DecisionConfidenceInput, deltas: readonly number[]): DecisionConfidenceAvailable {
+function summarizeDecisionDeltas(
+  input: DecisionConfidenceInput,
+  deltas: readonly number[],
+  candidateScenarioTotals: readonly number[],
+): DecisionConfidenceAvailable {
   const scenarioCount = deltas.length;
   const sorted = [...deltas].sort((a, b) => a - b);
   const gainCount = deltas.filter(delta => delta > 0).length;
@@ -328,6 +339,7 @@ function summarizeDecisionDeltas(input: DecisionConfidenceInput, deltas: readonl
     preferredAlternativeScenarioWinRate,
     label: classifyDecisionConfidence(deltas, expectedDelta),
     assumptions,
+    candidateScenarioTotals,
   };
 }
 
@@ -384,7 +396,7 @@ export function prepareDecisionScenarioContext(input: DecisionConfidenceInput): 
 }
 
 export function analyzePreparedDecisionContext(context: PreparedDecisionScenarioContext): DecisionConfidenceResult {
-  return summarizeDecisionDeltas(context.input, context.canonicalDeltas);
+  return summarizeDecisionDeltas(context.input, context.canonicalDeltas, context.canonicalCandidateScores);
 }
 
 export function analyzePreparedDecisionDeltas(
@@ -394,7 +406,14 @@ export function analyzePreparedDecisionDeltas(
   if (deltas.length !== context.scenarioCount || deltas.some(delta => !Number.isFinite(delta))) {
     return { status: "unavailable", reason: "Prepared scenario deltas must be finite and match the canonical scenario count." };
   }
-  return summarizeDecisionDeltas(context.input, deltas);
+  // These deltas may not be the canonical ones (e.g. a sensitivity re-scoring), so
+  // canonicalCandidateScores would be stale here -- reconstruct the real total each delta actually
+  // implies from the same baseline/hitCost it was computed against: delta = candidatePoints -
+  // baselineScenarioScores[i] - hitCost, so candidatePoints = delta + baselineScenarioScores[i] +
+  // hitCost. Exact algebra, not an approximation.
+  const candidateScenarioTotals = deltas.map((delta, index) =>
+    delta + context.baselineScenarioScores[index] + context.input.candidateAdditionalHitCost);
+  return summarizeDecisionDeltas(context.input, deltas, candidateScenarioTotals);
 }
 
 export function rescorePreparedDecisionCandidate(
@@ -404,6 +423,7 @@ export function rescorePreparedDecisionCandidate(
   const unavailable = affectedModels.find(model => model.status === "unavailable");
   if (unavailable?.status === "unavailable") return unavailable;
   const deltas: number[] = [];
+  const candidateScenarioTotals: number[] = [];
   for (let scenario = 0; scenario < context.scenarioCount; scenario++) {
     const affectedOutcomes = sampleDecisionScenario(affectedModels, scenario, context.scenarioCount, context.scenarioFactorDraws);
     const canonicalOutcomes = context.scenarioOutcomes[scenario];
@@ -411,9 +431,10 @@ export function rescorePreparedDecisionCandidate(
       get(key) { return affectedOutcomes.get(key) ?? canonicalOutcomes.get(key); },
     };
     const candidatePoints = scoreDecisionPlan(context.input.candidate, overlay);
+    candidateScenarioTotals.push(candidatePoints);
     deltas.push(candidatePoints - context.baselineScenarioScores[scenario] - context.input.candidateAdditionalHitCost);
   }
-  return summarizeDecisionDeltas(context.input, deltas);
+  return summarizeDecisionDeltas(context.input, deltas, candidateScenarioTotals);
 }
 
 export function analyzeDecisionConfidence(input: DecisionConfidenceInput): DecisionConfidenceResult {

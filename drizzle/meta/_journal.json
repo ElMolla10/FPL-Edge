@@ -15,6 +15,13 @@
       "when": 1788199730353,
       "tag": "0001_clean_spiral",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788252441182,
+      "tag": "0002_damp_karnak",
+      "breakpoints": true
     }
   ]
 }

@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { FplData } from "../lib/fpl";
-import { buildSandboxReasoning, DeltaState, sandboxEconomics, sandboxFinancialSourceLabel, SandboxComparisonResult, SquadComparison } from "../lib/squad-comparison";
+import { buildSandboxReasoning, DeltaState, ManagerMeta, sandboxEconomics, sandboxFinancialSourceLabel, SandboxComparisonResult, SquadComparison } from "../lib/squad-comparison";
 import type { SandboxState } from "../lib/squad-comparison";
 import { Transfer } from "../lib/transfers";
 import DecisionConfidencePanel from "./DecisionConfidencePanel";
+import RankEstimatePanel from "./RankEstimatePanel";
 import TransferBreakdown from "./TransferBreakdown";
 import { useSandboxDecisionConfidence } from "./useSandboxDecisionConfidence";
+import { usePopulationPercentiles } from "./usePopulationPercentiles";
+import { estimateRankDistribution } from "../lib/rank-estimate-core";
 
 const signed = (value: number, places = 1) => `${value >= 0 ? "+" : ""}${value.toFixed(places)}`;
 const stateFor = (value: number) => value > .0001 ? "positive" : value < -.0001 ? "negative" : "neutral";
@@ -48,28 +51,51 @@ export type SandboxConfidenceInput = {
   settingsKey: string;
 };
 
-function SandboxDecisionConfidenceBlocks({ input, comparison, freeTransfers }: {
+function SandboxDecisionConfidenceBlocks({ input, comparison, freeTransfers, managerMeta }: {
   input: SandboxConfidenceInput;
   comparison: SandboxComparisonResult;
   freeTransfers: number;
+  managerMeta: ManagerMeta | null;
 }) {
   const confidence = useSandboxDecisionConfidence({ ...input, comparison, freeTransfers });
+  const populationPercentiles = usePopulationPercentiles();
+  const economics = sandboxEconomics(comparison, freeTransfers);
+  // Rank estimate is scoped to CUMULATIVE only, not latest: both compare the same current sandbox
+  // squad, but "latest" only accounts for the incremental hit change from the most recent swap --
+  // if earlier sandbox transfers also cost hits this session, that would understate the true cost
+  // a real projected rank needs. Cumulative's hit cost is the real total across the whole session.
+  const cumulativeRankEstimate = useMemo(() => {
+    if (populationPercentiles === null) return null;
+    if (!managerMeta) return { status: "unavailable" as const, reason: "Connect your official FPL team to see a rank estimate." };
+    if (confidence.cumulative.status !== "available") return null;
+    return estimateRankDistribution({
+      candidateScenarioTotals: confidence.cumulative.result.candidateScenarioTotals,
+      candidateAdditionalHitCost: economics.cumulativeHitCost,
+      currentRealTotal: managerMeta.overallPoints,
+      currentRealRank: managerMeta.overallRank,
+      horizonWeeks: confidence.cumulative.result.availableGameweeks,
+      horizonTier: confidence.cumulative.result.horizonTier,
+      populationPercentiles,
+    });
+  }, [populationPercentiles, managerMeta, confidence.cumulative, economics.cumulativeHitCost]);
   return <section className="sandbox-decision-confidence" aria-label="Decision Confidence">
     <header><span>DECISION CONFIDENCE</span><h3>Modeled outcomes, separate from the transfer-quality gate</h3><p>These deterministic scenario frequencies compare frozen optimizer plans. They do not change transfer ordering or the /100 rating.</p></header>
     <div>
       <DecisionConfidencePanel title="Latest transfer confidence" state={confidence.latest} candidateLabel="Make transfer" baselineLabel="Keep previous squad" metricDirection="Current sandbox squad minus previous squad" metricLabel="latest sandbox delta" />
       <DecisionConfidencePanel title="Cumulative sandbox confidence" state={confidence.cumulative} candidateLabel="Make transfers" baselineLabel="Keep baseline squad" metricDirection="Current sandbox squad minus original baseline" metricLabel="cumulative sandbox delta" />
     </div>
+    <RankEstimatePanel title="Estimated rank if your whole sandbox session plays out" result={cumulativeRankEstimate} />
   </section>;
 }
 
-export default function SandboxImpactPanel({ comparison, latestTransfer, freeTransfers, onUndo, onReset, confidenceInput }: {
+export default function SandboxImpactPanel({ comparison, latestTransfer, freeTransfers, onUndo, onReset, confidenceInput, managerMeta = null }: {
   comparison: SandboxComparisonResult;
   latestTransfer: Transfer;
   freeTransfers: number;
   onUndo: () => void;
   onReset: () => void;
   confidenceInput?: SandboxConfidenceInput;
+  managerMeta?: ManagerMeta | null;
 }) {
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const { latest, cumulative } = comparison;
@@ -119,7 +145,7 @@ export default function SandboxImpactPanel({ comparison, latestTransfer, freeTra
       <StructuralChanges comparison={cumulative} label="CUMULATIVE STRUCTURAL CHANGES" />
     </div>
 
-    {confidenceInput && <SandboxDecisionConfidenceBlocks input={confidenceInput} comparison={comparison} freeTransfers={freeTransfers} />}
+    {confidenceInput && <SandboxDecisionConfidenceBlocks input={confidenceInput} comparison={comparison} freeTransfers={freeTransfers} managerMeta={managerMeta} />}
 
     <section className="sandbox-economics">
       <header><span>TRANSFER ECONOMICS</span><small>{sandboxFinancialSourceLabel(financialSource)}</small></header>

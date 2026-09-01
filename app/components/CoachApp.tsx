@@ -5,8 +5,11 @@ import LiveDraftBuilder from "./LiveDraftBuilder";
 import MiniLeagueWarRoom from "./MiniLeagueWarRoom";
 import TransferBreakdown from "./TransferBreakdown";
 import DecisionConfidencePanel from "./DecisionConfidencePanel";
+import RankEstimatePanel from "./RankEstimatePanel";
 import TransferSensitivityPanel from "./TransferSensitivityPanel";
 import { useTransferDecisionConfidence } from "./useTransferDecisionConfidence";
+import { usePopulationPercentiles } from "./usePopulationPercentiles";
+import { estimateRankDistribution } from "../lib/rank-estimate-core";
 import Pitch from "./Pitch";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
 import { FplData, FplEvent, FplFixture, FplPlayer, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, displayedGameweekAverage, fetchFplData, futureEvents, isCompleteSquad, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
@@ -620,6 +623,27 @@ function Transfers({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>vo
   const routes=useMemo(()=>solveTransferRoutes(data,squad,bank,{horizon:routeHorizon,freeTransfers:fts,maxWeeklyHit,sellingPrices,resultLimit:4}),[data,squad,bank,fts,routeHorizon,maxWeeklyHit,sellingPrices]);
   const best=selectPrimaryTransfer(rows);const roll=!best;
   const decisionConfidence=useTransferDecisionConfidence({data,squad,optimizer,primary:tab==="moves"?best:null,freeTransfers:fts,selectedRoute:`${tab}:${routeHorizon}`});
+  const populationPercentiles=usePopulationPercentiles();
+  const primaryMain=decisionConfidence.primaryKey?decisionConfidence.state.results[decisionConfidence.primaryKey]?.main:undefined;
+  // populationPercentiles===null means the population curve is still loading (renders nothing);
+  // no meta means no real current rank exists to anchor from (a real, disclosed unavailable state,
+  // not silently omitted); primaryMain not yet "available" just mirrors DecisionConfidencePanel's
+  // own loading state rather than showing a second, redundant one.
+  const primaryRankEstimate=useMemo(()=>{
+    if(populationPercentiles===null)return null;
+    if(!meta)return{status:"unavailable" as const,reason:"Connect your official FPL team to see a rank estimate."};
+    if(!primaryMain||primaryMain.status!=="available")return null;
+    if(!best)return null;
+    return estimateRankDistribution({
+      candidateScenarioTotals:primaryMain.result.candidateScenarioTotals,
+      candidateAdditionalHitCost:best.hitCost,
+      currentRealTotal:meta.overallPoints,
+      currentRealRank:meta.overallRank,
+      horizonWeeks:primaryMain.result.availableGameweeks,
+      horizonTier:primaryMain.result.horizonTier,
+      populationPercentiles,
+    });
+  },[populationPercentiles,meta,primaryMain,best]);
   if(!a)return <><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></>;
   const actionableRows=rows.filter(row=>row.qualityStatus==="actionable");
   const watchlistRows=rows.filter(row=>row.qualityStatus==="watchlist");
@@ -641,6 +665,7 @@ function Transfers({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>vo
         <header><span>DECISION CONFIDENCE</span><h2>Primary transfer scenario analysis</h2><p>This analysis is separate from the Actionable / Watchlist / Blocked quality gate and does not change transfer ordering.</p></header>
         <DecisionConfidencePanel title="Primary transfer confidence" state={decisionConfidence.primaryKey&&decisionConfidence.state.results[decisionConfidence.primaryKey]?.main||{status:"pending"}} candidateLabel="Make transfer" baselineLabel="Keep current squad" metricDirection="Transfer minus current squad" metricLabel="transfer delta" />
         <TransferSensitivityPanel state={decisionConfidence.primaryKey&&decisionConfidence.state.results[decisionConfidence.primaryKey]?.sensitivity||{status:"pending"}} onRetry={decisionConfidence.retryPrimary} retryDisabled={decisionConfidence.state.activeKey!==null} />
+        <RankEstimatePanel title="Estimated rank if this transfer plays out" result={primaryRankEstimate} />
       </section>}
       {holdNote&&<p className="transfer-hold-note">{holdNote}</p>}
       <section className="quality-gate-summary"><header><span>RECOMMENDATION QUALITY GATE</span><h2>Raw upside must earn the right to be ranked.</h2></header><div><article><b>{actionableRows.length}</b><span>Actionable</span><small>Can become the primary recommendation</small></article><article><b>{watchlistRows.length}</b><span>Watchlist</span><small>Promising, but evidence or timing is incomplete</small></article><article><b>{blockedRows.length}</b><span>Blocked</span><small>Fails a hard plausibility or role-security floor</small></article></div></section>

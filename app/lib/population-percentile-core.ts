@@ -8,6 +8,12 @@ export type PercentileCacheRow = Readonly<{
   curve: readonly PercentileCurvePoint[];
   omittedSamples: number;
   sampledAt: string;
+  // The most recently FINISHED event's real average_entry_score, not a season-to-date average and
+  // not a smoothed multi-week window -- the most temporally relevant real signal for "how much the
+  // rest of the population will score per gameweek right now" (see rank-estimate-core.ts, which
+  // uses this to correct for population growth over a projection's horizon). null before any
+  // gameweek has finished this season.
+  recentAverageGameweekScore: number | null;
 }>;
 
 export type PercentileCacheRepo = {
@@ -25,6 +31,7 @@ export type PopulationPercentileResult =
       sampledAt: string;
       stale: boolean;
       omittedSamples: number;
+      recentAverageGameweekScore: number | null;
     }
   | { status: "unavailable"; reason: string };
 
@@ -111,6 +118,7 @@ const rowToResult = (row: PercentileCacheRow, stale: boolean): PopulationPercent
   curve: row.curve,
   sampledAt: row.sampledAt,
   omittedSamples: row.omittedSamples,
+  recentAverageGameweekScore: row.recentAverageGameweekScore,
   stale,
 });
 
@@ -124,7 +132,12 @@ const rowToResult = (row: PercentileCacheRow, stale: boolean): PopulationPercent
 export async function getPopulationPercentiles(deps: {
   repo: PercentileCacheRepo;
   now: () => number;
-  fetchCurrentEvent: () => Promise<{ eventId: number; eventFinished: boolean; totalPlayers: number }>;
+  fetchCurrentEvent: () => Promise<{
+    eventId: number;
+    eventFinished: boolean;
+    totalPlayers: number;
+    recentAverageGameweekScore: number | null;
+  }>;
   fetchPage: (page: number) => Promise<PercentileCurvePoint | null>;
   sampleCount?: number;
 }): Promise<PopulationPercentileResult> {
@@ -132,7 +145,7 @@ export async function getPopulationPercentiles(deps: {
   const cached = await deps.repo.read();
   if (cached && !isPercentileCacheStale(cached, deps.now())) return rowToResult(cached, false);
   try {
-    const { eventId, eventFinished, totalPlayers } = await deps.fetchCurrentEvent();
+    const { eventId, eventFinished, totalPlayers, recentAverageGameweekScore } = await deps.fetchCurrentEvent();
     const maxPage = Math.max(1, Math.ceil(totalPlayers / POPULATION_PERCENTILE_PAGE_SIZE));
     const { curve, omittedSamples } = await sampleOverallCurve({
       maxPage, sampleCount, fetchPage: deps.fetchPage,
@@ -140,7 +153,7 @@ export async function getPopulationPercentiles(deps: {
     if (!curve.length) throw new Error("No usable population standings samples were returned.");
     const row: PercentileCacheRow = {
       id: POPULATION_PERCENTILE_CACHE_ROW_ID,
-      eventId, eventFinished, totalPlayers, curve, omittedSamples,
+      eventId, eventFinished, totalPlayers, curve, omittedSamples, recentAverageGameweekScore,
       sampledAt: new Date(deps.now()).toISOString(),
     };
     await deps.repo.write(row);

@@ -1,0 +1,1 @@
+ALTER TABLE `population_percentiles` ADD `recent_average_gameweek_score` integer;

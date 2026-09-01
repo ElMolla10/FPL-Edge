@@ -38,6 +38,7 @@ export function makeD1PercentileRepo(): PercentileCacheRepo {
       return {
         id: row.id, eventId: row.eventId, eventFinished: row.eventFinished,
         totalPlayers: row.totalPlayers, curve, omittedSamples: row.omittedSamples, sampledAt: row.sampledAt,
+        recentAverageGameweekScore: row.recentAverageGameweekScore,
       };
     },
     async write(row: PercentileCacheRow) {
@@ -46,6 +47,7 @@ export function makeD1PercentileRepo(): PercentileCacheRepo {
         id: row.id, eventId: row.eventId, eventFinished: row.eventFinished,
         totalPlayers: row.totalPlayers, curve: JSON.stringify(row.curve),
         omittedSamples: row.omittedSamples, sampledAt: row.sampledAt,
+        recentAverageGameweekScore: row.recentAverageGameweekScore,
       };
       await db.insert(populationPercentiles).values(values)
         .onConflictDoUpdate({ target: populationPercentiles.id, set: values });
@@ -64,7 +66,12 @@ export function makeLiveDependencies(options: { fetcher?: FetchLike; limiter?: C
   const limiter = options.limiter ?? createConcurrencyLimiter(MAX_CONCURRENCY);
   const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
   return {
-    async fetchCurrentEvent(): Promise<{ eventId: number; eventFinished: boolean; totalPlayers: number }> {
+    async fetchCurrentEvent(): Promise<{
+      eventId: number;
+      eventFinished: boolean;
+      totalPlayers: number;
+      recentAverageGameweekScore: number | null;
+    }> {
       const response = await fetchWithTimeout(`${FPL}/bootstrap-static/`, { fetcher, limiter, timeoutMs });
       if (!response.ok) throw new Error(`Official FPL bootstrap-static request failed with status ${response.status}.`);
       const data: unknown = await response.json();
@@ -75,7 +82,18 @@ export function makeLiveDependencies(options: { fetcher?: FetchLike; limiter?: C
       if (!isRecord(current) || typeof current.id !== "number" || typeof current.finished !== "boolean") {
         throw new Error("Official FPL bootstrap-static has no current event yet.");
       }
-      return { eventId: current.id, eventFinished: current.finished, totalPlayers: data.total_players };
+      // The most recently FINISHED event (by id, not array position -- events are not guaranteed
+      // sorted), not a season-to-date average: the closest real signal to current scoring
+      // conditions for correcting a future projection's population comparison. null before any
+      // gameweek has finished this season.
+      const finished = data.events.filter((event): event is Record<string, unknown> => isRecord(event) && event.finished === true);
+      const mostRecentlyFinished = finished.reduce<Record<string, unknown> | null>((latest, record) => {
+        return !latest || (typeof record.id === "number" && typeof latest.id === "number" && record.id > latest.id) ? record : latest;
+      }, null);
+      const recentAverageGameweekScore = mostRecentlyFinished && typeof mostRecentlyFinished.average_entry_score === "number"
+        ? mostRecentlyFinished.average_entry_score
+        : null;
+      return { eventId: current.id, eventFinished: current.finished, totalPlayers: data.total_players, recentAverageGameweekScore };
     },
     async fetchPage(page: number): Promise<PercentileCurvePoint | null> {
       try {

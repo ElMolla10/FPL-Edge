@@ -24,7 +24,7 @@ function makeInMemoryRepo(seed: PercentileCacheRow | null = null): PercentileCac
 const row = (overrides: Partial<PercentileCacheRow> = {}): PercentileCacheRow => ({
   id: "overall", eventId: 6, eventFinished: false, totalPlayers: 10_000_000,
   curve: [{ rank: 1, points: 200 }, { rank: 5_000_000, points: 80 }],
-  omittedSamples: 0, sampledAt: "2026-09-01T00:00:00.000Z",
+  omittedSamples: 0, sampledAt: "2026-09-01T00:00:00.000Z", recentAverageGameweekScore: 55,
   ...overrides,
 });
 
@@ -126,7 +126,7 @@ test("getPopulationPercentiles: no cache performs a live refresh, computes maxPa
   const requestedPages: number[] = [];
   const result = await getPopulationPercentiles({
     repo, now: () => Date.parse("2026-09-01T00:00:00.000Z"),
-    fetchCurrentEvent: async () => ({ eventId: 6, eventFinished: false, totalPlayers: 500 }), // maxPage = ceil(500/50) = 10
+    fetchCurrentEvent: async () => ({ eventId: 6, eventFinished: false, totalPlayers: 500, recentAverageGameweekScore: 55 }), // maxPage = ceil(500/50) = 10
     fetchPage: async (page) => { requestedPages.push(page); return { rank: page, points: 100 - page }; },
     sampleCount: 5,
   });
@@ -146,7 +146,7 @@ test("getPopulationPercentiles: a stale cache with a successful refresh overwrit
   const repo = makeInMemoryRepo(stale);
   const result = await getPopulationPercentiles({
     repo, now: Date.now,
-    fetchCurrentEvent: async () => ({ eventId: 9, eventFinished: false, totalPlayers: 100 }),
+    fetchCurrentEvent: async () => ({ eventId: 9, eventFinished: false, totalPlayers: 100, recentAverageGameweekScore: 60 }),
     fetchPage: async (page) => ({ rank: page, points: 1 }),
     sampleCount: 3,
   });
@@ -187,7 +187,7 @@ test("getPopulationPercentiles: every sample coming back unusable is treated as 
   const repo = makeInMemoryRepo(null);
   const result = await getPopulationPercentiles({
     repo, now: Date.now,
-    fetchCurrentEvent: async () => ({ eventId: 6, eventFinished: false, totalPlayers: 100 }),
+    fetchCurrentEvent: async () => ({ eventId: 6, eventFinished: false, totalPlayers: 100, recentAverageGameweekScore: 55 }),
     fetchPage: async () => null, // every single sample page failed
     sampleCount: 3,
   });

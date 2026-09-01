@@ -11,11 +11,14 @@ function fakeFetcher(response: unknown, status = 200) {
 function bootstrapPayload(overrides: Record<string, unknown> = {}) {
   return {
     total_players: 10_185_305,
+    // GW1-5 finished with distinct average_entry_score values (40, 41, 42, 43, 44) so tests can
+    // pin down exactly which one gets picked, not just that "some" score was picked.
     events: Array.from({ length: 38 }, (_, index) => ({
       id: index + 1,
       is_current: index + 1 === 6,
       is_next: index + 1 === 7,
       finished: index + 1 < 6,
+      average_entry_score: index + 1 < 6 ? 40 + index : null,
     })),
     ...overrides,
   };
@@ -28,7 +31,42 @@ function standingsPayload(rows: Record<string, unknown>[]) {
 test("fetchCurrentEvent: reads the is_current event's id/finished plus total_players from real bootstrap-static shape", async () => {
   const deps = makeLiveDependencies({ fetcher: fakeFetcher(bootstrapPayload()) });
   const result = await deps.fetchCurrentEvent();
-  assert.deepEqual(result, { eventId: 6, eventFinished: false, totalPlayers: 10_185_305 });
+  assert.deepEqual(result, { eventId: 6, eventFinished: false, totalPlayers: 10_185_305, recentAverageGameweekScore: 44 });
+});
+
+test("fetchCurrentEvent: recentAverageGameweekScore is the MOST RECENTLY finished event's real score, not the first, not an average across finished events", async () => {
+  const deps = makeLiveDependencies({ fetcher: fakeFetcher(bootstrapPayload()) });
+  const result = await deps.fetchCurrentEvent();
+  // GW1-5 finished at scores 40,41,42,43,44 -- must be 44 (GW5), not 40 (GW1) and not (40+41+42+43+44)/5=42.
+  assert.equal(result.recentAverageGameweekScore, 44);
+});
+
+test("fetchCurrentEvent: selects by highest event id, not array position -- a scrambled events array must not change the result", async () => {
+  const base = bootstrapPayload();
+  const scrambled = { ...base, events: [...base.events].sort(() => Math.random() - 0.5) };
+  const deps = makeLiveDependencies({ fetcher: fakeFetcher(scrambled) });
+  const result = await deps.fetchCurrentEvent();
+  assert.equal(result.recentAverageGameweekScore, 44);
+});
+
+test("fetchCurrentEvent: no finished event yet (pre-season) reports recentAverageGameweekScore as null, not zero or fabricated", async () => {
+  const noneFinished = Array.from({ length: 38 }, (_, index) => ({
+    id: index + 1, is_current: index + 1 === 1, is_next: index + 1 === 2, finished: false, average_entry_score: null,
+  }));
+  const deps = makeLiveDependencies({ fetcher: fakeFetcher(bootstrapPayload({ events: noneFinished })) });
+  const result = await deps.fetchCurrentEvent();
+  assert.equal(result.recentAverageGameweekScore, null);
+});
+
+test("fetchCurrentEvent: when the current event is itself finished, its own average_entry_score is used", async () => {
+  const currentFinished = Array.from({ length: 38 }, (_, index) => ({
+    id: index + 1, is_current: index + 1 === 6, is_next: false, finished: index + 1 <= 6,
+    average_entry_score: index + 1 <= 6 ? 40 + index : null,
+  }));
+  const deps = makeLiveDependencies({ fetcher: fakeFetcher(bootstrapPayload({ events: currentFinished })) });
+  const result = await deps.fetchCurrentEvent();
+  assert.equal(result.eventFinished, true);
+  assert.equal(result.recentAverageGameweekScore, 45); // GW6 (index 5) -> 40+5
 });
 
 test("fetchCurrentEvent: a finished current event is reported as finished, not assumed live", async () => {
