@@ -29,6 +29,10 @@ export const squadData = sqliteTable("squad_data", {
   captainVice: text("captain_vice").notNull().default("{}"), // {eventId: {captainId, viceId}}
   entry: text("entry"), // official FPL Team ID
   manager: text("manager"), // JSON ManagerMeta blob
+  // JSON PersistedPlan[] (see app/lib/strategy-plans.ts) -- capped at MAX_PLANS, IDs only (player
+  // ids, never full FplPlayer blobs), rehydrated against the live player pool on read, same
+  // squadIds-is-IDs-only discipline as the field above.
+  plans: text("plans").notNull().default("[]"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 

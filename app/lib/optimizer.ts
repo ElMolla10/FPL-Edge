@@ -163,3 +163,16 @@ export function createOptimizer(data:FplData,mode:HorizonMode="Balanced 5 GWs",r
   };
   return{events,eventIds,weights,metrics,evaluate,optimize,optimizeConstrained,explainSquad};
 }
+
+// evaluateSandbox's expectedPoints.nextFive (see squad-comparison.ts's pointsComparison) only
+// genuinely means "5 gameweeks" when the SquadEvaluation it's built from actually has 5 weeks --
+// weeks.length tracks whatever HorizonMode the caller's own optimizer was built with (3 for "Next 3
+// GWs", 8 for "Long-term 8 GWs"), so passing a "GW1 Attack"/"Next 3 GWs"/"Long-term 8 GWs" optimizer's
+// own evaluate() as evaluateSandbox's points evaluator would silently truncate or misreport the
+// figure. This is the one shared source for "give me a real fixed-5-GW evaluator regardless of
+// whatever horizon the caller's own UI has selected" -- every call site (LiveDraftBuilder.tsx,
+// CoachApp.tsx's Strategy Board) must use this rather than each hand-rolling its own
+// "Balanced 5 GWs" optimizer, which is exactly how the two could silently drift apart.
+export function createFiveWeekEvaluator(data:FplData,risk:RiskMode,philosophy:SquadPhilosophy):((squad:FplPlayer[])=>SquadEvaluation)|null{
+  return futureEvents(data,5).length?createOptimizer(data,"Balanced 5 GWs",risk,philosophy).evaluate:null;
+}

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb, isMissingTableError } from "../../../db";
 import { squadData } from "../../../db/schema";
 import { getCurrentUser } from "../../lib/auth";
+import { MAX_PLANS, PersistedPlan } from "../../lib/strategy-plans";
 
 export async function GET() {
   try {
@@ -17,6 +18,7 @@ export async function GET() {
       captainVice: row ? JSON.parse(row.captainVice) : {},
       entry: row?.entry ?? null,
       manager: row?.manager ? JSON.parse(row.manager) : null,
+      plans: row ? JSON.parse(row.plans) : [],
     });
   } catch (error) {
     console.error("squad GET error:", error);
@@ -39,6 +41,7 @@ export async function PUT(request: Request) {
       captainVice?: Record<string, { captainId?: number; viceId?: number }>;
       entry?: string | null;
       manager?: unknown | null;
+      plans?: PersistedPlan[];
     };
 
     const db = await getDb();
@@ -50,6 +53,9 @@ export async function PUT(request: Request) {
       captainVice: JSON.stringify(body.captainVice ?? {}),
       entry: body.entry ?? null,
       manager: body.manager ? JSON.stringify(body.manager) : null,
+      // Clamped server-side regardless of what the client sent -- a stale tab or a manual API call
+      // must not be able to write more than MAX_PLANS into this row.
+      plans: JSON.stringify((body.plans ?? []).slice(0, MAX_PLANS)),
       updatedAt: now,
     };
 

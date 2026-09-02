@@ -19,7 +19,10 @@ function safeParse<T>(value: string | null, fallback: T): T {
   }
 }
 
-function collectSyncPayload() {
+// Exported for direct testing -- confirming the watchlist/locks/entry/manager sync fields are
+// genuinely untouched by the plans addition (not just "probably fine") needs to be a real test, not
+// a re-read of the diff by eye.
+export function collectSyncPayload() {
   const captainVice: Record<string, { captainId?: number; viceId?: number }> = {};
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
@@ -36,6 +39,7 @@ function collectSyncPayload() {
     captainVice,
     entry: localStorage.getItem("fpl-edge-entry"),
     manager: safeParse<unknown | null>(localStorage.getItem("fpl-edge-manager"), null),
+    plans: safeParse<unknown[]>(localStorage.getItem("fpl-edge-plans"), []),
   };
 }
 
@@ -81,27 +85,29 @@ export function readFreeTransfers(): number {
   }
 }
 
-function hydrateFromServer(server: {
+export function hydrateFromServer(server: {
   squadIds: number[];
   watchlist: number[];
   locks: unknown[];
   captainVice: Record<string, { captainId?: number; viceId?: number }>;
   entry: string | null;
   manager: unknown | null;
+  plans: unknown[];
 }) {
   localStorage.setItem("fpl-edge-squad", JSON.stringify(server.squadIds));
   localStorage.setItem("fpl-edge-watchlist", JSON.stringify(server.watchlist));
   localStorage.setItem("fpl-edge-locks", JSON.stringify(server.locks));
   if (server.entry) localStorage.setItem("fpl-edge-entry", server.entry);
   if (server.manager) localStorage.setItem("fpl-edge-manager", JSON.stringify(server.manager));
+  localStorage.setItem("fpl-edge-plans", JSON.stringify(server.plans ?? []));
   for (const [eventId, cv] of Object.entries(server.captainVice ?? {})) {
     if (cv.captainId) localStorage.setItem(`fpl-edge-captain-${eventId}`, String(cv.captainId));
     if (cv.viceId) localStorage.setItem(`fpl-edge-vice-${eventId}`, String(cv.viceId));
   }
 }
 
-function hasMeaningfulData(payload: ReturnType<typeof collectSyncPayload> | { squadIds: number[]; watchlist: number[]; entry: string | null }) {
-  return payload.squadIds.length > 0 || payload.watchlist.length > 0 || !!payload.entry;
+export function hasMeaningfulData(payload: ReturnType<typeof collectSyncPayload> | { squadIds: number[]; watchlist: number[]; entry: string | null; plans?: unknown[] }) {
+  return payload.squadIds.length > 0 || payload.watchlist.length > 0 || !!payload.entry || !!payload.plans?.length;
 }
 
 // Called once on app mount, and again right after a successful sign-in/sign-up. Returns true
