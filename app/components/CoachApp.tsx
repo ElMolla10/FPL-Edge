@@ -10,6 +10,7 @@ import TransferSensitivityPanel from "./TransferSensitivityPanel";
 import { useTransferDecisionConfidence } from "./useTransferDecisionConfidence";
 import { usePopulationPercentiles } from "./usePopulationPercentiles";
 import { estimateRankDistribution, estimateLiveRankResult, LiveRankResult } from "../lib/rank-estimate-core";
+import { clubLineupCandidates, LINEUP_POSITIONS, LineupCandidate } from "../lib/lineup-intelligence";
 import Pitch from "./Pitch";
 import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
 import { FplData, FplEvent, FplFixture, FplPlayer, LiveMover, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, displayedGameweekAverage, fetchFplData, futureEvents, isCompleteSquad, liveScoringMovers, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
@@ -80,7 +81,7 @@ function Page({view,data,go,revision,onTeamChange}:{view:View;data:FplData;go:(v
   if(view==="league")return <MiniLeagueWarRoom revision={revision} onGoToTeam={()=>go("team")}/>;
   if(view==="draft")return <LiveDraftBuilder/>;
   if(view==="players")return <Players data={data} go={go} revision={revision}/>;
-  if(view==="fixtures")return <div className="coach-page"><TeamQualityPanel data={data}/><TeamQualityFixtures data={data}/></div>;
+  if(view==="fixtures")return <div className="coach-page"><TeamQualityPanel data={data}/><TeamQualityFixtures data={data}/><LineupIntelligencePanel data={data}/></div>;
   if(view==="news")return <News data={data} go={go} revision={revision}/>;
   if(view==="deadline")return <FinalCheck data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="chips")return <LiveChips/>;
@@ -930,6 +931,46 @@ function TeamQualityFixtures({data}:{data:FplData}){
 }
 
 function Rank({title,rows,keyName,bad}:{title:string;rows:any[];keyName:string;bad?:boolean}){return <article className={bad?"avoid":""}><span>{title.toUpperCase()}</span>{rows.map((r,i)=><p key={r.team.id}><i>{i+1}</i><b>{r.team.name}</b><strong>{keyName==="swing"?`BUY LATER +${r.swing.toFixed(1)}`:Number(r[keyName]).toFixed(2)}</strong></p>)}</article>}
+
+const lineupStatusTag=(p:FplPlayer)=>p.status==="s"?"SUSPENSION":p.status==="i"||p.status==="d"?"INJURY":"FLAGGED";
+const lineupCompetitionLine=(candidate:LineupCandidate)=>{
+  if(!candidate.closestCompetitorName)return"No listed competition at this club in this position.";
+  const points=Math.round(Math.abs(candidate.competitionGap)*100);
+  if(candidate.competitionGap>0)return`Leads ${candidate.closestCompetitorName} by ${points} points.`;
+  if(candidate.competitionGap<0)return`Trails ${candidate.closestCompetitorName} by ${points} points.`;
+  return`Tied with ${candidate.closestCompetitorName}.`;
+};
+// Fixtures is already this app's per-club research page (TeamQualityFixtures above is itself a
+// 20-team grid) -- lineup intelligence is another per-club concern and belongs here rather than a
+// new top-level nav item, which the mobile nav would just bury under "More" anyway.
+function LineupIntelligencePanel({data}:{data:FplData}){
+  const[expandedTeamId,setExpandedTeamId]=useState<number|null>(null);
+  const planningEvent=futureEvents(data,1)[0]?.id;
+  if(!planningEvent)return null;
+  return <section className="lineup-intelligence">
+    <header><span>LINEUP INTELLIGENCE</span><h2>Most likely XI, ranked by real modeled start probability.</h2><p>Ranked by this app's own modeled start probability, not an official or confirmed lineup. Clubs don't confirm their starting XI until close to kickoff.</p></header>
+    <div className="lineup-clubs">{data.teams.map(team=>{
+      const open=expandedTeamId===team.id;
+      const candidates=open?clubLineupCandidates(data.players,team.id,planningEvent,data.fixtures,planningEvent):null;
+      return <article key={team.id} className={`lineup-club${open?" open":""}`}>
+        <button className="lineup-club-head" onClick={()=>setExpandedTeamId(open?null:team.id)}><b>{team.short}</b><span>{team.name}</span><i>{open?"−":"+"}</i></button>
+        {open&&candidates&&<div className="lineup-club-body">
+          <p className="lineup-position-note">Grouped by FPL's own goalkeeper/defender/midfielder/forward categories -- this is not a stated tactical formation.</p>
+          {LINEUP_POSITIONS.map(position=><div className="lineup-position-group" key={position}>
+            <span>{position}</span>
+            {candidates[position].length?candidates[position].map(candidate=><article key={candidate.player.id} className="lineup-candidate">
+              <div><b>{candidate.player.name}</b><small>{Math.round(candidate.startProbability*100)}% start · {Math.round(candidate.expectedMinutes)} mins</small></div>
+              <div className="lineup-candidate-tags">{candidate.penaltyRole&&<em>PENALTIES</em>}{candidate.setPieceRole&&<em>SET PIECES</em>}{candidate.player.status!=="a"&&<em className="flag">{lineupStatusTag(candidate.player)}</em>}</div>
+              <p className="lineup-candidate-competition">{lineupCompetitionLine(candidate)}</p>
+              {candidate.player.status!=="a"&&<p className="lineup-candidate-news">{candidate.player.news||"Official FPL flag has no published detail."}</p>}
+            </article>):<p className="lineup-position-empty">No listed players.</p>}
+          </div>)}
+        </div>}
+      </article>;
+    })}</div>
+    <p className="lineup-disclosure-footer">Official FPL status only. No invented quotes, predicted lineups or unsupported rumours.</p>
+  </section>;
+}
 
 function News({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const squad=useMemo(()=>savedSquad(data),[data,revision]);const watch=readIds("fpl-edge-watchlist");const owned=new Set(squad.map(p=>p.id)),watched=new Set(watch);const[filter,setFilter]=useState("PRIORITY");const items=data.players.filter(p=>p.news||p.status!=="a").map(p=>({p,priority:owned.has(p.id)?0:watched.has(p.id)?1:p.selectedBy>=10?2:3})).filter(x=>filter==="ALL"||filter==="PRIORITY"&&x.priority<3||filter==="SQUAD"&&owned.has(x.p.id)||filter==="WATCHLIST"&&watched.has(x.p.id)).sort((a,b)=>a.priority-b.priority||(b.p.newsAdded?Date.parse(b.p.newsAdded):0)-(a.p.newsAdded?Date.parse(a.p.newsAdded):0));const tag=(p:FplPlayer)=>p.status==="s"?"SUSPENSION":p.status==="i"||p.status==="d"?"INJURY":p.news.toLowerCase().includes("transfer")?"TRANSFER":p.news.toLowerCase().includes("international")?"LINEUP":"PRESS CONFERENCE";const impact=(p:FplPlayer)=>{if(owned.has(p.id))return p.status!=="a"?`Your player is officially flagged. Review ${p.name}'s start probability and bench cover before transferring.`:`Your squad is affected. Recheck the player panel before lock-in.`;if(watched.has(p.id))return`Watchlist target: ${p.status!=="a"?"do not buy until availability improves":"keep monitoring role and expected minutes before buying"}.`;return`High-ownership FPL relevance. This update does not automatically create a transfer recommendation.`};return <div className="coach-page"><section className="news-lead"><div><span>PERSONALISED NEWS</span><h2>{items.filter(x=>x.priority<2).length} updates affect your squad or watchlist.</h2><p>Official FPL status only. No invented quotes, predicted lineups or unsupported rumours.</p></div><button onClick={()=>go("deadline")}>See deadline impact →</button></section><div className="news-tabs">{["PRIORITY","SQUAD","WATCHLIST","ALL"].map(x=><button className={filter===x?"active":""} onClick={()=>setFilter(x)} key={x}>{x}</button>)}</div><section className="impact-news">{items.length?items.map(({p,priority})=><article key={p.id}><header><div><span className="news-tag">{tag(p)}</span><span className={`certainty ${p.status!=="a"?"confirmed":priority<2?"likely":"uncertain"}`}>{p.status!=="a"?"CONFIRMED":priority<2?"LIKELY":"UNCERTAIN"}</span></div><time>{p.newsAdded?new Date(p.newsAdded).toLocaleString():"No official timestamp"}</time></header><h3>{p.name} · {p.teamShort}</h3><p>{p.news||"Official FPL flag has no published detail."}</p><aside><span>FPL IMPACT</span><b>{impact(p)}</b></aside><footer><span>{owned.has(p.id)?"MY SQUAD":watched.has(p.id)?"WATCHLIST":`${p.selectedBy.toFixed(1)}% OWNED`}</span><span>{p.transfersOut.toLocaleString()} transfers out</span></footer></article>):<div className="empty-watch"><b>No official updates match this filter.</b><p>That is good news. We will not manufacture a story to fill the page.</p></div>}</section></div>}
 
