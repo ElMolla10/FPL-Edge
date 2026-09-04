@@ -1,0 +1,1 @@
+ALTER TABLE `squad_data` ADD `planned_chips` text DEFAULT '[]' NOT NULL;

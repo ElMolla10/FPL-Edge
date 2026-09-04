@@ -33,6 +33,10 @@ export const squadData = sqliteTable("squad_data", {
   // ids, never full FplPlayer blobs), rehydrated against the live player pool on read, same
   // squadIds-is-IDs-only discipline as the field above.
   plans: text("plans").notNull().default("[]"),
+  // JSON PlannedChip[] (see app/lib/chip-portfolio.ts) -- capped at 4, one row per chip name, the
+  // single source of truth the chip-portfolio inventory, the captain picker's pre-deadline
+  // multiplier preview, and the Wildcard/Free Hit planning surface all read and write.
+  plannedChips: text("planned_chips").notNull().default("[]"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 

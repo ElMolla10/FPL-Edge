@@ -1,5 +1,6 @@
 import { FplData, FplPlayer, ROLE_SECURITY_FLOOR, bestXi, futureEvents, playerProjection, projectionMetrics } from "./fpl";
 import { transferHitCost } from "./transfer-quality";
+import { PlannedChip, plannedChipFor } from "./chip-portfolio";
 
 export type RouteTransfer={
   out:FplPlayer;
@@ -47,6 +48,7 @@ export type TransferRouteOptions={
   sellingPrices?:Map<number,number>;
   beamWidth?:number;
   resultLimit?:number;
+  plannedChips?:readonly PlannedChip[];
 };
 
 type RouteState={
@@ -94,8 +96,22 @@ export function solveTransferRoutes(data:FplData,initialSquad:FplPlayer[],initia
   const metricCache=new Map<string,ReturnType<typeof projectionMetrics>>();
   const projected=(player:FplPlayer,eventId:number)=>{const key=`${player.id}:${eventId}`;if(!projectionCache.has(key))projectionCache.set(key,playerProjection(player,eventId,data.fixtures,firstEvent));return projectionCache.get(key)!};
   const metrics=(player:FplPlayer,eventId:number)=>{const key=`${player.id}:${eventId}`;if(!metricCache.has(key))metricCache.set(key,projectionMetrics(player,eventId,data.fixtures,firstEvent));return metricCache.get(key)!};
+  const plannedChips=options.plannedChips??[];
   const weekTotalCache=new Map<string,number>();
-  const weekTotal=(squad:FplPlayer[],eventId:number)=>{const key=`${eventId}:${squadKey(squad)}`;if(!weekTotalCache.has(key))weekTotalCache.set(key,bestXi(squad,eventId,data.fixtures,firstEvent).total);return weekTotalCache.get(key)!};
+  // Same chip-bonus reasoning as transfers.ts's squadWeekTotal: bestXi's own total is wrapped
+  // rather than modified, so bestXi's five other, unrelated callers stay byte-identical. Wildcard/
+  // Free Hit are deliberately not handled here either -- Option A, Feature #7 revision.
+  const weekTotal=(squad:FplPlayer[],eventId:number)=>{
+    const key=`${eventId}:${squadKey(squad)}`;
+    if(!weekTotalCache.has(key)){
+      const xi=bestXi(squad,eventId,data.fixtures,firstEvent);
+      const chip=plannedChipFor(plannedChips,eventId);
+      const captainBonus=chip==="Triple Captain"&&xi.captain?playerProjection(xi.captain,eventId,data.fixtures,firstEvent):0;
+      const benchBonus=chip==="Bench Boost"?squad.filter(p=>!xi.players.includes(p)).reduce((sum,p)=>sum+playerProjection(p,eventId,data.fixtures,firstEvent),0):0;
+      weekTotalCache.set(key,xi.total+captainBonus+benchBonus);
+    }
+    return weekTotalCache.get(key)!;
+  };
   const remainingScore=(player:FplPlayer,index:number)=>events.slice(index).reduce((sum,event)=>sum+projected(player,event.id),0);
   const baselinePoints=events.reduce((sum,event)=>sum+weekTotal(initialSquad,event.id),0);
 

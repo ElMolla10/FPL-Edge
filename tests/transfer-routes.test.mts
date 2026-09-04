@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { FplData, FplPlayer, ROLE_SECURITY_FLOOR } from "../app/lib/fpl.ts";
+import { FplData, FplPlayer, ROLE_SECURITY_FLOOR, bestXi, playerProjection } from "../app/lib/fpl.ts";
 import { solveTransferRoutes } from "../app/lib/transfer-routes.ts";
 
 function makePlayer(overrides:Partial<FplPlayer>={}):FplPlayer{return{
@@ -85,6 +85,41 @@ test("role-insecure targets cannot anchor a route despite an inflated headline p
   const trap=makePlayer({id:199,name:"Trap",teamId:199,positionId:3,position:"Midfielder",positionShort:"MID",price:5,epNext:15,form:15,pointsPerGame:9,priorPointsPerGame:9,priorMinutes:63,priorStarts:1,priorExpectedGoals:20,priorExpectedAssists:20,status:"d",chance:25});
   const routes=solveTransferRoutes(dataFor([...initial,trap],3),initial,5,{horizon:3,freeTransfers:1,resultLimit:4});
   assert.ok(routes.every(route=>route.weeks.every(week=>week.transfers.every(move=>move.incoming.id!==trap.id))));
+});
+
+// weekTotal() is a private closure inside solveTransferRoutes that wraps bestXi() rather than
+// modifying it (bestXi's five other, unrelated callers must stay byte-identical) -- this proves the
+// wrapper is actually wired up, by comparing solveTransferRoutes's own output against bestXi's total
+// computed independently, plus the exact bonus term evaluateProjectionReceipt's own real-chip
+// reconciliation formula uses (CoachApp.tsx's chipAdjustment), rather than re-deriving a new formula.
+test("solveTransferRoutes: a planned Triple Captain for a specific event adds exactly one more captain term to that week's projectedPoints, not other weeks",()=>{
+  const initial=squad();
+  const data=dataFor(initial,3);
+  const withoutPlan=solveTransferRoutes(data,initial,1,{horizon:3,freeTransfers:5,resultLimit:1});
+  const withPlan=solveTransferRoutes(data,initial,1,{horizon:3,freeTransfers:5,resultLimit:1,plannedChips:[{event:1,chip:"Triple Captain"}]});
+  assert.equal(withoutPlan.length,1);assert.equal(withPlan.length,1);
+  const xi=bestXi(initial,1,data.fixtures,1);
+  assert.ok(xi.captain,"a legal XI with a captain must exist for this synthetic squad");
+  const captainTerm=playerProjection(xi.captain!,1,data.fixtures,1);
+  assert.ok(Math.abs((withPlan[0].weeks[0].projectedPoints-withoutPlan[0].weeks[0].projectedPoints)-captainTerm)<1e-6,"week 1's projectedPoints must grow by exactly one more captain term under a planned Triple Captain");
+  assert.equal(withPlan[0].weeks[1].projectedPoints,withoutPlan[0].weeks[1].projectedPoints,"week 2 (no plan for that event) must be completely unaffected");
+  assert.equal(withPlan[0].weeks[2].projectedPoints,withoutPlan[0].weeks[2].projectedPoints,"week 3 (no plan for that event either) must be completely unaffected");
+});
+
+test("solveTransferRoutes: a planned Wildcard/Free Hit is silently ignored by projectedPoints -- Option A, no squad-rebuild math here",()=>{
+  const initial=squad();
+  const data=dataFor(initial,3);
+  const withoutPlan=solveTransferRoutes(data,initial,1,{horizon:3,freeTransfers:5,resultLimit:1});
+  const withPlan=solveTransferRoutes(data,initial,1,{horizon:3,freeTransfers:5,resultLimit:1,plannedChips:[{event:1,chip:"Wildcard"}]});
+  assert.equal(withPlan[0].weeks[0].projectedPoints,withoutPlan[0].weeks[0].projectedPoints,"Wildcard/Free Hit must not change projectedPoints -- they change which squad should be scored, which this function doesn't rebuild");
+});
+
+test("solveTransferRoutes: omitting plannedChips entirely behaves exactly as before -- every existing caller stays correct unmodified",()=>{
+  const initial=squad();
+  const data=dataFor(initial,3);
+  const a=solveTransferRoutes(data,initial,1,{horizon:3,freeTransfers:5,resultLimit:1});
+  const b=solveTransferRoutes(data,initial,1,{horizon:3,freeTransfers:5,resultLimit:1,plannedChips:[]});
+  assert.deepEqual(a[0].weeks.map(w=>w.projectedPoints),b[0].weeks.map(w=>w.projectedPoints));
 });
 
 // eligibleAt() is a private closure inside solveTransferRoutes -- it can't be called directly to

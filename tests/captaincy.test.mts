@@ -123,6 +123,26 @@ test("captainRiskNote: vice is safe (>=68%) -- message does NOT include the comp
   assert.ok(!result?.message.includes("isn't nailed either"), `did not expect the compounding-risk caveat when vice is safe, got: ${result?.message}`);
 });
 
+test("captainRiskNote: no multiplier argument still defaults to the standard x2 -- every existing call site above stays correct unmodified", () => {
+  const captain = makePlayer({ id: 1, name: "Haaland" });
+  const vice = makePlayer({ id: 2, name: "Salah" });
+  const result = captainRiskNote(captain, vice, 61, 90, 9.4, 7.1);
+  assert.equal(result!.pointsIfCaptainPlays, 18.8);
+  assert.equal(result!.pointsIfArmbandPasses, 14.2);
+});
+
+// The real reason this parameter exists: FinalCheck resolves multiplier from PlannedChip keyed
+// strictly on the CURRENT gameweek (a.first) -- a planned Triple Captain for a DIFFERENT gameweek
+// must never leak x3 into this week's risk note, same off-by-one discipline as the chip-inventory
+// boundary tests and plannedChipFor's own tests.
+test("captainRiskNote: a planned Triple Captain swings the note at x3, not x2 -- both the captain's own total and the armband-passes-to-vice total", () => {
+  const captain = makePlayer({ id: 1, name: "Haaland" });
+  const vice = makePlayer({ id: 2, name: "Salah" });
+  const result = captainRiskNote(captain, vice, 61, 90, 9.4, 7.1, 3);
+  assert.equal(Number(result!.pointsIfCaptainPlays.toFixed(1)), 28.2, "captain's own tripled points (9.4 * 3)");
+  assert.equal(Number(result!.pointsIfArmbandPasses.toFixed(1)), 21.3, "vice's tripled points if the armband passes under an ACTIVE Triple Captain (7.1 * 3), not just doubled");
+});
+
 // --- captainReturnHaul: Probabilistic Projection Simulator Phase A ---
 // The old linear xG*45+xA*25 formula (and its clamp-ceiling bug, previously tested here) is gone
 // entirely -- replaced by direct reads off the real points distribution in

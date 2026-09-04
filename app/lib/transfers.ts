@@ -1,6 +1,7 @@
 import { FplData, FplPlayer, ProjectionMetrics, futureEvents, isCompleteSquad, playerCalibrationProfile, playerProjection, projectionMetrics } from "./fpl";
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "./anomalies";
 import { TRANSFER_ACTION_THRESHOLD, TransferQualityReason, TransferQualityStatus, evaluateTransferQuality, transferHitCost } from "./transfer-quality";
+import { plannedChipFor, readPlannedChips } from "./chip-portfolio";
 
 // Moved from CoachApp.tsx (Phase 1 of the Draft Lab result-mode work) so LiveDraftBuilder.tsx's
 // "Best available transfer right now" can call the real, already-battle-tested single-transfer
@@ -60,7 +61,15 @@ function buildTransferBaseline(data:FplData,squad:FplPlayer[],freeTransfers:numb
   const hitCost=hitCostOverride??transferHitCost(1,freeTransfers);
   const projectionCache=new Map<string,number>();
   const projected=(player:FplPlayer,eventId:number)=>{const key=`${player.id}:${eventId}`;if(!projectionCache.has(key))projectionCache.set(key,playerProjection(player,eventId,data.fixtures,first));return projectionCache.get(key)!};
-  const squadWeekTotal=(players:FplPlayer[],eventId:number)=>{let best=0;const score=(p:FplPlayer)=>projected(p,eventId);const keepers=players.filter(p=>p.positionShort==="GKP").sort((a,b)=>score(b)-score(a));for(let def=3;def<=5;def++)for(let mid=2;mid<=5;mid++){const fwd=10-def-mid;if(fwd<1||fwd>3)continue;const xi=[keepers[0],...players.filter(p=>p.positionShort==="DEF").sort((a,b)=>score(b)-score(a)).slice(0,def),...players.filter(p=>p.positionShort==="MID").sort((a,b)=>score(b)-score(a)).slice(0,mid),...players.filter(p=>p.positionShort==="FWD").sort((a,b)=>score(b)-score(a)).slice(0,fwd)].filter(Boolean);if(xi.length!==11)continue;const captain=[...xi].sort((a,b)=>score(b)-score(a))[0];best=Math.max(best,xi.reduce((sum,p)=>sum+score(p),0)+score(captain))}return best};
+  // A planned Triple Captain/Bench Boost for a specific future event adds one more term to
+  // whichever candidate squad is being scored for THAT event only -- same two-term addition
+  // evaluateProjectionReceipt already uses to reconcile a receipt against the real chip that was
+  // played (CoachApp.tsx), just applied forward from an unconfirmed plan instead of backward from
+  // confirmed history. Wildcard/Free Hit are deliberately NOT handled here (Option A, Feature #7
+  // revision): they change which 15 players this formula should even be scoring, not a term within
+  // it, and squadWeekTotal always scores one fixed candidate squad passed in by the caller.
+  const plannedChips=readPlannedChips();
+  const squadWeekTotal=(players:FplPlayer[],eventId:number)=>{let best=0;const score=(p:FplPlayer)=>projected(p,eventId);const keepers=players.filter(p=>p.positionShort==="GKP").sort((a,b)=>score(b)-score(a));const chip=plannedChipFor(plannedChips,eventId);for(let def=3;def<=5;def++)for(let mid=2;mid<=5;mid++){const fwd=10-def-mid;if(fwd<1||fwd>3)continue;const xi=[keepers[0],...players.filter(p=>p.positionShort==="DEF").sort((a,b)=>score(b)-score(a)).slice(0,def),...players.filter(p=>p.positionShort==="MID").sort((a,b)=>score(b)-score(a)).slice(0,mid),...players.filter(p=>p.positionShort==="FWD").sort((a,b)=>score(b)-score(a)).slice(0,fwd)].filter(Boolean);if(xi.length!==11)continue;const captain=[...xi].sort((a,b)=>score(b)-score(a))[0];const captainBonus=chip==="Triple Captain"?score(captain):0;const benchBonus=chip==="Bench Boost"?players.filter(p=>!xi.includes(p)).reduce((sum,p)=>sum+score(p),0):0;best=Math.max(best,xi.reduce((sum,p)=>sum+score(p),0)+score(captain)+captainBonus+benchBonus)}return best};
   const baselineSquadByEvent=events.map(event=>squadWeekTotal(squad,event.id));
   return{events,first,hitCost,projected,squadWeekTotal,baselineSquadByEvent};
 }

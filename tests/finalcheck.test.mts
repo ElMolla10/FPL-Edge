@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { LockRecord, reconcileLock } from "../app/components/CoachApp.tsx";
 
@@ -67,4 +68,20 @@ test("reconcileLock: a changed bench order invalidates an otherwise identical de
   const lockedPlan=makeLock({benchIds:[12,13,14,15]});
   assert.equal(reconcileLock(lockedPlan,{xiIds:lockedPlan.xiIds,benchIds:[13,12,14,15],captainId:1,viceId:2}),"mismatch");
   assert.equal(reconcileLock(lockedPlan,{xiIds:lockedPlan.xiIds,benchIds:[12,13,14,15],captainId:1,viceId:2}),"matches");
+});
+
+// FutureGameweekView shows no point total anywhere (just names/opponents/status flags), so there's
+// no forward-projection math to make chip-aware there -- only a visible confirmation badge, keyed
+// on THIS gameweek's own event.id. plannedChipFor's own off-by-one correctness is already covered
+// directly in chip-portfolio.test.mts; what a pure-function test can't catch is a wiring bug at the
+// real call site (e.g. accidentally passing a different event id in) -- this scans the actual source
+// for that, the same technique transfer-routes.test.mts already uses for ROLE_SECURITY_FLOOR.
+test("FutureGameweekView resolves its planned-chip badge from plannedChipFor keyed on event.id -- the correct event, not a stale or unrelated one",()=>{
+  const source=readFileSync(new URL("../app/components/CoachApp.tsx",import.meta.url),"utf-8");
+  const start=source.indexOf("function FutureGameweekView(");
+  assert.notEqual(start,-1,"FutureGameweekView must still exist in CoachApp.tsx -- if it moved or was renamed, update this scan target too");
+  const end=source.indexOf("\nfunction ",start+1);
+  const body=source.slice(start,end===-1?undefined:end);
+  assert.ok(body.includes("plannedChipFor(readPlannedChips(),event.id)"),"FutureGameweekView must resolve its badge from plannedChipFor(...,event.id) -- reading any other event id here would silently show the wrong gameweek's plan");
+  assert.ok(!/plannedChipFor\([^)]*a\.first/.test(body),"FutureGameweekView has no `a` (analysis()) in scope -- this guards against a copy-paste from Overview/FinalCheck accidentally reintroducing that variable name");
 });

@@ -12,7 +12,8 @@ import { usePopulationPercentiles } from "./usePopulationPercentiles";
 import { estimateRankDistribution, estimateLiveRankResult, LiveRankResult } from "../lib/rank-estimate-core";
 import { clubLineupCandidates, LINEUP_POSITIONS, LineupCandidate } from "../lib/lineup-intelligence";
 import Pitch from "./Pitch";
-import { ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
+import { Chip, ChipPortfolioPanel, ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
+import { PlannedChip, plannedChipFor, readPlannedChips } from "../lib/chip-portfolio";
 import { FplData, FplEvent, FplFixture, FplPlayer, LiveMover, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, displayedGameweekAverage, fetchFplData, futureEvents, isCompleteSquad, liveScoringMovers, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
 import { HorizonMode, RiskMode, SquadPhilosophy, createFiveWeekEvaluator, createOptimizer } from "../lib/optimizer";
 import { FiveGwGainBand } from "../lib/anomalies";
@@ -86,7 +87,7 @@ function Page({view,data,go,revision,onTeamChange}:{view:View;data:FplData;go:(v
   if(view==="fixtures")return <div className="coach-page"><TeamQualityPanel data={data}/><TeamQualityFixtures data={data}/><LineupIntelligencePanel data={data}/></div>;
   if(view==="news")return <News data={data} go={go} revision={revision}/>;
   if(view==="deadline")return <FinalCheck data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
-  if(view==="chips")return <LiveChips/>;
+  if(view==="chips")return <><LiveChips/><ChipPortfolioPanel/></>;
   if(view==="model")return <div className="coach-page"><ModelVersionPanel/><TeamQualityPanel data={data}/><PointsModel data={data}/></div>;
   return <div className="coach-page"><ModelAudit data={data} revision={revision}/><LiveHistory/></div>;
 }
@@ -216,7 +217,7 @@ export function withModelUtilityChange(rows:Transfer[],squad:FplPlayer[],optimiz
   return sortTransfersByQuality(adjustedRows);
 }
 
-function Overview({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){const[meta,setMeta]=useManager(revision);const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);const a=analysis(data,squad);if(!a)return <><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually. Your recommendations, transfer centre and deadline check will activate immediately.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></>;const moves=bestTransfers(data,squad,(meta?.bank??a.bank),1,12,sellingPricesFor(meta));const move=selectPrimaryTransfer(moves);const roll=!move;const issues=a.issues;const next=a.events[0];let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}const storedCaptainId=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));const storedViceId=Number(localStorage.getItem(`fpl-edge-vice-${a.first}`));const modelCaptain=a.xi.captain??a.xi.players[0];const resolvedCaptaincy=resolveCaptaincy(a.xi.players,storedCaptainId,storedViceId,manager?.captainId,manager?.viceCaptainId,modelCaptain,undefined);const activeCaptain=(resolvedCaptaincy&&a.xi.players.find(p=>p.id===resolvedCaptaincy.captainId))??modelCaptain;const projected=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0)+playerProjection(activeCaptain,a.first,data.fixtures,a.first);return <div className="coach-page"><section className="command-top"><div><span>NEXT DEADLINE</span><h2>{next.name}</h2><p>{new Date(next.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p></div><DeadlineClock data={data}/></section><section className="weekly-call"><div className="call-label"><span>THIS WEEK'S RECOMMENDATION</span><b>{roll?"LIKELY":"MODEL EDGE"}</b></div><h2>{roll?"ROLL TRANSFER":`${move.out.name} → ${move.incoming.name}`}</h2><ul>{roll?<><li>No risk-adjusted squad move clears the 2.2-point five-GW action threshold.</li><li>Your current XI keeps two future transfer routes open.</li><li>Recheck official flags before the deadline.</li></>:<><li>+{move.gain5.toFixed(1)} projected squad points across five gameweeks.</li><li>{move.minutes>=0?`${Math.round(move.minutes)} extra expected minutes this week.`:"The upside is fixture-led despite lower expected minutes."}</li><li>{move.risk} modelled minutes/availability risk.</li></>}</ul><button onClick={()=>go("transfers")}>Inspect the reasoning →</button></section><div className="command-metrics"><article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy</small></article><article><span>SQUAD VALUE</span><b>£{(meta?.squadValue??a.cost).toFixed(1)}m</b><small>official when connected</small></article><article><span>IN THE BANK</span><b>£{(meta?.bank??a.bank).toFixed(1)}m</b><small>{meta?"official public data":"builder estimate"}</small></article><article><span>FREE TRANSFERS</span><b>Set in Transfers</b><small>not exposed publicly by FPL</small></article><article><span>OVERALL RANK</span><b>{fmt(meta?.overallRank)}</b><small>{meta?meta.teamName:"connect to reveal"}</small></article><article><span>GW RANK</span><b>{fmt(meta?.gameweekRank)}</b><small>{meta?.gameweekPoints??"—"} GW points</small></article><article><span>TOTAL POINTS</span><b>{meta?.overallPoints??"—"}</b><small>official account history</small></article></div><section className="urgent-card"><header><div><span>URGENT ISSUES</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div><button onClick={()=>go("deadline")}>Open final check →</button></header>{issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}</section><WhatChanged data={data} squad={squad}/><DgwAlert data={data}/><SquadValueAlert squad={squad}/></div>}
+function Overview({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){const[meta,setMeta]=useManager(revision);const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);const a=analysis(data,squad);if(!a)return <><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually. Your recommendations, transfer centre and deadline check will activate immediately.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></>;const moves=bestTransfers(data,squad,(meta?.bank??a.bank),1,12,sellingPricesFor(meta));const move=selectPrimaryTransfer(moves);const roll=!move;const issues=a.issues;const next=a.events[0];let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}const storedCaptainId=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));const storedViceId=Number(localStorage.getItem(`fpl-edge-vice-${a.first}`));const modelCaptain=a.xi.captain??a.xi.players[0];const resolvedCaptaincy=resolveCaptaincy(a.xi.players,storedCaptainId,storedViceId,manager?.captainId,manager?.viceCaptainId,modelCaptain,undefined);const activeCaptain=(resolvedCaptaincy&&a.xi.players.find(p=>p.id===resolvedCaptaincy.captainId))??modelCaptain;const plannedChip=plannedChipFor(readPlannedChips(),a.first);const captainTerm=playerProjection(activeCaptain,a.first,data.fixtures,a.first);const chipBonus=plannedChip==="Triple Captain"?captainTerm:plannedChip==="Bench Boost"?a.bench.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0):0;const projected=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0)+captainTerm+chipBonus;return <div className="coach-page"><section className="command-top"><div><span>NEXT DEADLINE</span><h2>{next.name}</h2><p>{new Date(next.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p></div><DeadlineClock data={data}/></section><section className="weekly-call"><div className="call-label"><span>THIS WEEK'S RECOMMENDATION</span><b>{roll?"LIKELY":"MODEL EDGE"}</b></div><h2>{roll?"ROLL TRANSFER":`${move.out.name} → ${move.incoming.name}`}</h2><ul>{roll?<><li>No risk-adjusted squad move clears the 2.2-point five-GW action threshold.</li><li>Your current XI keeps two future transfer routes open.</li><li>Recheck official flags before the deadline.</li></>:<><li>+{move.gain5.toFixed(1)} projected squad points across five gameweeks.</li><li>{move.minutes>=0?`${Math.round(move.minutes)} extra expected minutes this week.`:"The upside is fixture-led despite lower expected minutes."}</li><li>{move.risk} modelled minutes/availability risk.</li></>}</ul><button onClick={()=>go("transfers")}>Inspect the reasoning →</button></section><div className="command-metrics"><article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></article><article><span>SQUAD VALUE</span><b>£{(meta?.squadValue??a.cost).toFixed(1)}m</b><small>official when connected</small></article><article><span>IN THE BANK</span><b>£{(meta?.bank??a.bank).toFixed(1)}m</b><small>{meta?"official public data":"builder estimate"}</small></article><article><span>FREE TRANSFERS</span><b>Set in Transfers</b><small>not exposed publicly by FPL</small></article><article><span>OVERALL RANK</span><b>{fmt(meta?.overallRank)}</b><small>{meta?meta.teamName:"connect to reveal"}</small></article><article><span>GW RANK</span><b>{fmt(meta?.gameweekRank)}</b><small>{meta?.gameweekPoints??"—"} GW points</small></article><article><span>TOTAL POINTS</span><b>{meta?.overallPoints??"—"}</b><small>official account history</small></article></div><section className="urgent-card"><header><div><span>URGENT ISSUES</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div><button onClick={()=>go("deadline")}>Open final check →</button></header>{issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}</section><WhatChanged data={data} squad={squad}/><DgwAlert data={data}/><SquadValueAlert squad={squad}/></div>}
 function WhatChanged({data,squad}:{data:FplData;squad:FplPlayer[]}){const flagged=squad.filter(p=>p.news||p.status!=="a");const market=[...data.players].filter(p=>p.transfersIn>p.transfersOut).sort((a,b)=>(b.transfersIn-b.transfersOut)-(a.transfersIn-a.transfersOut))[0];return <section className="changed-card"><div><span>SINCE YOUR LAST CHECK</span><h2>What changed?</h2></div><div>{flagged.slice(0,2).map(p=><p key={p.id}><i className="amber"/><b>{p.name}</b> {p.news||"remains flagged in the official feed"}</p>)}{market&&<p><i className="green"/><b>{market.name}</b> has the strongest net transfer-in pressure.</p>}{!flagged.length&&<p><i className="green"/>No new official flag affects your saved squad.</p>}</div><strong>Impact: {flagged.length?"Review the final-check risk flags.":"No forced transfer."}</strong></section>}
 
 // Surfaces confirmed doubles/blanks within the same 8-GW horizon Chips/Fixtures already use, so a
@@ -620,9 +621,13 @@ function FutureGameweekView({data,event,squad,tab,setTab,selected,setSelected,ba
   const bench=benchOrderForEvent(xi,squad.filter(p=>!xi.some(x=>x.id===p.id)),event.id,data).bench;
   const replacement=bestTransfers(data,squad,bank).filter(x=>selected&&x.out.id===selected.id&&x.qualityStatus!=="blocked").slice(0,3);
   const gwFixtures=data.fixtures.filter(f=>f.event===event.id);
+  // No point total is ever shown on this page (just names/opponents/status), so there's no forward-
+  // projection math to make chip-aware here -- this is purely a visible confirmation of intent,
+  // keyed strictly on event.id, the same off-by-one discipline as every other plannedChipFor call site.
+  const plannedChip=plannedChipFor(readPlannedChips(),event.id);
 
   return <div className="gw-future">
-    <section className="gw-provisional-note"><span>PROVISIONAL</span><h2>Today's squad against {event.name}'s fixtures.</h2><p>No transfers have been made for this week yet -- this is where your squad stands right now, not a locked plan. Come back closer to the deadline as news and fixtures firm up.</p></section>
+    <section className="gw-provisional-note"><span>PROVISIONAL</span><h2>Today's squad against {event.name}'s fixtures.</h2><p>No transfers have been made for this week yet -- this is where your squad stands right now, not a locked plan. Come back closer to the deadline as news and fixtures firm up.</p>{plannedChip&&<div className="gw-planned-chip"><span>PLANNED CHIP</span><b>{plannedChip}</b></div>}</section>
     <div className="segmented">{(["Pitch","List"] as const).map(x=><button className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div>
     {tab==="Pitch"&&<section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{xi.filter(p=>p.positionShort===pos).map(p=><button key={p.id} className={p.status!=="a"?"flagged":""} onClick={()=>setSelected(p)}><i>{pos}</i><b>{p.name}</b><span>{opponent(p,event.id,data)}</span><small>{p.status==="a"?"LIKELY":"FLAGGED"}</small></button>)}</div>)}</section>}
     {tab==="List"&&<section className="team-list"><header><span>PLAYER</span><span>FIXTURE</span><span>STATUS</span></header>{[...xi,...bench].map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><b>{i<11?"XI":"BENCH"} · {p.name}<small>{p.teamShort} · {p.positionShort}</small></b><span>{opponent(p,event.id,data)}</span><em className={p.status==="a"?"ok":"risk"}>{p.status==="a"?"LIKELY":"FLAGGED"}</em></button>)}</section>}
@@ -661,7 +666,7 @@ function Transfers({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>vo
   const sellingPrices=useMemo(()=>sellingPricesFor(meta),[meta]);
   const baseRows=useMemo(()=>a?bestTransfers(data,squad,bank,fts,60,sellingPricesFor(meta)):[],[data,squad,bank,fts,a,meta]);
   const rows=useMemo(()=>withModelUtilityChange(baseRows,squad,optimizer),[baseRows,squad,optimizer]);
-  const routes=useMemo(()=>solveTransferRoutes(data,squad,bank,{horizon:routeHorizon,freeTransfers:fts,maxWeeklyHit,sellingPrices,resultLimit:4}),[data,squad,bank,fts,routeHorizon,maxWeeklyHit,sellingPrices]);
+  const routes=useMemo(()=>solveTransferRoutes(data,squad,bank,{horizon:routeHorizon,freeTransfers:fts,maxWeeklyHit,sellingPrices,resultLimit:4,plannedChips:readPlannedChips()}),[data,squad,bank,fts,routeHorizon,maxWeeklyHit,sellingPrices]);
   const best=selectPrimaryTransfer(rows);const roll=!best;
   const decisionConfidence=useTransferDecisionConfidence({data,squad,optimizer,primary:tab==="moves"?best:null,freeTransfers:fts,selectedRoute:`${tab}:${routeHorizon}`});
   const populationPercentiles=usePopulationPercentiles();
@@ -1066,7 +1071,12 @@ export type ProjectionReceiptRoute={
   weeks:{eventId:number;freeTransfersBefore:number;freeTransfersAfter:number;hitCost:number;bankAfter:number;projectedPoints:number;moves:[number,number,number,number][]}[];
 };
 export type ProjectionReceipt={
-  schemaVersion:1|2|3|4|5|6|7;receiptId:string;modelVersion:string;event:number;eventIds:number[];
+  schemaVersion:1|2|3|4|5|6|7|8;receiptId:string;modelVersion:string;event:number;eventIds:number[];
+  // Disclosure only -- deliberately NOT folded into squad.predictedTotal (see createProjectionReceipt's
+  // comment): whether a chip was planned when this receipt was locked, so a later "your plan vs what you
+  // actually did" comparison is possible without corrupting evaluateProjectionReceipt's real-chip-based
+  // adjustedProjectedTotal, which stays the only place a chip bonus is added to this receipt's numbers.
+  plannedChip:Chip|null;
   deadline:string;capturedAt:string;dataUpdatedAt:string;dataSource:string;seasonStatsThrough:number;
   assumptions:{bank:number;freeTransfers:number;transferHorizon:number};
   squad:{squadIds:number[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;predictedTotal:number;captainXPts:number;viceXPts:number};
@@ -1078,7 +1088,13 @@ const receiptNumber=(value:number,places=3)=>Number(value.toFixed(places));
 // Pure, explicit and deliberately complete enough for later calibration. It snapshots every
 // official player, not only the chosen squad, so future model-vs-reality work can evaluate the
 // full prediction population without reconstructing what the model "must have meant" later.
-export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad,xiIds,benchIds,captainId,viceId,bank,freeTransfers,transferRows,routeRows=[]}:{data:FplData;eventIds:number[];deadline:string;capturedAt:string;squad:FplPlayer[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;bank:number;freeTransfers:number;transferRows:ReceiptTransferInput[];routeRows?:TransferRoute[]}):ProjectionReceipt{
+// plannedChip is stored on the receipt as a label ONLY -- predictedTotal below deliberately stays
+// the plain, no-chip baseline. evaluateProjectionReceipt already reconciles a receipt against the
+// REAL chip (firstWeek.chip) after the fact via its own chipAdjustment; if this function also baked
+// a bonus for an unconfirmed PLAN into predictedTotal, a plan that turned out to match reality would
+// have its bonus counted twice. Real forward-projection call sites (Overview, Final Check's own
+// `predicted`, transfers.ts, transfer-routes.ts) apply the plan's bonus directly; this receipt does not.
+export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad,xiIds,benchIds,captainId,viceId,bank,freeTransfers,transferRows,routeRows=[],plannedChip=null}:{data:FplData;eventIds:number[];deadline:string;capturedAt:string;squad:FplPlayer[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;bank:number;freeTransfers:number;transferRows:ReceiptTransferInput[];routeRows?:TransferRoute[];plannedChip?:Chip|null}):ProjectionReceipt{
   if(!eventIds.length)throw new Error("A projection receipt requires at least one future event.");
   if(Date.parse(capturedAt)>=Date.parse(deadline))throw new Error("The deadline has passed; this receipt cannot be labelled pre-deadline.");
   const horizon=eventIds.slice(0,5),first=horizon[0];
@@ -1090,7 +1106,7 @@ export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad
   const frozenBenchIds=benchIds?.length===4?[...benchIds]:squad.filter(player=>!xiIds.includes(player.id)).map(player=>player.id);
   const transfers=transferRows.slice(0,20).map((row,index)=>({rank:index+1,outId:row.out.id,outName:row.out.name,incomingId:row.incoming.id,incomingName:row.incoming.name,gain1:receiptNumber(row.gain1),gain3:receiptNumber(row.gain3),gain5:receiptNumber(row.gain5),individualGain1:receiptNumber(row.individualGain1),individualGain3:receiptNumber(row.individualGain3),individualGain5:receiptNumber(row.individualGain5),rankScore:receiptNumber(row.rankScore),netDifference:receiptNumber(row.netDifference),hitCost:row.hitCost,startProbability:receiptNumber(row.startProbIn),confidence:receiptNumber(row.confidenceIn),risk:row.risk,reviewRequired:row.reviewRequired,anomalyCodes:row.anomalies.map(flag=>flag.code),qualityStatus:row.qualityStatus??(row.reviewRequired?"blocked":"actionable"),qualityScore:row.qualityScore===undefined?undefined:receiptNumber(row.qualityScore,0),qualityReasonCodes:row.qualityReasons?.map(reason=>reason.code)??[]}));
   const routes=routeRows.slice(0,4).map((route,index):ProjectionReceiptRoute=>({rank:index+1,gain:receiptNumber(route.gain),netProjectedPoints:receiptNumber(route.netProjectedPoints),totalHitCost:route.totalHitCost,totalTransfers:route.totalTransfers,firstAction:route.firstAction,confidence:receiptNumber(route.confidence),risk:route.risk,weeks:route.weeks.map(week=>({eventId:week.eventId,freeTransfersBefore:week.freeTransfersBefore,freeTransfersAfter:week.freeTransfersAfter,hitCost:week.hitCost,bankAfter:receiptNumber(week.bankAfter,1),projectedPoints:receiptNumber(week.projectedPoints),moves:week.transfers.map(move=>[move.out.id,move.incoming.id,receiptNumber(move.sellingPrice,1),receiptNumber(move.buyingPrice,1)])}))}));
-  return{schemaVersion:7,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],benchIds:frozenBenchIds,captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v4",players,transfers,routes};
+  return{schemaVersion:8,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,plannedChip,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],benchIds:frozenBenchIds,captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v4",players,transfers,routes};
 }
 
 export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;receipt?:ProjectionReceipt};
@@ -1251,19 +1267,19 @@ export type CaptainRiskNote={message:string;captainStartPct:number;viceStartPct:
 // startProbability is used as an approximate proxy for "risk of playing zero minutes" since the
 // engine has no direct P(zero minutes) figure; the UI text says "if they don't play at all" rather
 // than overclaiming precision the model doesn't have.
-// Standing decision (reviewed 5a6fe18): this always swings at standard x2, never resolveCaptainMultiplier's
-// x3, because there is no confirmed pre-deadline "planned chip for the upcoming gameweek" concept
-// anywhere in the app -- resolveCaptainMultiplier's chip context (OfficialScoringAuthority.chip)
-// is only known AFTER a deadline passes, once FPL has recorded what was actually submitted. Final
-// Check runs BEFORE that deadline, so the only chip signal available here would be
-// chipVerdictAcrossHorizon's *recommendation*, not a confirmed manager decision -- using it would
-// silently assume the manager follows the suggestion. Do not "fix" this by reaching for that
-// recommendation as a proxy; the real fix is a persisted planned-chip selector (logged as a future
-// feature, not built here -- it has value beyond this one note and is scope beyond this cleanup).
-export function captainRiskNote(captain:FplPlayer,vice:FplPlayer,captainStartPct:number,viceStartPct:number,captainXPts:number,viceXPts:number):CaptainRiskNote|null{
+// Resolved (Feature #7 revision, PlannedChip): FinalCheck now passes the real multiplier in --
+// x3 when the manager has explicitly planned Triple Captain for this event (PlannedChip, via
+// plannedChipFor), x2 otherwise. Deliberately still not chipVerdictAcrossHorizon's *recommendation*
+// -- that stays a suggestion, never silently assumed as the manager's actual decision. The multiplier
+// only ever comes from a confirmed local plan or (after the deadline) real official data.
+// multiplier defaults to the standard armband x2 -- a planned Triple Captain (see FinalCheck's own
+// captainMultiplier, resolved from PlannedChip) passes 3 instead, since the multiplier belongs to
+// whoever ends up holding the armband, not specifically to the captain: if the armband passes to
+// vice under a planned Triple Captain, vice's total is tripled too, not just doubled.
+export function captainRiskNote(captain:FplPlayer,vice:FplPlayer,captainStartPct:number,viceStartPct:number,captainXPts:number,viceXPts:number,multiplier=2):CaptainRiskNote|null{
   if(captainStartPct>=68)return null;
-  const pointsIfCaptainPlays=captainXPts*2;
-  const pointsIfArmbandPasses=viceXPts*2;
+  const pointsIfCaptainPlays=captainXPts*multiplier;
+  const pointsIfArmbandPasses=viceXPts*multiplier;
   const viceAlsoAtRisk=viceStartPct<68;
   const message=`${captain.name} carries real doubt this week (${captainStartPct}% start probability). If they don't play at all, the armband passes to ${vice.name} and your week swings from ${pointsIfCaptainPlays.toFixed(1)} to ${pointsIfArmbandPasses.toFixed(1)} captained points${viceAlsoAtRisk?` — and ${vice.name} isn't nailed either, at ${viceStartPct}% start probability`:""}.`;
   return{message,captainStartPct,viceStartPct,pointsIfCaptainPlays,pointsIfArmbandPasses};
@@ -1328,15 +1344,26 @@ function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>v
   const captaincy=useCaptaincy(players,a?.first??0,a?.xi.captain??ranked[0],ranked[1]);
   if(!a)return <><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Build a team first →</button></>;
   const{captain,vice,chooseCaptain,chooseVice}=captaincy;
+  const plannedChips=readPlannedChips();
+  const plannedChip=plannedChipFor(plannedChips,a.first);
   const xiBase=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0);
-  const predicted=xiBase+playerProjection(captain,a.first,data.fixtures,a.first);
+  const captainTerm=playerProjection(captain,a.first,data.fixtures,a.first);
+  const viceTerm=playerProjection(vice,a.first,data.fixtures,a.first);
+  // Same chip-bonus reasoning as Overview's own `projected` -- one added term for a planned Triple
+  // Captain/Bench Boost, matching evaluateProjectionReceipt's real-chip reconciliation formula.
+  const chipBonus=plannedChip==="Triple Captain"?captainTerm:plannedChip==="Bench Boost"?a.bench.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0):0;
+  const predicted=xiBase+captainTerm+chipBonus;
+  // A planned Triple Captain makes the x3 branch of resolveCaptainMultiplier honestly reachable
+  // pre-deadline -- the standing decision below (captainRiskNote always swinging at x2) is resolved
+  // by this exact PlannedChip check, not by reaching for chipVerdictAcrossHorizon's recommendation.
+  const captainMultiplier=plannedChip==="Triple Captain"?3:2;
   const xiIds=a.xi.players.map(p=>p.id);
   const benchIds=a.bench.map(p=>p.id);
   let existingLocks:LockRecord[]=[];try{existingLocks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
   const existingLock=existingLocks.find(l=>l.event===a.first);
   const lockStatus=reconcileLock(existingLock,{xiIds,benchIds,captainId:captain.id,viceId:vice.id});
   const locked=lockStatus==="matches";
-  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===7&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
+  const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===8&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
   const lock=()=>{
     setLockError("");
     const event=data.events.find(item=>item.id===a.first),capturedAt=new Date().toISOString();
@@ -1345,20 +1372,20 @@ function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>v
       const freeTransfers=readFreeTransfers(),bank=meta?.bank??a.bank;
       const baseRows=bestTransfers(data,squad,bank,freeTransfers,60,sellingPricesFor(meta));
       const transferRows=withModelUtilityChange(baseRows,squad,createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"));
-      const routeRows=solveTransferRoutes(data,squad,bank,{horizon:5,freeTransfers,maxWeeklyHit:4,sellingPrices:sellingPricesFor(meta),resultLimit:4});
-      const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,benchIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows,routeRows});
+      const routeRows=solveTransferRoutes(data,squad,bank,{horizon:5,freeTransfers,maxWeeklyHit:4,sellingPrices:sellingPricesFor(meta),resultLimit:4,plannedChips});
+      const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,benchIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows,routeRows,plannedChip});
       const record:LockRecord={event:a.first,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:squad.map(p=>p.id),xiIds,benchIds,captainId:captain.id,viceId:vice.id,receipt};
       persist("fpl-edge-locks",JSON.stringify([...existingLocks.filter(item=>item.event!==a.first),record]));setLockVersion(v=>v+1);
     }catch(error){setLockError(error instanceof Error?error.message:"Could not create the projection receipt.")}
   };
   const modelCaptain=a.xi.captain;
   const captainDisagreement=modelCaptain&&modelCaptain.id!==captain.id?modelCaptain:null;
-  const riskNote=captainRiskNote(captain,vice,startPct(captain,a.first,data),startPct(vice,a.first,data),playerProjection(captain,a.first,data.fixtures,a.first),playerProjection(vice,a.first,data.fixtures,a.first));
+  const riskNote=captainRiskNote(captain,vice,startPct(captain,a.first,data),startPct(vice,a.first,data),captainTerm,viceTerm,captainMultiplier);
   const chipHorizon=a.events.slice(0,5);
   const chipRows=chipHorizon.map((event,index)=>({eventId:event.id,scores:chipScoresForEvent(data,squad,event,chipHorizon.slice(index,index+5).map(e=>e.id),true)}));
   const chip=chipVerdictAcrossHorizon(chipRows);
   return <div className="coach-page">
-    <section className="lock-header"><div><span>LOCK-IN</span><h2>Your exact deadline plan.</h2><p>Generated from your saved squad and the latest official FPL feed.</p></div><div><b>{formation(a.xi.players)}</b><small>formation · {predicted.toFixed(1)} xPts</small></div></section>
+    <section className="lock-header"><div><span>LOCK-IN</span><h2>Your exact deadline plan.</h2><p>Generated from your saved squad and the latest official FPL feed.</p></div><div><b>{formation(a.xi.players)}</b><small>formation · {predicted.toFixed(1)} xPts{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></div></section>
     {lockStatus==="mismatch"&&existingLock&&<div className="lock-mismatch-banner"><b>⚠ Your locked plan differs from the current recommendation.</b><p>Locked {new Date(existingLock.lockedAt).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · projected {existingLock.predicted.toFixed(1)} pts. Review before the deadline, or press Lock This Team again to update it.</p></div>}
     <CaptaincyPicker players={a.xi.players} captain={captain} vice={vice} onCaptain={chooseCaptain} onVice={chooseVice} event={a.first} data={data}/>
     {captainDisagreement&&<p className="captain-model-note">Model recommends <b>{captainDisagreement.name}</b> ({playerProjection(captainDisagreement,a.first,data.fixtures,a.first).toFixed(1)} xPts) over your pick <b>{captain.name}</b> ({playerProjection(captain,a.first,data.fixtures,a.first).toFixed(1)} xPts).</p>}

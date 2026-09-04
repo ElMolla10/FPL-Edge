@@ -72,7 +72,7 @@ test("hydrateFromServer: still writes watchlist/locks/entry/manager exactly as b
   (globalThis.localStorage as any).clear();
   hydrateFromServer({
     squadIds: [7, 8], watchlist: [9], locks: [], captainVice: {}, entry: "999", manager: { teamName: "Server FC" },
-    plans: [{ id: "p2", name: "Server Plan" }],
+    plans: [{ id: "p2", name: "Server Plan" }], plannedChips: [],
   });
   assert.deepEqual(JSON.parse(localStorage.getItem("fpl-edge-squad")!), [7, 8]);
   assert.deepEqual(JSON.parse(localStorage.getItem("fpl-edge-watchlist")!), [9]);
@@ -84,7 +84,7 @@ test("hydrateFromServer: still writes watchlist/locks/entry/manager exactly as b
 
 test("hydrateFromServer: a missing/undefined plans field from the server still writes a real empty array, not the string 'undefined'", () => {
   (globalThis.localStorage as any).clear();
-  hydrateFromServer({ squadIds: [], watchlist: [], locks: [], captainVice: {}, entry: null, manager: null, plans: undefined as any });
+  hydrateFromServer({ squadIds: [], watchlist: [], locks: [], captainVice: {}, entry: null, manager: null, plans: undefined as any, plannedChips: [] });
   assert.deepEqual(JSON.parse(localStorage.getItem("fpl-edge-plans")!), []);
 });
 
@@ -94,4 +94,30 @@ test("hasMeaningfulData: a payload with only plans (no squad/watchlist/entry) st
   // Existing squad/watchlist/entry-only cases still work exactly as before.
   assert.equal(hasMeaningfulData({ squadIds: [1], watchlist: [], entry: null }), true);
   assert.equal(hasMeaningfulData({ squadIds: [], watchlist: [], entry: "123" }), true);
+});
+
+test("collectSyncPayload: reads real plannedChips back from fpl-edge-planned-chips, defaulting to [] when absent or malformed", () => {
+  (globalThis.localStorage as any).clear();
+  assert.deepEqual(collectSyncPayload().plannedChips, []);
+  localStorage.setItem("fpl-edge-planned-chips", "not valid json");
+  assert.deepEqual(collectSyncPayload().plannedChips, []);
+  const plannedChips = [{ event: 14, chip: "Wildcard" }];
+  localStorage.setItem("fpl-edge-planned-chips", JSON.stringify(plannedChips));
+  assert.deepEqual(collectSyncPayload().plannedChips, plannedChips);
+});
+
+test("hydrateFromServer: writes plannedChips from the server, defaulting a missing field to a real empty array", () => {
+  (globalThis.localStorage as any).clear();
+  hydrateFromServer({
+    squadIds: [], watchlist: [], locks: [], captainVice: {}, entry: null, manager: null, plans: [],
+    plannedChips: [{ event: 20, chip: "Bench Boost" }],
+  });
+  assert.deepEqual(JSON.parse(localStorage.getItem("fpl-edge-planned-chips")!), [{ event: 20, chip: "Bench Boost" }]);
+  hydrateFromServer({ squadIds: [], watchlist: [], locks: [], captainVice: {}, entry: null, manager: null, plans: [], plannedChips: undefined as any });
+  assert.deepEqual(JSON.parse(localStorage.getItem("fpl-edge-planned-chips")!), []);
+});
+
+test("hasMeaningfulData: a payload with only plannedChips (no squad/watchlist/entry/plans) still counts as meaningful", () => {
+  assert.equal(hasMeaningfulData({ squadIds: [], watchlist: [], entry: null, plannedChips: [{ event: 5, chip: "Wildcard" }] }), true);
+  assert.equal(hasMeaningfulData({ squadIds: [], watchlist: [], entry: null, plannedChips: [] }), false);
 });

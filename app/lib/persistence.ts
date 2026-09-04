@@ -40,6 +40,7 @@ export function collectSyncPayload() {
     entry: localStorage.getItem("fpl-edge-entry"),
     manager: safeParse<unknown | null>(localStorage.getItem("fpl-edge-manager"), null),
     plans: safeParse<unknown[]>(localStorage.getItem("fpl-edge-plans"), []),
+    plannedChips: safeParse<unknown[]>(localStorage.getItem("fpl-edge-planned-chips"), []),
   };
 }
 
@@ -93,6 +94,7 @@ export function hydrateFromServer(server: {
   entry: string | null;
   manager: unknown | null;
   plans: unknown[];
+  plannedChips: unknown[];
 }) {
   localStorage.setItem("fpl-edge-squad", JSON.stringify(server.squadIds));
   localStorage.setItem("fpl-edge-watchlist", JSON.stringify(server.watchlist));
@@ -100,14 +102,15 @@ export function hydrateFromServer(server: {
   if (server.entry) localStorage.setItem("fpl-edge-entry", server.entry);
   if (server.manager) localStorage.setItem("fpl-edge-manager", JSON.stringify(server.manager));
   localStorage.setItem("fpl-edge-plans", JSON.stringify(server.plans ?? []));
+  localStorage.setItem("fpl-edge-planned-chips", JSON.stringify(server.plannedChips ?? []));
   for (const [eventId, cv] of Object.entries(server.captainVice ?? {})) {
     if (cv.captainId) localStorage.setItem(`fpl-edge-captain-${eventId}`, String(cv.captainId));
     if (cv.viceId) localStorage.setItem(`fpl-edge-vice-${eventId}`, String(cv.viceId));
   }
 }
 
-export function hasMeaningfulData(payload: ReturnType<typeof collectSyncPayload> | { squadIds: number[]; watchlist: number[]; entry: string | null; plans?: unknown[] }) {
-  return payload.squadIds.length > 0 || payload.watchlist.length > 0 || !!payload.entry || !!payload.plans?.length;
+export function hasMeaningfulData(payload: ReturnType<typeof collectSyncPayload> | { squadIds: number[]; watchlist: number[]; entry: string | null; plans?: unknown[]; plannedChips?: unknown[] }) {
+  return payload.squadIds.length > 0 || payload.watchlist.length > 0 || !!payload.entry || !!payload.plans?.length || !!payload.plannedChips?.length;
 }
 
 // Called once on app mount, and again right after a successful sign-in/sign-up. Returns true
