@@ -1,6 +1,7 @@
 import type { FplPlayer } from "./fpl";
 import type { HorizonMode, RiskMode, SquadPhilosophy } from "./optimizer";
 import type { SandboxState } from "./squad-comparison";
+import type { Chip } from "../components/LiveIntelligence";
 import { applySandboxTransfer, createSandboxState } from "./squad-comparison";
 import { persist } from "./persistence";
 
@@ -15,6 +16,10 @@ export type PersistedPlanTransfer = Readonly<{ outId: number; incomingId: number
 // different settings than the ones it's currently being viewed under, the same way
 // LiveDraftBuilder.tsx's own staleFields discloses a stale cached result.
 export type PlanSettings = Readonly<{ horizonMode: HorizonMode; riskMode: RiskMode; philosophy: SquadPhilosophy }>;
+// Optional, additive -- most plans are pure hypotheticals with no chip attached. When set, this
+// plan IS the committed Wildcard/Free Hit rebuild for that real event (Draft Lab's "...and apply
+// as [chip]" step on Save as Plan). No new squadData column needed: plans is already a flexible
+// JSON blob, so this rides along inside it for free at the persistence layer.
 export type PersistedPlan = Readonly<{
   id: string;
   name: string;
@@ -22,6 +27,7 @@ export type PersistedPlan = Readonly<{
   baselineSquadIds: readonly number[];
   transferHistory: readonly PersistedPlanTransfer[];
   savedUnder: PlanSettings;
+  plannedChip?: Readonly<{ chip: Chip; event: number }>;
 }>;
 
 // The real, approved cap -- confirmed against the existing Players-page Compare precedent
@@ -30,7 +36,7 @@ export type PersistedPlan = Readonly<{
 // or a manual API call can't silently write more than this into the persisted row.
 export const MAX_PLANS = 4;
 
-export function createPlan(name: string, baselineSquad: readonly FplPlayer[], savedUnder: PlanSettings): PersistedPlan {
+export function createPlan(name: string, baselineSquad: readonly FplPlayer[], savedUnder: PlanSettings, plannedChip?: PersistedPlan["plannedChip"]): PersistedPlan {
   return {
     id: crypto.randomUUID(),
     name,
@@ -38,6 +44,7 @@ export function createPlan(name: string, baselineSquad: readonly FplPlayer[], sa
     baselineSquadIds: baselineSquad.map(player => player.id),
     transferHistory: [],
     savedUnder,
+    ...(plannedChip ? { plannedChip } : {}),
   };
 }
 
@@ -80,8 +87,11 @@ export function hydratePlanSandbox(plan: PersistedPlan, players: readonly FplPla
   return { status: "complete", sandbox };
 }
 
-/** The inverse of hydratePlanSandbox -- extracts the ID-only storage shape from a live SandboxState. */
-export function dehydratePlanSandbox(plan: Pick<PersistedPlan, "id" | "name" | "createdAt" | "savedUnder">, sandbox: SandboxState): PersistedPlan {
+/** The inverse of hydratePlanSandbox -- extracts the ID-only storage shape from a live SandboxState.
+ * plannedChip is optional on the input and carried through unchanged when present -- callers that
+ * want to update-in-place a plan that was already chip-tagged pass its existing plannedChip back in
+ * (or a new one), or omit it for an ordinary untagged save. */
+export function dehydratePlanSandbox(plan: Pick<PersistedPlan, "id" | "name" | "createdAt" | "savedUnder"> & Partial<Pick<PersistedPlan, "plannedChip">>, sandbox: SandboxState): PersistedPlan {
   return {
     id: plan.id,
     name: plan.name,
@@ -89,7 +99,20 @@ export function dehydratePlanSandbox(plan: Pick<PersistedPlan, "id" | "name" | "
     baselineSquadIds: sandbox.baselineSquad.map(player => player.id),
     transferHistory: sandbox.history.map(transfer => ({ outId: transfer.out.id, incomingId: transfer.incoming.id })),
     savedUnder: plan.savedUnder,
+    ...(plan.plannedChip ? { plannedChip: plan.plannedChip } : {}),
   };
+}
+
+// Symmetric with the Board's deletePlan -> removePlannedChip cascade (CoachApp.tsx): removing a
+// chip from the portfolio side must not leave a stale tag on the plan that committed it. Never
+// deletes the plan itself -- the rebuilt squad stays a legitimate saved scenario on its own even
+// after its chip commitment is withdrawn.
+export function clearPlanChipTag(plans: readonly PersistedPlan[], chip: Chip): readonly PersistedPlan[] {
+  return plans.map(plan => {
+    if (plan.plannedChip?.chip !== chip) return plan;
+    const { plannedChip, ...rest } = plan;
+    return rest;
+  });
 }
 
 const PLANS_STORAGE_KEY = "fpl-edge-plans";

@@ -1,9 +1,15 @@
 import type { TeamQualityProfile } from "./team-quality";
 
+// FPL's own real 3-day-ahead price-change forecast, one entry per offset (0=today, 1=tomorrow,
+// 2=day after) -- confirmed live that every player always returns exactly 3, in order. likelihood
+// is an undocumented -5..5 integer FPL never explains beyond its sign matching projectedPercent;
+// callers must never display it as a number, only use it defensively (see priceOutlookSignal).
+export type PriceOutlookDay = Readonly<{ offsetDays: number; projectedPercent: number; likelihood: number }>;
+
 export type FplPlayer = {
   id:number; name:string; firstName:string; secondName:string; teamId:number; teamName:string; teamShort:string;
   positionId:number; position:string; positionShort:string; price:number; status:string; chance:number|null;
-  epNext:number; form:number; pointsPerGame:number; priorPointsPerGame:number; priorMinutes:number; priorStarts:number; priorExpectedGoals:number; priorExpectedAssists:number; priorBonus:number; priorSaves:number; priorPenaltiesSaved:number; priorDefensiveContribution:number; totalPoints:number; eventPoints:number; eventMinutes:number; eventBonus:number; eventDefensiveContribution:number; selectedBy:number; priceChange:number; priceProjectionToday:number;
+  epNext:number; form:number; pointsPerGame:number; priorPointsPerGame:number; priorMinutes:number; priorStarts:number; priorExpectedGoals:number; priorExpectedAssists:number; priorBonus:number; priorSaves:number; priorPenaltiesSaved:number; priorDefensiveContribution:number; totalPoints:number; eventPoints:number; eventMinutes:number; eventBonus:number; eventDefensiveContribution:number; selectedBy:number; priceChange:number; priceProjectionToday:number; priceChangeSinceStart:number; priceOutlook:readonly PriceOutlookDay[];
   transfersIn:number; transfersOut:number; goals:number; assists:number; expectedGoals:number; expectedAssists:number;
   expectedGoalInvolvements:number; expectedGoalsConceded:number; cleanSheets:number; goalsConceded:number; minutes:number;
   starts:number; bonus:number; bps:number; ictIndex:number; influence:number; creativity:number; threat:number;saves:number;penaltiesSaved:number;defensiveContribution:number;clearancesBlocksInterceptions:number;recoveries:number;tackles:number;penaltiesOrder:number|null;directFreekicksOrder:number|null;cornersOrder:number|null;scoutRisks:string[];news:string; newsAdded:string|null;

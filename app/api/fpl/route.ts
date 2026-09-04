@@ -203,11 +203,29 @@ export async function GET() {
           transfersIn: number(player.transfers_in_event),
           transfersOut: number(player.transfers_out_event),
           priceChange: number(player.cost_change_event) / 10,
-          // FPL's own first-party, end-of-day price-change forecast (price_change_projections[0]
-          // is today's offset) -- not a heuristic estimated from raw transfer counts. Positive =
-          // rise pressure, negative = fall pressure, roughly in percent-toward-whatever-threshold
-          // FPL's undisclosed algorithm uses. Signed string in the raw feed; coerced to a number.
-          priceProjectionToday: number(player.price_change_projections?.[0]?.projected_percent),
+          // Season-to-date price movement for THIS player (FPL's own cost_change_start), real and
+          // first-party -- a genuinely new fetch (unlike priceOutlook below, this field was never
+          // previously read at all), used for the team-value breakdown's "of your gain, £Y is from
+          // players you still own" line.
+          priceChangeSinceStart: number(player.cost_change_start) / 10,
+          // FPL's own first-party price-change forecast -- a real 3-day-ahead array (offset 0/1/2 =
+          // today/tomorrow/day-after), refreshed every 15 minutes, confirmed live against the real
+          // API (every sampled player returns exactly 3 entries, in order). Only offset 0 was read
+          // here before; parsed once into priceOutlook, with priceProjectionToday derived from the
+          // SAME parse (found by offsetDays===0, not assumed to be array index 0) rather than two
+          // independent reads of the same raw field. Not a heuristic estimated from raw transfer
+          // counts -- FPL's own undisclosed algorithm, in percent-toward-whatever-threshold it uses.
+          ...(() => {
+            const outlook = (player.price_change_projections ?? []).map((entry: any) => ({
+              offsetDays: Number(entry.offset),
+              projectedPercent: number(entry.projected_percent),
+              likelihood: Number(entry.likelihood),
+            }));
+            return {
+              priceOutlook: outlook,
+              priceProjectionToday: outlook.find((day: any) => day.offsetDays === 0)?.projectedPercent ?? 0,
+            };
+          })(),
         };
         return { ...record, calibrationGroup: playerCalibrationProfile(record).group };
       }),

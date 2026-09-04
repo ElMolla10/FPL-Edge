@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { FplData, FplPlayer, ROLE_SECURITY_FLOOR, bestXi, playerProjection } from "../app/lib/fpl.ts";
-import { solveTransferRoutes } from "../app/lib/transfer-routes.ts";
+import { RouteTransfer, solveTransferRoutes } from "../app/lib/transfer-routes.ts";
+import { routeTransferPriceWarning } from "../app/components/CoachApp.tsx";
 
 function makePlayer(overrides:Partial<FplPlayer>={}):FplPlayer{return{
   id:1,name:"Player",firstName:"Test",secondName:"Player",teamId:1,teamName:"Test FC",teamShort:"TFC",positionId:3,position:"Midfielder",positionShort:"MID",price:5,status:"a",chance:null,
   epNext:3,form:3,pointsPerGame:3,priorPointsPerGame:3,priorMinutes:2500,priorStarts:30,priorExpectedGoals:3,priorExpectedAssists:3,priorBonus:10,priorSaves:0,priorPenaltiesSaved:0,priorDefensiveContribution:100,priorSource:"official-pl-history",
-  totalPoints:0,eventPoints:0,eventMinutes:0,eventBonus:0,eventDefensiveContribution:0,selectedBy:10,priceChange:0,priceProjectionToday:0,transfersIn:0,transfersOut:0,goals:0,assists:0,expectedGoals:0,expectedAssists:0,expectedGoalInvolvements:0,expectedGoalsConceded:0,cleanSheets:0,goalsConceded:0,minutes:0,starts:0,bonus:0,bps:0,ictIndex:0,influence:0,creativity:0,threat:0,saves:0,penaltiesSaved:0,defensiveContribution:0,clearancesBlocksInterceptions:0,recoveries:0,tackles:0,penaltiesOrder:null,directFreekicksOrder:null,cornersOrder:null,scoutRisks:[],news:"",newsAdded:null,...overrides,
+  totalPoints:0,eventPoints:0,eventMinutes:0,eventBonus:0,eventDefensiveContribution:0,selectedBy:10,priceChange:0,priceProjectionToday:0,priceChangeSinceStart:0,priceOutlook:[],transfersIn:0,transfersOut:0,goals:0,assists:0,expectedGoals:0,expectedAssists:0,expectedGoalInvolvements:0,expectedGoalsConceded:0,cleanSheets:0,goalsConceded:0,minutes:0,starts:0,bonus:0,bps:0,ictIndex:0,influence:0,creativity:0,threat:0,saves:0,penaltiesSaved:0,defensiveContribution:0,clearancesBlocksInterceptions:0,recoveries:0,tackles:0,penaltiesOrder:null,directFreekicksOrder:null,cornersOrder:null,scoutRisks:[],news:"",newsAdded:null,...overrides,
 }}
 
 const rules={budget:100,squadSize:15,teamLimit:3,positions:[
@@ -120,6 +121,42 @@ test("solveTransferRoutes: omitting plannedChips entirely behaves exactly as bef
   const a=solveTransferRoutes(data,initial,1,{horizon:3,freeTransfers:5,resultLimit:1});
   const b=solveTransferRoutes(data,initial,1,{horizon:3,freeTransfers:5,resultLimit:1,plannedChips:[]});
   assert.deepEqual(a[0].weeks.map(w=>w.projectedPoints),b[0].weeks.map(w=>w.projectedPoints));
+});
+
+// routeTransferPriceWarning: week-1-only, rise-only, display-only -- the honest boundary this
+// whole feature turns on (FPL's own predictor reaches 3 days out at most; a route's later weeks
+// execute real weeks from now, genuinely outside that window).
+function move(overrides:Partial<FplPlayer>={}):RouteTransfer{
+  return{out:makePlayer({id:2}),incoming:makePlayer({id:3,...overrides}),sellingPrice:5,buyingPrice:5,bankChange:0,horizonGain:0};
+}
+
+test("routeTransferPriceWarning: week 0 with real rise pressure today returns a message",()=>{
+  const m=move({priceProjectionToday:25,priceOutlook:[{offsetDays:0,projectedPercent:25,likelihood:3},{offsetDays:1,projectedPercent:0,likelihood:0},{offsetDays:2,projectedPercent:0,likelihood:0}]});
+  const warning=routeTransferPriceWarning(m,0);
+  assert.ok(warning);
+  assert.ok(warning!.includes("25%"));
+});
+
+test("routeTransferPriceWarning: week 0 rise pressure that CONTINUES tomorrow is disclosed as such",()=>{
+  const m=move({priceProjectionToday:25,priceOutlook:[{offsetDays:0,projectedPercent:25,likelihood:3},{offsetDays:1,projectedPercent:20,likelihood:3},{offsetDays:2,projectedPercent:0,likelihood:0}]});
+  const warning=routeTransferPriceWarning(m,0);
+  assert.ok(warning?.includes("still rising tomorrow"),`expected the richer 3-day message, got: ${warning}`);
+});
+
+test("routeTransferPriceWarning: week 0 with fall or stable pressure returns null -- a fall on a buying target is good news, not a warning",()=>{
+  const fall=move({priceProjectionToday:-25,priceOutlook:[{offsetDays:0,projectedPercent:-25,likelihood:-3},{offsetDays:1,projectedPercent:0,likelihood:0},{offsetDays:2,projectedPercent:0,likelihood:0}]});
+  const stable=move({priceProjectionToday:2,priceOutlook:[{offsetDays:0,projectedPercent:2,likelihood:0},{offsetDays:1,projectedPercent:0,likelihood:0},{offsetDays:2,projectedPercent:0,likelihood:0}]});
+  assert.equal(routeTransferPriceWarning(fall,0),null);
+  assert.equal(routeTransferPriceWarning(stable,0),null);
+});
+
+// The core off-by-one-style boundary: any week after the first must never surface a warning, no
+// matter how strong the pressure -- FPL's own data says nothing honest that far out.
+test("routeTransferPriceWarning: week 1 and beyond ALWAYS return null regardless of pressure",()=>{
+  const m=move({priceProjectionToday:40,priceOutlook:[{offsetDays:0,projectedPercent:40,likelihood:5},{offsetDays:1,projectedPercent:35,likelihood:5},{offsetDays:2,projectedPercent:30,likelihood:5}]});
+  assert.equal(routeTransferPriceWarning(m,1),null);
+  assert.equal(routeTransferPriceWarning(m,2),null);
+  assert.equal(routeTransferPriceWarning(m,4),null);
 });
 
 // eligibleAt() is a private closure inside solveTransferRoutes -- it can't be called directly to

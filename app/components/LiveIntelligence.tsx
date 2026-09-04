@@ -6,6 +6,7 @@ import { detectFixtureAnomalies } from "../lib/dgw";
 import { persist } from "../lib/persistence";
 import { haulProbability, playerPointsDistribution } from "../lib/projection-distribution";
 import { ChipAssignment, ChipPortfolioCandidate, HistoryChipEntry, PlannedChip, computeChipInventory, computeHalfBoundary, planChip, plannedChipFor, readPlannedChips, removePlannedChip, scheduleChipsWithPlans, writePlannedChips } from "../lib/chip-portfolio";
+import { clearPlanChipTag, readPlans, writePlans } from "../lib/strategy-plans";
 
 function useOfficialFpl(){const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const load=async()=>{setLoading(true);setError("");try{setData(await fetchFplData())}catch(e){setError(e instanceof Error?e.message:"Official FPL data unavailable")}finally{setLoading(false)}};useEffect(()=>{load();const id=window.setInterval(load,300000);return()=>window.clearInterval(id)},[]);return{data,error,loading,load}}
 function Source({data,loading,onRefresh}:{data:FplData;loading:boolean;onRefresh:()=>void}){return <section className="live-source"><div><span className="live-dot"/><b>OFFICIAL FPL DATA</b><small>Auto-refreshes every 5 minutes · updated {new Date(data.updatedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</small></div><button onClick={onRefresh} disabled={loading}>{loading?"Refreshing…":"Refresh now"}</button></section>}
@@ -76,8 +77,12 @@ const ALL_CHIP_TYPES:readonly Chip[]=["Wildcard","Free Hit","Bench Boost","Tripl
 // ~950ms freeze entirely rather than just delaying it past first paint, but that's new
 // infrastructure beyond this round's approved scope -- flagged as a real follow-up, not silently
 // added or silently ignored.
-export function ChipPortfolioPanel(){
-  const{data,error,loading,load}=useOfficialFpl();
+// Extracted so LiveDraftBuilder.tsx can reuse the exact same connected-entry/history-chips fetch
+// instead of duplicating this effect a second time -- the fetch itself is already deliberately
+// narrow (see app/api/fpl/chips/route.ts's own comment), so the alternative (each caller doing its
+// own small fetch) would be exactly the two-copies-that-drift risk this project keeps guarding
+// against, for no real benefit over one shared hook.
+export function useConnectedChipHistory(){
   const[connectedEntry,setConnectedEntry]=useState<string|null>(null);
   const[historyChips,setHistoryChips]=useState<readonly HistoryChipEntry[]|null>(null);
   useEffect(()=>{
@@ -92,6 +97,12 @@ export function ChipPortfolioPanel(){
     }).catch(()=>{if(!cancelled)setHistoryChips(null)});
     return()=>{cancelled=true};
   },[]);
+  return{connectedEntry,historyChips};
+}
+
+export function ChipPortfolioPanel(){
+  const{data,error,loading,load}=useOfficialFpl();
+  const{connectedEntry,historyChips}=useConnectedChipHistory();
 
   // The single source of truth chip-portfolio.ts's inventory, the captain picker (CoachApp.tsx) and
   // the Gameweek Navigator's future-week badge all read and write -- planning a chip here is
@@ -103,7 +114,14 @@ export function ChipPortfolioPanel(){
     if(!result.ok){setPlanError(result.reason);return}
     setPlanError("");setPlannedChips(result.plannedChips);writePlannedChips(result.plannedChips);
   };
-  const unplan=(chip:Chip)=>{const next=removePlannedChip(plannedChips,chip);setPlanError("");setPlannedChips(next);writePlannedChips(next)};
+  // Symmetric with the Strategy Board's deletePlan -> removePlannedChip cascade (CoachApp.tsx):
+  // removing a chip here must not leave a stale "🃏 Wildcard" tag on whichever plan committed it.
+  const unplan=(chip:Chip)=>{
+    const next=removePlannedChip(plannedChips,chip);
+    setPlanError("");setPlannedChips(next);writePlannedChips(next);
+    const plans=readPlans();const clearedPlans=clearPlanChipTag(plans,chip);
+    if(clearedPlans!==plans)writePlans(clearedPlans);
+  };
 
   const inventory=data?computeChipInventory(data.events,connectedEntry?historyChips:null,plannedChips):null;
   const unpersonalized=!inventory||inventory.status==="unavailable";
@@ -180,8 +198,30 @@ export function LivePointsModel(){
   return <div className="live-builder"><Source data={data} loading={loading} onRefresh={load}/><section className="model-search"><div><span>LIVE PLAYER MODEL</span><h2>Inspect the inputs, not just the answer.</h2></div><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search a player…"/><div>{candidates.map(p=><button className={p.id===player.id?"active":""} onClick={()=>setSelected(p.id)} key={p.id}>{p.name}<small>{p.teamShort}</small></button>)}</div></section><section className="model-hero"><div><span>{player.teamName} · {player.position} · £{player.price.toFixed(1)}m</span><h2>{player.name}</h2><p>{player.news||"Available according to the official FPL feed."}</p></div><strong>{projections[0]?.toFixed(1)??"—"}<small>next GW xPts</small></strong></section><div className="model-real-grid"><article><span>2026/27 OUTPUT</span><b>{player.totalPoints}</b><small>current-season points through GW{data.seasonStatsThrough}</small></article><article><span>GOAL THREAT</span><b>{player.goals} G · {player.expectedGoals.toFixed(2)} xG</b><small>{player.threat.toFixed(1)} threat index</small></article><article><span>CREATION</span><b>{player.assists} A · {player.expectedAssists.toFixed(2)} xA</b><small>{player.creativity.toFixed(1)} creativity</small></article><article><span>MINUTES</span><b>{player.minutes}</b><small>{player.starts} starts · {availabilityPct}% availability</small></article><article><span>BONUS</span><b>{player.bonus}</b><small>{player.bps} BPS</small></article><article><span>ICT</span><b>{player.ictIndex.toFixed(1)}</b><small>{player.influence.toFixed(1)} influence</small></article></div><section className="projection-path"><header><span>FIVE-GAMEWEEK PROJECTION</span><small>Official fixtures + current form/availability · FPL Edge fixture model</small></header><div>{events.map((event,i)=><article key={event.id}><span>{event.name}</span><b>{projections[i].toFixed(1)}</b><small>xPts</small></article>)}</div></section><section className="model-breakdown-live"><div><span>BASE PERFORMANCE</span><b>{recent.toFixed(2)}</b><p>{data.seasonStatsThrough?"Uses current-season official PPG, form and next-gameweek expectation.":"Before GW1, last-season PPG is used only as a projection prior; every displayed 2026/27 performance total remains zero."}</p></div><div><span>AVAILABILITY</span><b>{availabilityPct}%</b><p>Uses the official status and chance-of-playing flag. Uncertain players are discounted.</p></div><div><span>FIXTURE ADJUSTMENT</span><b>FDR-aware</b><p>Each confirmed fixture is adjusted for venue and official FPL difficulty. Doubles add; blanks score zero.</p></div></section></div>
 }
 
-type HistoryWeek={event:number;points:number;totalPoints:number;overallRank:number;gameweekRank:number;transfers:number;transferCost:number;pointsOnBench:number;value:number;bank:number;captain:string;captainRawPoints:number;captainContribution:number;viceCaptain:string;chip:string|null};
-export function LiveHistory(){
-  const[entry,setEntry]=useState("");const[data,setData]=useState<{updatedAt:string;manager:{id:number;name:string;teamName:string;overallPoints:number;overallRank:number};weeks:HistoryWeek[]}|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(false);useEffect(()=>{const saved=localStorage.getItem("fpl-edge-entry");if(saved){setEntry(saved);load(saved)}},[]);async function load(id=entry){if(!/^\d+$/.test(id.trim())){setError("Enter the number from your official FPL team URL.");return}setLoading(true);setError("");try{const response=await fetch(`/api/fpl/history?entry=${id.trim()}`,{cache:"no-store"});const json=await response.json();if(!response.ok)throw new Error(json.error||"Could not load history");setData(json);persist("fpl-edge-entry",id.trim())}catch(e){setError(e instanceof Error?e.message:"Could not load history")}finally{setLoading(false)}}const weeks=data?.weeks??[];const avg=weeks.length?weeks.reduce((s,w)=>s+w.points,0)/weeks.length:0;const captain=weeks.reduce((s,w)=>s+w.captainContribution,0);const bench=weeks.reduce((s,w)=>s+w.pointsOnBench,0);const hits=weeks.reduce((s,w)=>s+w.transferCost,0);
-  return <div className="live-builder"><section className="history-connect"><div><span>OFFICIAL TEAM HISTORY</span><h2>Connect your FPL manager ID.</h2><p>Read-only. We use official finished-gameweek data and never ask for your password.</p></div><div><input value={entry} onChange={e=>setEntry(e.target.value.replace(/\D/g,""))} placeholder="e.g. 123456"/><button onClick={()=>load()} disabled={loading}>{loading?"Loading…":data?"Refresh history":"Connect history"}</button></div>{error&&<small>{error}</small>}</section>{data?<><section className="history-owner"><div><span>{data.manager.name}</span><h2>{data.manager.teamName}</h2><small>Manager ID {data.manager.id} · official data refreshed {new Date(data.updatedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</small></div><div><b>{data.manager.overallPoints??"—"}</b><small>total points</small></div><div><b>{data.manager.overallRank?.toLocaleString()??"—"}</b><small>overall rank</small></div></section><div className="history-kpis"><article><span>AVG GW</span><b>{avg.toFixed(1)}</b></article><article><span>CAPTAIN POINTS</span><b>{captain}</b></article><article><span>BENCH POINTS</span><b>{bench}</b></article><article><span>POINTS SPENT</span><b>−{hits}</b></article></div>{weeks.length?<section className="history-live-table"><header><span>GW</span><span>POINTS</span><span>CAPTAIN</span><span>CAPTAIN PTS</span><span>BENCH</span><span>TRANSFERS</span><span>HIT</span><span>GW RANK</span><span>OVERALL RANK</span><span>CHIP</span></header>{[...weeks].reverse().map(w=><div key={w.event}><b>GW{w.event}</b><strong>{w.points}</strong><span>{w.captain}</span><span>{w.captainContribution}<small>{w.captainRawPoints} raw</small></span><span>{w.pointsOnBench}</span><span>{w.transfers}</span><span>{w.transferCost?`−${w.transferCost}`:"0"}</span><span>{w.gameweekRank?.toLocaleString()}</span><span>{w.overallRank?.toLocaleString()}</span><em>{w.chip||"—"}</em></div>)}</section>:<div className="history-empty"><b>No finished gameweeks yet.</b><p>Your official points, captain returns, bench points, transfers, hits, ranks and chips will appear automatically after FPL marks each gameweek finished.</p></div>}</>:<div className="history-empty"><b>No fake history.</b><p>Connect your official manager ID to replace the old demo rows with your real gameweek record.</p></div>}</div>
+export type HistoryWeek={event:number;points:number;totalPoints:number;overallRank:number;gameweekRank:number;transfers:number;transferCost:number;pointsOnBench:number;value:number;bank:number;captain:string;captainRawPoints:number;captainContribution:number;viceCaptain:string;chip:string|null};
+
+export type TeamValueSummary=Readonly<{baselineEvent:number;baselineValue:number;latestEvent:number;latestValue:number;delta:number;ownedPriceDrift:number|null}>;
+// weeks[0]/weeks[weeks.length-1] rather than meta.squadValue -- LiveHistory's own connect flow
+// (entering a Team ID here) never populates fpl-edge-manager at all, so meta.squadValue can be
+// null even when history IS connected. Using the already-fetched weeks[] array end-to-end keeps
+// both endpoints sourced from the exact same real data, always internally consistent, at real
+// gameweek-deadline granularity -- deliberately NOT claiming to be "today's" live value.
+// ownedPriceDrift is a partial, supplementary breakdown, not a reconciliation of delta: it only
+// tracks players still owned since their own season start, and won't match delta if any transfers
+// were made (transfers move value through selling/buying prices, a separate mechanism).
+export function teamValueSummary(weeks:readonly HistoryWeek[],squad:readonly FplPlayer[]|null):TeamValueSummary|null{
+  if(!weeks.length)return null;
+  const first=weeks[0],latest=weeks[weeks.length-1];
+  const ownedPriceDrift=squad&&squad.length?squad.reduce((s,p)=>s+p.priceChangeSinceStart,0):null;
+  return{baselineEvent:first.event,baselineValue:first.value,latestEvent:latest.event,latestValue:latest.value,delta:latest.value-first.value,ownedPriceDrift};
+}
+
+// officialData is optional -- LiveHistory has two call sites: CoachApp.tsx's real coach shell
+// (which has FplData in scope and can supply the ownedPriceDrift breakdown) and app/page.tsx's
+// standalone demo shell (which never fetches a shared FplData at all, every Live* component there
+// is independently self-contained). Without it, teamValueSummary still shows the real
+// baseline/latest/delta from weeks[] -- only the owned-players breakdown needs a squad.
+export function LiveHistory({officialData}:{officialData?:FplData}){
+  const[entry,setEntry]=useState("");const[data,setData]=useState<{updatedAt:string;manager:{id:number;name:string;teamName:string;overallPoints:number;overallRank:number};weeks:HistoryWeek[]}|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(false);useEffect(()=>{const saved=localStorage.getItem("fpl-edge-entry");if(saved){setEntry(saved);load(saved)}},[]);async function load(id=entry){if(!/^\d+$/.test(id.trim())){setError("Enter the number from your official FPL team URL.");return}setLoading(true);setError("");try{const response=await fetch(`/api/fpl/history?entry=${id.trim()}`,{cache:"no-store"});const json=await response.json();if(!response.ok)throw new Error(json.error||"Could not load history");setData(json);persist("fpl-edge-entry",id.trim())}catch(e){setError(e instanceof Error?e.message:"Could not load history")}finally{setLoading(false)}}const weeks=data?.weeks??[];const avg=weeks.length?weeks.reduce((s,w)=>s+w.points,0)/weeks.length:0;const captain=weeks.reduce((s,w)=>s+w.captainContribution,0);const bench=weeks.reduce((s,w)=>s+w.pointsOnBench,0);const hits=weeks.reduce((s,w)=>s+w.transferCost,0);const teamValue=teamValueSummary(weeks,officialData?savedSquad(officialData):null);
+  return <div className="live-builder"><section className="history-connect"><div><span>OFFICIAL TEAM HISTORY</span><h2>Connect your FPL manager ID.</h2><p>Read-only. We use official finished-gameweek data and never ask for your password.</p></div><div><input value={entry} onChange={e=>setEntry(e.target.value.replace(/\D/g,""))} placeholder="e.g. 123456"/><button onClick={()=>load()} disabled={loading}>{loading?"Loading…":data?"Refresh history":"Connect history"}</button></div>{error&&<small>{error}</small>}</section>{data?<><section className="history-owner"><div><span>{data.manager.name}</span><h2>{data.manager.teamName}</h2><small>Manager ID {data.manager.id} · official data refreshed {new Date(data.updatedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</small></div><div><b>{data.manager.overallPoints??"—"}</b><small>total points</small></div><div><b>{data.manager.overallRank?.toLocaleString()??"—"}</b><small>overall rank</small></div></section>{teamValue&&<section className="team-value-panel"><div><span>TEAM VALUE</span><h2>{teamValue.delta>=0?"+":""}£{teamValue.delta.toFixed(1)}m through GW{teamValue.latestEvent}</h2><p>From £{teamValue.baselineValue.toFixed(1)}m at GW{teamValue.baselineEvent}'s deadline to £{teamValue.latestValue.toFixed(1)}m at GW{teamValue.latestEvent}'s deadline — reflects your value through that gameweek's deadline, not necessarily today's live prices.</p></div>{teamValue.ownedPriceDrift!==null&&<div><span>FROM PLAYERS YOU STILL OWN</span><b>{teamValue.ownedPriceDrift>=0?"+":""}£{teamValue.ownedPriceDrift.toFixed(1)}m</b><small>Price movement since each player's own season start — won't match the total above if you've made transfers.</small></div>}</section>}<div className="history-kpis"><article><span>AVG GW</span><b>{avg.toFixed(1)}</b></article><article><span>CAPTAIN POINTS</span><b>{captain}</b></article><article><span>BENCH POINTS</span><b>{bench}</b></article><article><span>POINTS SPENT</span><b>−{hits}</b></article></div>{weeks.length?<section className="history-live-table"><header><span>GW</span><span>POINTS</span><span>CAPTAIN</span><span>CAPTAIN PTS</span><span>BENCH</span><span>TRANSFERS</span><span>HIT</span><span>GW RANK</span><span>OVERALL RANK</span><span>CHIP</span></header>{[...weeks].reverse().map(w=><div key={w.event}><b>GW{w.event}</b><strong>{w.points}</strong><span>{w.captain}</span><span>{w.captainContribution}<small>{w.captainRawPoints} raw</small></span><span>{w.pointsOnBench}</span><span>{w.transfers}</span><span>{w.transferCost?`−${w.transferCost}`:"0"}</span><span>{w.gameweekRank?.toLocaleString()}</span><span>{w.overallRank?.toLocaleString()}</span><em>{w.chip||"—"}</em></div>)}</section>:<div className="history-empty"><b>No finished gameweeks yet.</b><p>Your official points, captain returns, bench points, transfers, hits, ranks and chips will appear automatically after FPL marks each gameweek finished.</p></div>}</>:<div className="history-empty"><b>No fake history.</b><p>Connect your official manager ID to replace the old demo rows with your real gameweek record.</p></div>}</div>
 }

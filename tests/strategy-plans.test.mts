@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   MAX_PLANS,
+  clearPlanChipTag,
   createPlan,
   dehydratePlanSandbox,
   hydratePlanSandbox,
@@ -31,7 +32,7 @@ function makePlayer(id: number, name: string): FplPlayer {
     epNext: 0, form: 0, pointsPerGame: 0, priorPointsPerGame: 0, priorMinutes: 0, priorStarts: 0,
     priorExpectedGoals: 0, priorExpectedAssists: 0, priorBonus: 0, priorSaves: 0, priorPenaltiesSaved: 0,
     priorDefensiveContribution: 0, totalPoints: 0, eventPoints: 0, eventMinutes: 0, eventBonus: 0, eventDefensiveContribution: 0,
-    selectedBy: 10, priceChange: 0, priceProjectionToday: 0, transfersIn: 0, transfersOut: 0, goals: 0, assists: 0,
+    selectedBy: 10, priceChange: 0, priceProjectionToday: 0, priceChangeSinceStart: 0, priceOutlook: [], transfersIn: 0, transfersOut: 0, goals: 0, assists: 0,
     expectedGoals: 0, expectedAssists: 0, expectedGoalInvolvements: 0, expectedGoalsConceded: 0, cleanSheets: 0,
     goalsConceded: 0, minutes: 0, starts: 0, bonus: 0, bps: 0, ictIndex: 0, influence: 0, creativity: 0, threat: 0,
     saves: 0, penaltiesSaved: 0, defensiveContribution: 0, clearancesBlocksInterceptions: 0, recoveries: 0, tackles: 0,
@@ -145,6 +146,67 @@ test("dehydratePlanSandbox: round-trips a hydrated sandbox back to an equivalent
   assert.deepEqual(dehydrated.baselineSquadIds, original.baselineSquadIds);
   assert.deepEqual(dehydrated.transferHistory, original.transferHistory);
   assert.deepEqual(dehydrated.savedUnder, original.savedUnder);
+});
+
+test("createPlan: no plannedChip given -- the field is simply absent, not stored as null/undefined", () => {
+  const plan = createPlan("Untagged", [p1], SETTINGS);
+  assert.equal(plan.plannedChip, undefined);
+  assert.ok(!("plannedChip" in plan), "the key itself should be absent for an ordinary untagged plan");
+});
+
+test("createPlan: a plannedChip is carried through exactly", () => {
+  const plan = createPlan("Wildcard Plan", [p1], SETTINGS, { chip: "Wildcard", event: 14 });
+  assert.deepEqual(plan.plannedChip, { chip: "Wildcard", event: 14 });
+});
+
+test("dehydratePlanSandbox: preserves an existing plannedChip through an update-in-place save", () => {
+  const original: PersistedPlan = {
+    id: "plan-1", name: "Wildcard Plan", createdAt: "2026-01-01T00:00:00.000Z",
+    baselineSquadIds: [1, 2], transferHistory: [], savedUnder: SETTINGS,
+    plannedChip: { chip: "Free Hit", event: 20 },
+  };
+  const hydrated = hydratePlanSandbox(original, pool);
+  assert.equal(hydrated.status, "complete");
+  if (hydrated.status !== "complete") return;
+  const dehydrated = dehydratePlanSandbox(original, hydrated.sandbox);
+  assert.deepEqual(dehydrated.plannedChip, { chip: "Free Hit", event: 20 });
+});
+
+test("dehydratePlanSandbox: an ordinary plan with no plannedChip stays untagged after round-tripping", () => {
+  const original: PersistedPlan = { id: "plan-2", name: "Plain", createdAt: "2026-01-01T00:00:00.000Z", baselineSquadIds: [1, 2], transferHistory: [], savedUnder: SETTINGS };
+  const hydrated = hydratePlanSandbox(original, pool);
+  assert.equal(hydrated.status, "complete");
+  if (hydrated.status !== "complete") return;
+  const dehydrated = dehydratePlanSandbox(original, hydrated.sandbox);
+  assert.ok(!("plannedChip" in dehydrated));
+});
+
+// --- clearPlanChipTag: symmetric with the Board's deletePlan -> removePlannedChip cascade ---
+
+test("clearPlanChipTag: strips plannedChip from the plan tagged with that chip, leaves the rest untouched", () => {
+  const plans: PersistedPlan[] = [
+    { id: "a", name: "A", createdAt: "x", baselineSquadIds: [1], transferHistory: [], savedUnder: SETTINGS, plannedChip: { chip: "Wildcard", event: 14 } },
+    { id: "b", name: "B", createdAt: "x", baselineSquadIds: [2], transferHistory: [], savedUnder: SETTINGS },
+  ];
+  const result = clearPlanChipTag(plans, "Wildcard");
+  assert.ok(!("plannedChip" in result[0]));
+  assert.deepEqual(result[1], plans[1]);
+});
+
+test("clearPlanChipTag: a chip with no matching tagged plan is a no-op, not a crash", () => {
+  const plans: PersistedPlan[] = [{ id: "a", name: "A", createdAt: "x", baselineSquadIds: [1], transferHistory: [], savedUnder: SETTINGS, plannedChip: { chip: "Bench Boost", event: 5 } }];
+  const result = clearPlanChipTag(plans, "Wildcard");
+  assert.deepEqual(result, plans);
+});
+
+test("clearPlanChipTag: only clears the plan matching the CORRECT chip -- a differently-tagged plan is untouched", () => {
+  const plans: PersistedPlan[] = [
+    { id: "a", name: "A", createdAt: "x", baselineSquadIds: [1], transferHistory: [], savedUnder: SETTINGS, plannedChip: { chip: "Wildcard", event: 14 } },
+    { id: "b", name: "B", createdAt: "x", baselineSquadIds: [2], transferHistory: [], savedUnder: SETTINGS, plannedChip: { chip: "Free Hit", event: 20 } },
+  ];
+  const result = clearPlanChipTag(plans, "Wildcard");
+  assert.ok(!("plannedChip" in result[0]));
+  assert.deepEqual(result[1].plannedChip, { chip: "Free Hit", event: 20 });
 });
 
 test("readPlans: returns an empty array when nothing has ever been saved, not a crash", () => {

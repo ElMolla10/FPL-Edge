@@ -324,7 +324,7 @@ function makeDefender(overrides: Partial<FplPlayer> = {}): FplPlayer {
     positionId: 2, position: "Defender", positionShort: "DEF", price: 5.5, status: "a", chance: null,
     epNext: 4, form: 4, pointsPerGame: 5, priorPointsPerGame: 5, priorMinutes: 3000, priorStarts: 34,
     priorExpectedGoals: 2, priorExpectedAssists: 3, priorBonus: 12, priorSaves: 0, priorPenaltiesSaved: 0,
-    priorDefensiveContribution: 340, totalPoints: 0, eventPoints: 0, eventMinutes: 0, eventBonus: 0, eventDefensiveContribution: 0, selectedBy: 25, priceChange: 0, priceProjectionToday: 0,
+    priorDefensiveContribution: 340, totalPoints: 0, eventPoints: 0, eventMinutes: 0, eventBonus: 0, eventDefensiveContribution: 0, selectedBy: 25, priceChange: 0, priceProjectionToday: 0, priceChangeSinceStart: 0, priceOutlook: [],
     transfersIn: 0, transfersOut: 0, goals: 0, assists: 0, expectedGoals: 0, expectedAssists: 0,
     expectedGoalInvolvements: 0, expectedGoalsConceded: 0, cleanSheets: 0, goalsConceded: 0, minutes: 0,
     starts: 0, bonus: 0, bps: 0, ictIndex: 0, influence: 0, creativity: 0, threat: 0, saves: 0,

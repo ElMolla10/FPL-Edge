@@ -13,7 +13,8 @@ import { estimateRankDistribution, estimateLiveRankResult, LiveRankResult } from
 import { clubLineupCandidates, LINEUP_POSITIONS, LineupCandidate } from "../lib/lineup-intelligence";
 import Pitch from "./Pitch";
 import { Chip, ChipPortfolioPanel, ChipScores, LiveChips, LiveHistory, chipScoresForEvent } from "./LiveIntelligence";
-import { PlannedChip, plannedChipFor, readPlannedChips } from "../lib/chip-portfolio";
+import { PlannedChip, plannedChipFor, readPlannedChips, removePlannedChip, writePlannedChips } from "../lib/chip-portfolio";
+import { CaptaincyResolution, resolveCaptainSwap, resolveCaptaincy } from "../lib/captaincy";
 import { FplData, FplEvent, FplFixture, FplPlayer, LiveMover, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, displayedGameweekAverage, fetchFplData, futureEvents, isCompleteSquad, liveScoringMovers, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
 import { HorizonMode, RiskMode, SquadPhilosophy, createFiveWeekEvaluator, createOptimizer } from "../lib/optimizer";
 import { FiveGwGainBand } from "../lib/anomalies";
@@ -21,7 +22,7 @@ import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib
 import { persist, readFreeTransfers, syncWithServer } from "../lib/persistence";
 import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
 import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } from "../lib/bench-order";
-import { TransferRoute, solveTransferRoutes } from "../lib/transfer-routes";
+import { RouteTransfer, TransferRoute, solveTransferRoutes } from "../lib/transfer-routes";
 import { blankProbability, haulProbability, playerPointsDistribution, pointsRange } from "../lib/projection-distribution";
 import { TransferQualityStatus } from "../lib/transfer-quality";
 import { Transfer, bestTransfers, selectPrimaryTransfer, sortTransfersByQuality } from "../lib/transfers";
@@ -89,7 +90,7 @@ function Page({view,data,go,revision,onTeamChange}:{view:View;data:FplData;go:(v
   if(view==="deadline")return <FinalCheck data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="chips")return <><LiveChips/><ChipPortfolioPanel/></>;
   if(view==="model")return <div className="coach-page"><ModelVersionPanel/><TeamQualityPanel data={data}/><PointsModel data={data}/></div>;
-  return <div className="coach-page"><ModelAudit data={data} revision={revision}/><LiveHistory/></div>;
+  return <div className="coach-page"><ModelAudit data={data} revision={revision}/><LiveHistory officialData={data}/></div>;
 }
 
 function Loading({label,retry}:{label:string;retry?:()=>void}){return <div className="coach-loading"><span className="live-spinner"/><b>{label}</b>{retry&&<button onClick={retry}>Try again</button>}</div>}
@@ -241,25 +242,19 @@ function DgwAlert({data}:{data:FplData}){
   </section>;
 }
 
-export type CaptaincyResolution={captainId:number;viceId:number};
-// Pure so the exact same resolution useCaptaincy() uses (Team, Final Check) can also be called
-// directly by Overview -- guarantees all three screens agree on captain/vice, rather than Overview
-// maintaining its own separate, incomplete copy of this priority chain (the bug this fixes: Overview
-// previously skipped the manager-captainId tier entirely).
-export function resolveCaptaincy(players:FplPlayer[],storedCaptainId:number,storedViceId:number,managerCaptainId:number|null|undefined,managerViceCaptainId:number|null|undefined,modelCaptain:FplPlayer|undefined,modelVice:FplPlayer|undefined):CaptaincyResolution|null{
-  if(!players.length)return null;
-  const valid=(id:number|null|undefined)=>!!id&&players.some(p=>p.id===id);
-  const captainId=valid(storedCaptainId)?storedCaptainId:valid(managerCaptainId)?managerCaptainId!:modelCaptain?.id??players[0].id;
-  let viceId=valid(storedViceId)?storedViceId:valid(managerViceCaptainId)?managerViceCaptainId!:modelVice?.id??players.find(p=>p.id!==captainId)?.id??captainId;
-  if(viceId===captainId)viceId=players.find(p=>p.id!==captainId)?.id??captainId;
-  return{captainId,viceId};
-}
 
 function useCaptaincy(players:FplPlayer[],event:number,modelCaptain:FplPlayer|undefined,modelVice:FplPlayer|undefined){
   const[captainId,setCaptainId]=useState<number|null>(null);const[viceId,setViceId]=useState<number|null>(null);
-  useEffect(()=>{if(!event||!players.length)return;let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}const storedCaptain=Number(localStorage.getItem(`fpl-edge-captain-${event}`));const storedVice=Number(localStorage.getItem(`fpl-edge-vice-${event}`));const resolved=resolveCaptaincy(players,storedCaptain,storedVice,manager?.captainId,manager?.viceCaptainId,modelCaptain,modelVice);if(!resolved)return;setCaptainId(resolved.captainId);setViceId(resolved.viceId)},[event,players.map(p=>p.id).join(","),modelCaptain?.id,modelVice?.id]);
+  let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}
+  useEffect(()=>{if(!event||!players.length)return;const storedCaptain=Number(localStorage.getItem(`fpl-edge-captain-${event}`));const storedVice=Number(localStorage.getItem(`fpl-edge-vice-${event}`));const resolved=resolveCaptaincy(players,storedCaptain,storedVice,manager?.captainId,manager?.viceCaptainId,modelCaptain,modelVice);if(!resolved)return;setCaptainId(resolved.captainId);setViceId(resolved.viceId)},[event,players.map(p=>p.id).join(","),modelCaptain?.id,modelVice?.id]);
   const saveCaptaincy=(captain:number,vice:number)=>{persist(`fpl-edge-captain-${event}`,String(captain));persist(`fpl-edge-vice-${event}`,String(vice))};
-  const chooseCaptain=(id:number)=>{const oldCaptain=captainId??modelCaptain?.id??players[0]?.id;const nextVice=id===viceId?oldCaptain:viceId??modelVice?.id??players.find(p=>p.id!==id)?.id??id;setCaptainId(id);setViceId(nextVice);saveCaptaincy(id,nextVice)};
+  // Resolves "current" through the same shared resolveCaptaincy() the mount effect above already
+  // uses, rather than a second, ad-hoc fallback chain -- in the ordinary case captainId/viceId
+  // state is already resolved and this is a same-value round-trip (resolveCaptaincy's own
+  // precedence rule always keeps an already-valid stored id). Only matters in the narrow window
+  // before the mount effect has flushed, where this is strictly more correct than before (the old
+  // inline fallback chain never consulted the manager tier at all).
+  const chooseCaptain=(id:number)=>{const current=resolveCaptaincy(players,captainId??0,viceId??0,manager?.captainId,manager?.viceCaptainId,modelCaptain,modelVice);if(!current)return;const next=resolveCaptainSwap(current.captainId,current.viceId,id);setCaptainId(next.captainId);setViceId(next.viceId);saveCaptaincy(next.captainId,next.viceId)};
   const chooseVice=(id:number)=>{const oldVice=viceId??modelVice?.id??players.find(p=>p.id!==captainId)?.id??id;const nextCaptain=id===captainId?oldVice:captainId??modelCaptain?.id??players.find(p=>p.id!==id)?.id??id;setCaptainId(nextCaptain);setViceId(id);saveCaptaincy(nextCaptain,id)};
   return{captain:players.find(p=>p.id===captainId)??modelCaptain??players[0],vice:players.find(p=>p.id===viceId)??modelVice??players.find(p=>p.id!==(captainId??modelCaptain?.id))??players[0],chooseCaptain,chooseVice};
 }
@@ -724,6 +719,24 @@ function Transfers({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>vo
   </div>;
 }
 
+// Week-1-only: FPL's own price predictor reaches 3 days out at most (priceOutlookSignal below,
+// declared later in this file but a hoisted function declaration, callable here) -- a route's
+// later weeks execute 1-3 real weeks from now, genuinely outside what FPL's own data says anything
+// honest about. Only a rise is ever a warning here -- a fall on a BUYING target is good news for
+// the buyer, already priceTimingSignal's own framing elsewhere. Display-only: never read by
+// solveTransferRoutes, never folds into route.gain/rankScore/confidence.
+export function routeTransferPriceWarning(move:RouteTransfer,weekIndex:number):string|null{
+  if(weekIndex!==0)return null;
+  const outlook=priceOutlookSignal(move.incoming);
+  const today=outlook.find(d=>d.offsetDays===0);
+  if(!today||today.direction!=="rise")return null;
+  const stillRisingTomorrow=outlook.some(d=>d.offsetDays===1&&d.direction==="rise");
+  const pct=Math.round(move.incoming.priceProjectionToday);
+  return stillRisingTomorrow
+    ?`${pct}% rise pressure today, and still rising tomorrow — this route's buying price could move before you execute it.`
+    :`${pct}% rise pressure today — this route's buying price could move before you execute it.`;
+}
+
 function TransferRoutePlanner({routes,horizon,setHorizon,maxWeeklyHit,setMaxWeeklyHit}:{routes:TransferRoute[];horizon:3|5|8;setHorizon:(value:3|5|8)=>void;maxWeeklyHit:0|4|8;setMaxWeeklyHit:(value:0|4|8)=>void}){
   const best=routes[0];
   const signed=(value:number)=>`${value>=0?"+":""}${value.toFixed(1)}`;
@@ -743,9 +756,9 @@ function TransferRoutePlanner({routes,horizon,setHorizon,maxWeeklyHit,setMaxWeek
       <header><div><span>COMPLETE PLANS</span><h2>Best route and genuinely different alternatives.</h2></div><small>Ranked by net projected points after hits</small></header>
       {routes.map((route,index)=><article className={index===0?"primary":""} key={route.id}>
         <header><i>{index+1}</i><div><span>{index===0?"RECOMMENDED":"ALTERNATIVE"}</span><h3>{route.firstAction}</h3></div><p><b>{signed(route.gain)}</b><small>vs roll</small></p><em className={route.risk.toLowerCase()}>{route.risk} risk</em></header>
-        <div className="route-week-grid">{route.weeks.map(week=><section key={week.eventId}>
+        <div className="route-week-grid">{route.weeks.map((week,weekIndex)=><section key={week.eventId}>
           <header><span>{week.eventName.replace("Gameweek ","GW")}</span><b>{week.freeTransfersBefore} FT → {week.freeTransfersAfter} FT</b></header>
-          <div className={week.transfers.length?"has-moves":"roll"}>{week.transfers.length?week.transfers.map(move=><p key={`${move.out.id}-${move.incoming.id}`}><span>{move.out.name}</span><i>→</i><b>{move.incoming.name}</b><small>{move.bankChange>=0?"+":"−"}£{Math.abs(move.bankChange).toFixed(1)}m</small></p>):<p><b>ROLL</b><small>Bank the transfer</small></p>}</div>
+          <div className={week.transfers.length?"has-moves":"roll"}>{week.transfers.length?week.transfers.map(move=>{const warning=routeTransferPriceWarning(move,weekIndex);return <p key={`${move.out.id}-${move.incoming.id}`}><span>{move.out.name}</span><i>→</i><b>{move.incoming.name}</b><small>{move.bankChange>=0?"+":"−"}£{Math.abs(move.bankChange).toFixed(1)}m</small>{warning&&<em className="route-price-warning">{warning}</em>}</p>}):<p><b>ROLL</b><small>Bank the transfer</small></p>}</div>
           <footer><p><span>Team xPts</span><b>{week.projectedPoints.toFixed(1)}</b></p><p><span>Hit</span><b>{week.hitCost?`−${week.hitCost}`:"0"}</b></p><p><span>Bank</span><b>£{week.bankAfter.toFixed(1)}m</b></p></footer>
         </section>)}</div>
         <footer>{route.explanation.map(line=><p key={line}>{line}</p>)}</footer>
@@ -779,7 +792,8 @@ function TransferDebugTable({rows}:{rows:Transfer[]}){return <section className=
 // FPL doesn't publish its price-change algorithm, and priceProjectionToday is FPL's own
 // first-party end-of-day forecast (not a heuristic estimated from raw transfer counts here) --
 // this threshold is only about noise reduction (most players sit under it every day), not an
-// assertion about FPL's own undisclosed move-trigger threshold.
+// assertion about FPL's own undisclosed move-trigger threshold. Reused unchanged for every day of
+// priceOutlook below -- no separate, invented threshold for the future days.
 export const MEANINGFUL_PRICE_PRESSURE=15;
 
 export type PriceTiming={direction:"rise"|"fall"|"stable";message:string};
@@ -790,12 +804,46 @@ export function priceTimingSignal(player:FplPlayer):PriceTiming{
   return{direction:"stable",message:"No meaningful price pressure today."};
 }
 
-// Only falls matter for squad-value protection -- a rise in a squad player is good news, not a risk.
-export function priceProtectionAlerts(squad:FplPlayer[]):FplPlayer[]{
-  return squad.filter(p=>p.priceProjectionToday<=-MEANINGFUL_PRICE_PRESSURE).sort((a,b)=>a.priceProjectionToday-b.priceProjectionToday);
+export type PriceOutlookDaySignal={offsetDays:number;direction:"rise"|"fall"|"stable"};
+// likelihood is read but never displayed as a number or in copy -- FPL doesn't document what its
+// magnitude means beyond its sign matching projectedPercent (confirmed against every live-sampled
+// player this session). The one honest, disclosed use here: a defensive guard. If a day's
+// likelihood sign ever disagrees with its projectedPercent sign, that day classifies as "stable"
+// rather than trusting a possibly-inconsistent read -- never observed live, but not something to
+// assume either.
+export function priceOutlookSignal(player:FplPlayer):readonly PriceOutlookDaySignal[]{
+  return[...player.priceOutlook].sort((a,b)=>a.offsetDays-b.offsetDays).map(day=>{
+    const disagreement=day.projectedPercent!==0&&day.likelihood!==0&&Math.sign(day.likelihood)!==Math.sign(day.projectedPercent);
+    if(disagreement)return{offsetDays:day.offsetDays,direction:"stable" as const};
+    if(day.projectedPercent>=MEANINGFUL_PRICE_PRESSURE)return{offsetDays:day.offsetDays,direction:"rise" as const};
+    if(day.projectedPercent<=-MEANINGFUL_PRICE_PRESSURE)return{offsetDays:day.offsetDays,direction:"fall" as const};
+    return{offsetDays:day.offsetDays,direction:"stable" as const};
+  });
 }
 
-function PriceIntel({rows}:{rows:Transfer[]}){return <section className="price-intel"><header><span>PRICE-CHANGE INTELLIGENCE</span><h2>Market pressure, without chasing it.</h2></header>{rows.slice(0,4).map(r=>{const timing=priceTimingSignal(r.incoming);return <article key={r.incoming.id}><b>{r.incoming.name}<small>£{r.incoming.price.toFixed(1)}m</small></b><span className={timing.direction}>{timing.direction==="rise"?"Rise pressure":timing.direction==="fall"?"Fall pressure":"Stable"}</span><p>{timing.message}</p></article>})}</section>}
+export type PriceRiskAlert=Readonly<{player:FplPlayer;offsetDays:number;pct:number;message:string}>;
+// Only falls matter for squad-value protection -- a rise in a squad player is good news, not a
+// risk. Day 0 still reads priceProjectionToday directly (unchanged, zero drift risk on the
+// already-tested path); days 1-2 are the real behavior change -- a player stable today but showing
+// real fall pressure in FPL's own 3-day window was previously invisible here entirely. Reports the
+// EARLIEST day that clears the threshold, sorted soonest-first (act before it happens), tied on
+// pressure magnitude.
+export function priceProtectionAlerts(squad:readonly FplPlayer[]):readonly PriceRiskAlert[]{
+  return squad.map(player=>{
+    if(player.priceProjectionToday<=-MEANINGFUL_PRICE_PRESSURE){
+      const pct=Math.abs(player.priceProjectionToday);
+      return{player,offsetDays:0,pct,message:`carries ${Math.round(pct)}% fall pressure today — selling before the drop protects the standard £0.1m step.`};
+    }
+    const futureRisk=priceOutlookSignal(player).filter(d=>d.offsetDays>0&&d.direction==="fall").sort((a,b)=>a.offsetDays-b.offsetDays)[0];
+    if(!futureRisk)return null;
+    const rawDay=player.priceOutlook.find(d=>d.offsetDays===futureRisk.offsetDays);
+    const pct=rawDay?Math.abs(rawDay.projectedPercent):0;
+    return{player,offsetDays:futureRisk.offsetDays,pct,message:`is projected to fall in ${futureRisk.offsetDays} day${futureRisk.offsetDays>1?"s":""} — selling before then protects the standard £0.1m step.`};
+  }).filter((x):x is PriceRiskAlert=>x!==null).sort((a,b)=>a.offsetDays-b.offsetDays||b.pct-a.pct);
+}
+
+const outlookDayLabel=(offsetDays:number)=>offsetDays===0?"Today":offsetDays===1?"Tomorrow":"Day after";
+function PriceIntel({rows}:{rows:Transfer[]}){return <section className="price-intel"><header><span>PRICE-CHANGE INTELLIGENCE</span><h2>Market pressure, without chasing it.</h2></header>{rows.slice(0,4).map(r=>{const timing=priceTimingSignal(r.incoming);const outlook=priceOutlookSignal(r.incoming);return <article key={r.incoming.id}><b>{r.incoming.name}<small>£{r.incoming.price.toFixed(1)}m</small></b><span className={timing.direction}>{timing.direction==="rise"?"Rise pressure":timing.direction==="fall"?"Fall pressure":"Stable"}</span><p>{timing.message}</p><div className="price-outlook-strip">{outlook.map(day=><span key={day.offsetDays} className={day.direction}>{outlookDayLabel(day.offsetDays)}</span>)}</div></article>})}</section>}
 
 // Surfaces squad players at real risk of a price drop before it happens -- nothing today watches
 // your own squad for this, only transfer targets. Renders nothing when no squad player clears the
@@ -806,7 +854,7 @@ function SquadValueAlert({squad}:{squad:FplPlayer[]}){
   return <section className="price-value-alert">
     <div><span>SQUAD VALUE</span><h2>Protect your squad value before it drops.</h2></div>
     <div>
-      {atRisk.slice(0,3).map(p=><p key={p.id}><b>{p.name}</b> carries {Math.round(Math.abs(p.priceProjectionToday))}% fall pressure today — selling before the drop protects the standard £0.1m step.</p>)}
+      {atRisk.slice(0,3).map(a=><p key={a.player.id}><b>{a.player.name}</b> {a.message}</p>)}
     </div>
   </section>;
 }
@@ -1015,6 +1063,10 @@ function StrategyBoard({data,go,revision}:{data:FplData;go:(v:View)=>void;revisi
     if(!confirm(`Delete plan "${target.name}"? This can't be undone.`))return;
     const next=plans.filter(p=>p.id!==id);
     writePlans(next);setPlans(next);
+    // Symmetric with ChipPortfolioPanel's own unplan -> clearPlanChipTag cascade: deleting a
+    // chip-tagged plan must not leave chip-portfolio.ts's PlannedChip store pointing at a rebuild
+    // that no longer exists.
+    if(target.plannedChip)writePlannedChips(removePlannedChip(readPlannedChips(),target.plannedChip.chip));
   };
   const editInDraftLab=(id:string)=>{localStorage.setItem(LOAD_PLAN_SIGNAL_KEY,id);go("draft")};
   return <div className="coach-page">
@@ -1039,7 +1091,7 @@ function PlanRow({plan,data,optimizer,horizonMode,riskMode,philosophy,onRename,o
     plan.savedUnder.philosophy!==philosophy?`Squad Philosophy (saved with ${plan.savedUnder.philosophy}, now ${philosophy})`:null,
   ].filter((x):x is string=>x!==null);
   return <article className="board-plan-row">
-    <header><div><b>{plan.name}</b><small>Saved {new Date(plan.createdAt).toLocaleDateString()}</small></div><div><button onClick={onEdit}>Edit in Draft Lab</button><button onClick={onRename}>Rename</button><button onClick={onDelete} className="danger">Delete</button></div></header>
+    <header><div><b>{plan.name}</b>{plan.plannedChip&&<em className="board-plan-chip-tag">🃏 {plan.plannedChip.chip.toUpperCase()} — GW{plan.plannedChip.event}</em>}<small>Saved {new Date(plan.createdAt).toLocaleDateString()}</small></div><div><button onClick={onEdit}>Edit in Draft Lab</button><button onClick={onRename}>Rename</button><button onClick={onDelete} className="danger">Delete</button></div></header>
     {(hydration.status==="failed"||hydration.status==="partial")&&<p className="integrity-warning optimizer-consistency-warning">⚠ {hydration.reason}</p>}
     {settingsStale.length>0&&<p className="integrity-warning optimizer-consistency-warning">⚠ This plan was saved under different settings: {settingsStale.join("; ")}.</p>}
     {hydration.status!=="failed"&&!comparison&&<p className="board-plan-empty">No changes yet — make a transfer for this plan in Draft Lab to see a comparison.</p>}

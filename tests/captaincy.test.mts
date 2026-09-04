@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplPlayer, ProjectionMetrics } from "../app/lib/fpl.ts";
-import { CaptainCandidate, captainRiskNote, captainReturnHaul, captaincyRiskFraming, resolveCaptaincy } from "../app/components/CoachApp.tsx";
+import { CaptainCandidate, captainRiskNote, captainReturnHaul, captaincyRiskFraming } from "../app/components/CoachApp.tsx";
+import { resolveCaptainSwap, resolveCaptaincy } from "../app/lib/captaincy.ts";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -9,7 +10,7 @@ function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
     positionId: 4, position: "Forward", positionShort: "FWD", price: 8, status: "a", chance: null,
     epNext: 5, form: 5, pointsPerGame: 5, priorPointsPerGame: 5, priorMinutes: 2000, priorStarts: 25,
     priorExpectedGoals: 10, priorExpectedAssists: 3, priorBonus: 15, priorSaves: 0, priorPenaltiesSaved: 0,
-    priorDefensiveContribution: 0, totalPoints: 0, eventPoints: 0, eventMinutes: 0, eventBonus: 0, eventDefensiveContribution: 0, selectedBy: 20, priceChange: 0, priceProjectionToday: 0,
+    priorDefensiveContribution: 0, totalPoints: 0, eventPoints: 0, eventMinutes: 0, eventBonus: 0, eventDefensiveContribution: 0, selectedBy: 20, priceChange: 0, priceProjectionToday: 0, priceChangeSinceStart: 0, priceOutlook: [],
     transfersIn: 0, transfersOut: 0, goals: 0, assists: 0, expectedGoals: 0, expectedAssists: 0,
     expectedGoalInvolvements: 0, expectedGoalsConceded: 0, cleanSheets: 0, goalsConceded: 0, minutes: 0,
     starts: 0, bonus: 0, bps: 0, ictIndex: 0, influence: 0, creativity: 0, threat: 0, saves: 0,
@@ -78,6 +79,61 @@ test("resolveCaptaincy: vice never collapses onto the same player as captain, ev
   const modelVice = players[0]; // deliberately the same as captain
   const result = resolveCaptaincy(players, 0, 0, undefined, undefined, modelCaptain, modelVice);
   assert.notEqual(result?.captainId, result?.viceId);
+});
+
+// --- resolveCaptainSwap: the shared rule useCaptaincy's chooseCaptain and Draft Lab's "apply
+// Triple Captain" action both call, so they can never independently drift ---
+
+test("resolveCaptainSwap: choosing a player who is neither current captain nor vice preserves vice", () => {
+  const result = resolveCaptainSwap(1, 2, 3);
+  assert.deepEqual(result, { captainId: 3, viceId: 2 });
+});
+
+test("resolveCaptainSwap: choosing the current vice as the new captain swaps -- old captain becomes the new vice", () => {
+  const result = resolveCaptainSwap(1, 2, 2);
+  assert.deepEqual(result, { captainId: 2, viceId: 1 });
+});
+
+test("resolveCaptainSwap: choosing the player who is already captain is a no-op on vice", () => {
+  const result = resolveCaptainSwap(1, 2, 1);
+  assert.deepEqual(result, { captainId: 1, viceId: 2 });
+});
+
+// --- chooseCaptain's own composition (CoachApp.tsx, line ~257): resolveCaptaincy(players,
+// captainId??0, viceId??0, ...) then resolveCaptainSwap(...). The one place this refactor could
+// have silently drifted: the FIRST-EVER choice, before the mount effect has ever set captainId/
+// viceId, where React state is still null. captainId??0/viceId??0 turn that null into 0, and
+// resolveCaptaincy's own valid() gate (!!id&&...) already treats 0 as "nothing stored" -- the
+// exact same sentinel the mount effect's own storedCaptain/storedVice reads already produce: a
+// missing localStorage key makes getItem() return null, and Number(null)===0 (confirmed directly),
+// so 0 is CoachApp.tsx's real, pre-existing "unset" sentinel throughout this file, not a value
+// invented for this test. This proves chooseCaptain resolves to a concrete
+// fallback BEFORE resolveCaptainSwap runs, rather than treating id 0 as if it were a real player.
+test("chooseCaptain's first-ever-choice composition: captainId/viceId still null resolve through the full fallback chain (not id 0) before the swap rule applies", () => {
+  const players = [
+    makePlayer({ id: 1, name: "Model Captain" }),
+    makePlayer({ id: 2, name: "Model Vice" }),
+    makePlayer({ id: 3, name: "Chosen" }),
+  ];
+  const modelCaptain = players[0];
+  const modelVice = players[1];
+  // Simulates chooseCaptain(3) firing with React state still null: captainId??0 and viceId??0.
+  const current = resolveCaptaincy(players, 0, 0, undefined, undefined, modelCaptain, modelVice);
+  assert.ok(current, "must resolve to a concrete fallback, never null, on the very first choice");
+  assert.equal(current.captainId, 1, "falls back to the model captain, not id 0");
+  assert.equal(current.viceId, 2, "falls back to the model vice, not id 0");
+  const next = resolveCaptainSwap(current.captainId, current.viceId, 3);
+  assert.deepEqual(next, { captainId: 3, viceId: 2 }, "the newly chosen player becomes captain; the resolved model vice is preserved, not lost or reset to id 0");
+});
+
+test("chooseCaptain's first-ever-choice composition: choosing the resolved model vice as captain swaps correctly on the very first pick, not just once already-resolved", () => {
+  const players = [makePlayer({ id: 1, name: "Model Captain" }), makePlayer({ id: 2, name: "Model Vice" })];
+  const modelCaptain = players[0];
+  const modelVice = players[1];
+  const current = resolveCaptaincy(players, 0, 0, undefined, undefined, modelCaptain, modelVice);
+  assert.ok(current);
+  const next = resolveCaptainSwap(current.captainId, current.viceId, 2);
+  assert.deepEqual(next, { captainId: 2, viceId: 1 }, "choosing the already-resolved vice as the new captain must swap them, exactly like the already-resolved-state case");
 });
 
 // --- captainRiskNote: vice safety net + explicit autosub-for-captaincy warning ---
