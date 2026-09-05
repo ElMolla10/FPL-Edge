@@ -30,8 +30,9 @@ import { ManagerMeta, OfficialPick, evaluateSandbox, sellingPricesFor } from "..
 import { LOAD_PLAN_SIGNAL_KEY, MAX_PLANS, PersistedPlan, createPlan, hydratePlanSandbox, readPlans, writePlans } from "../lib/strategy-plans";
 import { DifferentialPosition, TemplatePosition, rawDifferentialsByPosition, templateByPosition } from "../lib/ownership-radar";
 import { narrateCaptainChoice, narrateChipDecision, narrateCurrentRank, narrateDifferentials, narrateLiveStatus, narratePrimaryTransfer, narratePriceRisk, narrateSquadBuild, narrateTransferForPlayer, resolveChipLegality } from "../lib/coach-narration";
+import { ClubFixtureRow, computeClubFixtureRows } from "../lib/fixture-difficulty";
 
-type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach";
+type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures";
 export type { ManagerMeta, OfficialPick } from "../lib/squad-comparison";
 
 export{evaluateTransferQuality,TRANSFER_ACTION_THRESHOLD}from"../lib/transfer-quality";
@@ -39,10 +40,21 @@ export type{TransferQuality,TransferQualityInput,TransferQualityReason,TransferQ
 export{bestTransfers,selectPrimaryTransfer,sortTransfersByQuality}from"../lib/transfers";
 export type{Transfer}from"../lib/transfers";
 
-const nav:[View,string,string][]=[
-  ["overview","Overview","⌂"],["team","My team","◫"],["transfers","Transfers","⇄"],["league","Mini-League","◎"],["draft","Draft lab","◇"],["board","Strategy board","⊞"],["players","Players","⌕"],["ownership","Ownership","◈"],["coach","Coach","♟"],["fixtures","Fixtures","▦"],["news","News","●"],["deadline","Final check","✓"],["chips","Chips","★"],["model","Points model","∑"],["history","History","↗"],
+// Grouped navigation (Home/Coach standalone, then 4 labeled sections) -- the single source of
+// truth for both the desktop sidebar and the mobile nav/overlay below. No separate flat array is
+// kept alongside this: nothing outside this file's own render sites ever consumed `nav`'s prior
+// flat shape or its ordering (confirmed by auditing every go() call site -- every call passes a
+// literal View id or an already-View-typed variable, never a position/index).
+type NavGroup=Readonly<{label:string|null;items:readonly(readonly[View,string,string])[]}>;
+const navGroups:readonly NavGroup[]=[
+  {label:null,items:[["overview","Overview","⌂"]]},
+  {label:null,items:[["coach","Coach","♟"]]},
+  {label:"My Squad",items:[["team","My team","◫"],["deadline","Final check","✓"],["squad-fixtures","My Fixtures","▤"],["news","News","●"]]},
+  {label:"Plan",items:[["transfers","Transfers","⇄"],["draft","Draft lab","◇"],["board","Strategy board","⊞"],["chips","Chips","★"]]},
+  {label:"Research",items:[["players","Players","⌕"],["ownership","Ownership","◈"],["model","Points model","∑"],["fixtures","Fixtures","▦"]]},
+  {label:"League & History",items:[["league","Mini-League","◎"],["history","History","↗"]]},
 ];
-const titles:Record<View,string>={overview:"Your gameweek command centre",team:"My team",transfers:"Transfer centre",league:"Mini-League War Room",draft:"Draft & Wildcard lab",board:"Multi-Plan Strategy Board",players:"Player research",ownership:"Ownership radar",coach:"Ask your coach",fixtures:"Fixture intelligence",news:"Personalised news",deadline:"Deadline final check",chips:"Chip planner",model:"How the model thinks",history:"Decision history"};
+const titles:Record<View,string>={overview:"Your gameweek command centre",team:"My team",transfers:"Transfer centre",league:"Mini-League War Room",draft:"Draft & Wildcard lab",board:"Multi-Plan Strategy Board",players:"Player research",ownership:"Ownership radar",coach:"Ask your coach","squad-fixtures":"My Fixtures",fixtures:"Fixture intelligence",news:"Personalised news",deadline:"Deadline final check",chips:"Chip planner",model:"How the model thinks",history:"Decision history"};
 const fmt=(n:number|null|undefined)=>n?Math.round(n).toLocaleString():"—";
 // Tightened cadence while a gameweek is genuinely live (deadline passed, not yet finished). Note
 // this only bounds the client's own added latency: /api/fpl's response and internal FPL fetches are
@@ -58,7 +70,12 @@ function freshness(updatedAt:string){const minutes=Math.max(0,Math.floor((Date.n
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
 
 export default function CoachApp({onBack}:{onBack:()=>void}){
-  const[view,setView]=useState<View>("overview");const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const[revision,setRevision]=useState(0);const[more,setMore]=useState(false);
+  const[view,setView]=useState<View>("overview");const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const[revision,setRevision]=useState(0);
+  // Which group's item list the mobile overlay is currently showing ("My Squad"|"Plan"|"More"),
+  // or null when closed -- replaces the old single `more:boolean`. My Squad and Plan are now real
+  // multi-item groups on mobile too (not single destinations), so tapping either needs to open
+  // its own item list the same way "More" already did, rather than three separate ad-hoc panels.
+  const[mobileOverlay,setMobileOverlay]=useState<string|null>(null);
   const load=async()=>{setLoading(true);setError("");try{setData(await fetchFplData())}catch(e){setError(e instanceof Error?e.message:"Official FPL data unavailable")}finally{setLoading(false)}};
   useEffect(()=>{load()},[]);
   const currentEvent=data?.events.find(e=>e.current);
@@ -66,16 +83,21 @@ export default function CoachApp({onBack}:{onBack:()=>void}){
   useEffect(()=>{const id=window.setInterval(load,isLiveWindow?LIVE_GAMEWEEK_REFRESH_MS:300000);return()=>window.clearInterval(id)},[isLiveWindow]);
   const runSync=()=>{syncWithServer().then(changed=>{if(changed)setRevision(x=>x+1)})};
   useEffect(()=>{runSync()},[]);
-  const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMore(false);window.scrollTo({top:0,behavior:"smooth"})};
+  const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMobileOverlay(null);window.scrollTo({top:0,behavior:"smooth"})};
   const fresh=data?freshness(data.updatedAt):null;
+  const mySquadGroup=navGroups.find(g=>g.label==="My Squad")!,planGroup=navGroups.find(g=>g.label==="Plan")!;
+  const inGroup=(group:NavGroup)=>group.items.some(([key])=>key===view);
+  const toggleMobileOverlay=(label:string)=>setMobileOverlay(current=>current===label?null:label);
   return <main className="coach-shell">
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{nav.map(([key,label,icon],i)=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span><small>{String(i+1).padStart(2,"0")}</small>{label}</span></button>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{navGroups.map((group,gi)=><div className="coach-nav-group" key={gi}>{group.label&&<span className="coach-nav-label">{group.label}</span>}{group.items.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}</span></button>)}</div>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><div><p>FPL EDGE · DECISION ENGINE</p><h1>{titles[view]}</h1></div>{data&&<DeadlineClock data={data}/>}</header>
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
     </section>
     <footer className="coach-footer"><AccountBar onAuthChange={runSync}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>
-    <nav className="coach-mobile-nav"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i>⌂</i>Home</button><button className={view==="team"?"active":""} onClick={()=>go("team")}><i>◫</i>Team</button><button className={view==="transfers"?"active":""} onClick={()=>go("transfers")}><i>⇄</i>Transfers</button><button className={view==="players"?"active":""} onClick={()=>go("players")}><i>⌕</i>Players</button><button className={more?"active":""} onClick={()=>setMore(x=>!x)}><i>•••</i>More</button></nav>
-    {more&&<div className="mobile-more">{nav.slice(3).filter(x=>x[0]!=="players").map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
+    <nav className="coach-mobile-nav"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i>⌂</i>Home</button><button className={mobileOverlay==="My Squad"||inGroup(mySquadGroup)?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i>◫</i>My Squad</button><button className={mobileOverlay==="Plan"||inGroup(planGroup)?"active":""} onClick={()=>toggleMobileOverlay("Plan")}><i>⇄</i>Plan</button><button className={view==="coach"?"active":""} onClick={()=>go("coach")}><i>♟</i>Coach</button><button className={mobileOverlay==="More"?"active":""} onClick={()=>toggleMobileOverlay("More")}><i>•••</i>More</button></nav>
+    {mobileOverlay==="My Squad"&&<div className="mobile-more">{mySquadGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
+    {mobileOverlay==="Plan"&&<div className="mobile-more">{planGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
+    {mobileOverlay==="More"&&<div className="mobile-more">{navGroups.filter(g=>g.label==="Research"||g.label==="League & History").map(group=><div className="mobile-more-group" key={group.label}><span>{group.label}</span>{group.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>)}</div>}
   </main>
 }
 
@@ -89,6 +111,7 @@ function Page({view,data,go,revision,onTeamChange}:{view:View;data:FplData;go:(v
   if(view==="players")return <Players data={data} go={go} revision={revision}/>;
   if(view==="ownership")return <OwnershipRadar data={data}/>;
   if(view==="coach")return <Coach data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
+  if(view==="squad-fixtures")return <MyFixtures data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="fixtures")return <div className="coach-page"><TeamQualityPanel data={data}/><TeamQualityFixtures data={data}/><LineupIntelligencePanel data={data}/></div>;
   if(view==="news")return <News data={data} go={go} revision={revision}/>;
   if(view==="deadline")return <FinalCheck data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
@@ -1162,33 +1185,30 @@ function Compare({data,ids,close}:{data:FplData;ids:number[];close:()=>void}){co
 function TeamQualityFixtures({data}:{data:FplData}){
   const[horizon,setHorizon]=useState(8);
   const[sort,setSort]=useState<"attack"|"defence">("attack");
-  const events=futureEvents(data,horizon),teamMap=new Map(data.teams.map(team=>[team.id,team]));
-  const difficulty=(opportunity:number)=>clamp(3-(opportunity-1)*6,1,5);
-  const rows=data.teams.map(team=>{
-    const cells=events.map(event=>{
-      const games=data.fixtures.filter(fixture=>fixture.event===event.id&&(fixture.teamH===team.id||fixture.teamA===team.id));
-      if(!games.length)return{label:"BLANK",attack:5,defence:5,attackMultiplier:0,defenceMultiplier:0};
-      const perGame=games.map(fixture=>{
-        const home=fixture.teamH===team.id,opponent=teamMap.get(home?fixture.teamA:fixture.teamH);
-        const own=team.quality,opp=opponent?.quality;
-        const ownAttack=home?(own?.effectiveAttackHome??1):(own?.effectiveAttackAway??1);
-        const ownDefence=home?(own?.effectiveDefenceHome??1):(own?.effectiveDefenceAway??1);
-        const opponentDefence=home?(opp?.effectiveDefenceAway??1):(opp?.effectiveDefenceHome??1);
-        const opponentAttack=home?(opp?.effectiveAttackAway??1):(opp?.effectiveAttackHome??1);
-        const attackMultiplier=clamp(ownAttack/Math.max(.6,opponentDefence)*(home?1.04:.96),.65,1.5);
-        const defenceMultiplier=clamp(ownDefence/Math.max(.6,opponentAttack)*(home?1.05:.94),.65,1.5);
-        return{label:`${opponent?.short??"—"} ${home?"H":"A"}`,attack:difficulty(attackMultiplier),defence:difficulty(defenceMultiplier),attackMultiplier,defenceMultiplier};
-      });
-      const average=(pick:(game:typeof perGame[number])=>number)=>perGame.reduce((sum,game)=>sum+pick(game),0)/perGame.length;
-      return{label:perGame.map(game=>game.label).join(", "),attack:average(game=>game.attack),defence:average(game=>game.defence),attackMultiplier:average(game=>game.attackMultiplier),defenceMultiplier:average(game=>game.defenceMultiplier)};
-    });
-    const average=(pick:(cell:typeof cells[number])=>number)=>cells.reduce((sum,cell)=>sum+pick(cell),0)/Math.max(1,cells.length);
-    const split=Math.ceil(cells.length/2),firstHalf=cells.slice(0,split),secondHalf=cells.slice(split);
-    const early=firstHalf.reduce((sum,cell)=>sum+cell.attack,0)/Math.max(1,firstHalf.length),later=secondHalf.reduce((sum,cell)=>sum+cell.attack,0)/Math.max(1,secondHalf.length);
-    return{team,cells,attack:average(cell=>cell.attack),defence:average(cell=>cell.defence),swing:early-later};
-  }).sort((a,b)=>sort==="attack"?a.attack-b.attack:a.defence-b.defence);
+  const events=futureEvents(data,horizon);
+  const rows=[...computeClubFixtureRows(data,horizon)].sort((a,b)=>sort==="attack"?a.attack-b.attack:a.defence-b.defence);
   const attack=[...rows].sort((a,b)=>a.attack-b.attack).slice(0,3),defence=[...rows].sort((a,b)=>a.defence-b.defence).slice(0,3),avoid=[...rows].sort((a,b)=>b.attack-a.attack).slice(0,3),swings=[...rows].sort((a,b)=>b.swing-a.swing).slice(0,3);
-  return <div className="team-quality-fixtures"><section className="fixture-summary"><div><span>QUALITY-AWARE FIXTURE TICKER</span><h2>Opponent difficulty and each club's own quality now move together.</h2><p>Lower scores are better. Attack rankings compare a club's attack with the opponent's defence; clean-sheet rankings compare its defence with the opponent's attack.</p></div><div>{[3,5,8].map(value=><button className={horizon===value?"active":""} onClick={()=>setHorizon(value)} key={value}>{value} GW</button>)}</div></section><div className="schedule-ranks"><Rank title="Best attacking schedules" rows={attack} keyName="attack"/><Rank title="Best defensive schedules" rows={defence} keyName="defence"/><Rank title="Fixture swings" rows={swings} keyName="swing"/><Rank title="Teams to avoid" rows={avoid} keyName="attack" bad/></div><section className="fixture-ticker"><header><div><span>TEAM</span><button className={sort==="attack"?"active":""} onClick={()=>setSort("attack")}>ATTACK</button><button className={sort==="defence"?"active":""} onClick={()=>setSort("defence")}>DEFENCE</button></div>{events.map(event=><span key={event.id}>{event.name.replace("Gameweek ","GW")}</span>)}</header>{rows.map(row=><article key={row.team.id}><div><b>{row.team.short}<small>{row.team.name}</small></b><span>{row.attack.toFixed(2)} ATK</span><span>{row.defence.toFixed(2)} DEF</span></div>{row.cells.map((cell,index)=>{const value=sort==="attack"?cell.attack:cell.defence,multiplier=sort==="attack"?cell.attackMultiplier:cell.defenceMultiplier;return <span className={`fdr-${Math.round(value)}`} key={events[index].id}><b>{cell.label}</b><small>{cell.label==="BLANK"?"—":`${value.toFixed(1)} · ×${multiplier.toFixed(2)}`}</small></span>})}</article>)}</section></div>;
+  return <div className="team-quality-fixtures"><section className="fixture-summary"><div><span>QUALITY-AWARE FIXTURE TICKER</span><h2>Opponent difficulty and each club's own quality now move together.</h2><p>Lower scores are better. Attack rankings compare a club's attack with the opponent's defence; clean-sheet rankings compare its defence with the opponent's attack.</p></div><div>{[3,5,8].map(value=><button className={horizon===value?"active":""} onClick={()=>setHorizon(value)} key={value}>{value} GW</button>)}</div></section><div className="schedule-ranks"><Rank title="Best attacking schedules" rows={attack} keyName="attack"/><Rank title="Best defensive schedules" rows={defence} keyName="defence"/><Rank title="Fixture swings" rows={swings} keyName="swing"/><Rank title="Teams to avoid" rows={avoid} keyName="attack" bad/></div><section className="fixture-ticker"><header><div><span>TEAM</span><button className={sort==="attack"?"active":""} onClick={()=>setSort("attack")}>ATTACK</button><button className={sort==="defence"?"active":""} onClick={()=>setSort("defence")}>DEFENCE</button></div>{events.map(event=><span key={event.id}>{event.name.replace("Gameweek ","GW")}</span>)}</header>{rows.map(row=><FixtureTickerRow row={row} events={events} sort={sort} key={row.team.id}/>)}</section></div>;
+}
+function FixtureTickerRow({row,events,sort}:{row:ClubFixtureRow;events:FplEvent[];sort:"attack"|"defence"}){
+  return <article><div><b>{row.team.short}<small>{row.team.name}</small></b><span>{row.attack.toFixed(2)} ATK</span><span>{row.defence.toFixed(2)} DEF</span></div>{row.cells.map((cell,index)=>{const value=sort==="attack"?cell.attack:cell.defence,multiplier=sort==="attack"?cell.attackMultiplier:cell.defenceMultiplier;return <span className={`fdr-${Math.round(value)}`} key={events[index].id}><b>{cell.label}</b><small>{cell.label==="BLANK"?"—":`${value.toFixed(1)} · ×${multiplier.toFixed(2)}`}</small></span>})}</article>;
+}
+// My Squad's fixtures view -- the same real computeClubFixtureRows every club in the full Fixtures
+// page uses, filtered to the clubs the squad's players actually belong to. Genuinely per-club, not
+// per-player -- every player at a club shares that club's real fixture difficulty (see
+// fixture-difficulty.ts's own header comment) -- so this never recomputes anything per player, it
+// only narrows which of the 20 already-computed real rows are shown. Precondition is deliberately
+// "any saved squad players at all" (not a complete 15-man squad, unlike analysis()'s gate
+// elsewhere) -- a partial squad still has real owned clubs worth showing here.
+function MyFixtures({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+  const squad=useMemo(()=>savedSquad(data),[data,revision]);
+  const[horizon,setHorizon]=useState(8);
+  const[sort,setSort]=useState<"attack"|"defence">("attack");
+  const events=futureEvents(data,horizon);
+  if(!squad.length)return <div className="coach-page"><ConnectTeam data={data} onConnected={()=>onTeamChange()}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually first -- this view shows real fixture difficulty for the clubs your own squad's players belong to.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></div>;
+  const ownedTeamIds=new Set(squad.map(p=>p.teamId));
+  const rows=[...computeClubFixtureRows(data,horizon)].filter(row=>ownedTeamIds.has(row.team.id)).sort((a,b)=>sort==="attack"?a.attack-b.attack:a.defence-b.defence);
+  return <div className="team-quality-fixtures"><section className="fixture-summary"><div><span>MY SQUAD'S FIXTURES</span><h2>Real fixture difficulty for the clubs you actually own players at.</h2><p>The same club-level difficulty model as the full Fixtures page, narrowed to your own squad -- every player at a club shares that club's real fixture list, so this is per club, not per player.</p></div><div>{[3,5,8].map(value=><button className={horizon===value?"active":""} onClick={()=>setHorizon(value)} key={value}>{value} GW</button>)}</div></section><section className="fixture-ticker"><header><div><span>TEAM</span><button className={sort==="attack"?"active":""} onClick={()=>setSort("attack")}>ATTACK</button><button className={sort==="defence"?"active":""} onClick={()=>setSort("defence")}>DEFENCE</button></div>{events.map(event=><span key={event.id}>{event.name.replace("Gameweek ","GW")}</span>)}</header>{rows.map(row=><FixtureTickerRow row={row} events={events} sort={sort} key={row.team.id}/>)}</section></div>;
 }
 
 function Rank({title,rows,keyName,bad}:{title:string;rows:any[];keyName:string;bad?:boolean}){return <article className={bad?"avoid":""}><span>{title.toUpperCase()}</span>{rows.map((r,i)=><p key={r.team.id}><i>{i+1}</i><b>{r.team.name}</b><strong>{keyName==="swing"?`BUY LATER +${r.swing.toFixed(1)}`:Number(r[keyName]).toFixed(2)}</strong></p>)}</article>}
