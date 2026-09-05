@@ -10,7 +10,8 @@
     {
       "binding": "DB",
       "database_name": "fpl-edge-db",
-      "database_id": "85403b78-6191-4b7b-b61d-c42cd4a02d94"
+      "database_id": "85403b78-6191-4b7b-b61d-c42cd4a02d94",
+      "migrations_dir": "./drizzle"
     }
   ],
   "assets": {

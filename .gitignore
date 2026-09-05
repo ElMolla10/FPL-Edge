@@ -33,6 +33,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local-only scratch files (e.g. temporary credential files), never committed
+*.local
+
 # typescript
 next-env.d.ts
 tsconfig.tsbuildinfo
