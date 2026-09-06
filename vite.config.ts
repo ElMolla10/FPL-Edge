@@ -43,9 +43,31 @@ function existingBindingNames(key: "d1_databases" | "r2_buckets"): Set<string> {
 const existingD1Bindings = existingBindingNames("d1_databases");
 const existingR2Bindings = existingBindingNames("r2_buckets");
 
+// The same duplicate-entry problem that hit d1_databases/r2_buckets above also hits
+// compatibility_flags: a real wrangler.jsonc already declares "nodejs_compat", and Wrangler
+// rejects a duplicated flag in the merged config with "Compatibility flag specified multiple
+// times: nodejs_compat", which breaks `npm run dev`/`wrangler dev` outright once a real
+// wrangler.jsonc exists. Defer the same way: only add a flag here if wrangler.jsonc doesn't
+// already declare it.
+function existingCompatibilityFlags(): Set<string> {
+  if (!existsSync(wranglerConfigPath)) return new Set();
+  try {
+    const raw = readFileSync(wranglerConfigPath, "utf8");
+    const withoutComments = raw
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    const parsed = JSON.parse(withoutComments);
+    const entries = Array.isArray(parsed.compatibility_flags) ? parsed.compatibility_flags : [];
+    return new Set(entries);
+  } catch {
+    return new Set();
+  }
+}
+const existingCompatFlags = existingCompatibilityFlags();
+
 const localBindingConfig = {
   main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
+  compatibility_flags: existingCompatFlags.has("nodejs_compat") ? [] : ["nodejs_compat"],
   d1_databases:
     d1 && !existingD1Bindings.has(d1)
       ? [
