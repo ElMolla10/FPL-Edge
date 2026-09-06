@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
 import MiniLeagueWarRoom from "./MiniLeagueWarRoom";
 import TransferBreakdown from "./TransferBreakdown";
@@ -493,6 +493,24 @@ function Team({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;re
   const forwardBoundId=horizonEvents.length?horizonEvents[horizonEvents.length-1].id:(currentAnchor?.id??data.events[data.events.length-1]?.id??backwardBoundId);
   const defaultEventId=currentAnchor?.id??horizonEvents[0]?.id??backwardBoundId;
   const[navEventId,setNavEventId]=useState<number>(()=>defaultEventId);
+  // Real bug, found live: navEventId's initializer above only ever runs once, at mount -- if this
+  // page stays mounted across the live gameweek actually advancing (e.g. a tab left open overnight
+  // through a deadline, or one gameweek's matches finishing and the next becoming current), nothing
+  // previously re-synced it, so the view kept showing the OLD anchor as "current" (and the new one
+  // as stale "upcoming/provisional") until a full page reload. This only auto-advances navEventId
+  // when it was still tracking the PREVIOUS anchor -- if the user manually navigated to a different
+  // gameweek, a later poll must never yank them back to "current" out from under them. The
+  // `previous!==undefined` guard means the very first anchor (mount, or the null-to-non-null
+  // pre-season transition) is never treated as a change to auto-follow -- defaultEventId above
+  // already resolves that case correctly on its own.
+  const prevAnchorIdRef=useRef(currentAnchor?.id);
+  useEffect(()=>{
+    const previous=prevAnchorIdRef.current;
+    prevAnchorIdRef.current=currentAnchor?.id;
+    if(currentAnchor&&previous!==undefined&&currentAnchor.id!==previous){
+      setNavEventId(current=>current===previous?currentAnchor.id:current);
+    }
+  },[currentAnchor]);
   const[tab,setTab]=useState<"Pitch"|"List">("Pitch");
   const[selected,setSelected]=useState<FplPlayer|null>(null);
 
