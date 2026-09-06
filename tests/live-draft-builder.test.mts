@@ -56,6 +56,59 @@ test("occupied pitch card renders transfer selection, pin and remove as sibling 
   assert.match(html, /<\/button><button type="button" class="remove-player" aria-label="Remove Bruno"/);
 });
 
+test("pitch card only renders the chip-apply button when showChipButton is true, as a sibling after remove, not a replacement for the name", () => {
+  const player = makePlayer({ id: 21, name: "Bruno" });
+  const withoutChip = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, {
+    player,
+    projectedPoints: "5.4",
+    complete: true,
+    selected: false,
+    swapTarget: false,
+    showPin: false,
+    pinned: false,
+    onSelect: () => {},
+    onTogglePin: () => {},
+    onRemove: () => {},
+  }));
+  assert.doesNotMatch(withoutChip, /apply-chip-button/, "bench cards (showChipButton false) must not render the chip button at all");
+
+  const withChip = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, {
+    player,
+    projectedPoints: "5.4",
+    complete: true,
+    selected: false,
+    swapTarget: false,
+    showPin: false,
+    pinned: false,
+    onSelect: () => {},
+    onTogglePin: () => {},
+    onRemove: () => {},
+    showChipButton: true,
+    chipApplied: false,
+    onApplyChip: () => {},
+  }));
+  assert.match(withChip, /<b>Bruno<\/b>/, "the player name must still render, not be replaced by the chip button");
+  assert.match(withChip, /<\/button><button type="button" class="apply-chip-button " aria-label="Apply Triple Captain to Bruno" title="Apply Triple Captain to Bruno">Apply TC<\/button><\/article>$/);
+
+  const applied = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, {
+    player,
+    projectedPoints: "5.4",
+    complete: true,
+    selected: false,
+    swapTarget: false,
+    showPin: false,
+    pinned: false,
+    onSelect: () => {},
+    onTogglePin: () => {},
+    onRemove: () => {},
+    showChipButton: true,
+    chipApplied: true,
+    onApplyChip: () => {},
+  }));
+  assert.match(applied, /class="apply-chip-button applied"/);
+  assert.match(applied, />TC applied ✓</);
+});
+
 test("validateSwap rejects a wrong-position incoming player, even though the UI's own position filter would normally have prevented this", () => {
   const squad = baseSquad();
   const outPlayer = squad.find(p => p.id === 21)!; // MID
