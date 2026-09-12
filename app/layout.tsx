@@ -1,5 +1,15 @@
 import type { Metadata } from "next";
+import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
+
+// Feed the --font-ui/--font-display tokens in globals.css (fpl.page redesign, step 1). vinext's
+// next/font/google support is CDN-runtime-loading, not build-time self-hosted/subsetted the way
+// real Next.js does (confirmed via node_modules/vinext/README.md's support matrix) -- so this is
+// not actually self-hosted here despite Inter/Fraunces both being self-hostable fonts, and it
+// doesn't get real Next.js's fallback-metrics FOUC protection. Kept as the two font-loading calls
+// only, no manual <link>/@font-face alongside them.
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const fraunces = Fraunces({ subsets: ["latin"], weight: ["300"], variable: "--font-fraunces", display: "swap" });
 
 export const metadata: Metadata = {
   title: "FPL Edge",
@@ -15,7 +25,7 @@ const themeInitScript = `try{var t=localStorage.getItem("fpl-edge-theme");if(t==
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${inter.variable} ${fraunces.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

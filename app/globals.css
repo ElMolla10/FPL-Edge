@@ -243,3 +243,108 @@
 :root:not([data-theme="light"]) .fdr-3,[data-theme="dark"] .fdr-3{background:#4a4620}
 :root:not([data-theme="light"]) .fdr-4,[data-theme="dark"] .fdr-4{background:#5c3d2e}
 :root:not([data-theme="light"]) .fdr-5,[data-theme="dark"] .fdr-5{background:#6b2b24}
+
+/* Marketing page (app/page.tsx Home()) pins itself to light mode regardless of the
+   app's stored theme preference -- it has no theme toggle of its own and is unauthenticated,
+   so a visitor's dark-mode choice made inside the app should never leak into it. :root and
+   [data-theme] selectors only ever match the document root, so an inner element's own
+   data-theme attribute has no effect on them -- this explicitly restates the 16 theme-reactive
+   tokens at their existing light values (copied verbatim from :root's own light block, not
+   invented) so nothing inside .marketing-page inherits a dark value from <html>. */
+.marketing-page[data-theme="light"]{--paper:#f3f5ee;--text:#07100d;--text-muted:#66766e;--surface-card:#ffffff;--surface-sunken:#f1f4ef;--line:rgba(8,18,14,.16);--surface-inverse:#07140f;--text-muted-on-inverse:#99a9a0;--success-bg:#e6f3d4;--success-text:#426400;--warning-bg:#fff0c8;--warning-text:#77560d;--danger-bg:#ffe0da;--danger-text:#9a3428;--info-bg:#e4eefb;--info-text:#1d5a96}
+
+/* ============================================================================
+   fpl.page-inspired redesign -- Step 1 of 5: design tokens + base primitives.
+   Purely additive: no existing selector below this line is modified, and none
+   of the primitive classes introduced here (.btn / .panel / .data-row) are
+   referenced by any page yet, so nothing renders differently until a later
+   step actually applies them. The app's light/dark DEFAULT is unchanged this
+   round (still OS-driven via the existing :root/[data-theme] mechanism above)
+   -- flipping the default to dark is deferred to the shell/nav step, since it
+   requires touching app/layout.tsx and CoachApp.tsx's ThemeToggle, both out
+   of scope here.
+
+   Raw two-value color pairs, as approved. Note: the approved dark-mode page
+   background is named --canvas-dark/--canvas-light here, NOT --ink -- the
+   existing --ink (#07100d, defined at the top of this file) is a distinct,
+   already-widely-used marketing-page brand color and keeps its own value
+   untouched; reusing its name for this different color/role would have
+   silently repainted the marketing page. --hairline-dark/--hairline-light
+   are also a deliberately separate pair from the existing --line token above
+   (different value, different pattern) -- don't merge the two without
+   re-deriving whether that's actually safe first. */
+:root{
+  --canvas-dark:#14181A;
+  --canvas-light:#F6F7F5;
+  --hairline-dark:rgba(246,247,245,0.12);
+  --hairline-light:#DEE2DE;
+  --pitch-dark:#5C9A8A;
+  --pitch-light:#2F5D50;
+  --rise-dark:#5C9A8A;
+  --rise-light:#2F5D50;
+  --fall-dark:#B0523E;
+  --fall-light:#8C3A2B;
+
+  /* Approved: Inter (--font-ui) and Fraunces at weight 300 (--font-display), both
+     loaded via next/font/google in app/layout.tsx, which sets --font-inter/--font-fraunces
+     on <html>. The system stack after each stays as the fallback next/font itself falls
+     back to before the webfont loads (display:"swap"), and as safety if the variable is
+     ever missing. */
+  --font-ui:var(--font-inter),ui-sans-serif,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --font-display:var(--font-fraunces),Georgia,"Times New Roman",serif;
+
+  /* Theme-reactive aliases, following the exact same light-default/dark-override
+     pattern as the existing tokens above -- so primitives can reference one
+     name (--canvas, --hairline, --pitch, --rise, --fall) and get the correct
+     value under today's OS-driven mechanism now, with zero rework needed once
+     a later step flips the default. */
+  --canvas:var(--canvas-light);
+  --hairline:var(--hairline-light);
+  --pitch:var(--pitch-light);
+  --rise:var(--rise-light);
+  --fall:var(--fall-light);
+}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --canvas:var(--canvas-dark);
+    --hairline:var(--hairline-dark);
+    --pitch:var(--pitch-dark);
+    --rise:var(--rise-dark);
+    --fall:var(--fall-dark);
+  }
+}
+[data-theme="dark"]{
+  --canvas:var(--canvas-dark);
+  --hairline:var(--hairline-dark);
+  --pitch:var(--pitch-dark);
+  --rise:var(--rise-dark);
+  --fall:var(--fall-dark);
+}
+
+/* Base primitives. Unused by any page today -- built for later steps to
+   apply. Background/text roles deliberately reuse the EXISTING --text token
+   (not a new "--canvas-ink" token) since --text's real light/dark values
+   already contrast correctly against tones this close to --canvas, and
+   inventing a near-duplicate would repeat the exact two-copies-that-agree
+   mistake this project has been bitten by before. */
+
+/* No default border-radius or box-shadow -- sharp corners, flat fill. */
+.btn{font-family:var(--font-ui);background:transparent;color:var(--text);border:1px solid var(--hairline);border-radius:0;box-shadow:none;min-height:40px;padding:0 18px;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.btn-primary{background:var(--pitch);color:var(--canvas-light);border-color:var(--pitch)}
+[data-theme="dark"] .btn-primary{color:var(--canvas-dark)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn-primary{color:var(--canvas-dark)}}
+
+/* Data tables: sharp corners, hairline row dividers, never a card. Real
+   tabular lining figures are asserted here via font-variant-numeric so
+   numeric columns stay aligned regardless of which --font-ui typeface is
+   eventually approved. */
+.data-row{display:grid;align-items:center;padding:12px 16px;background:var(--canvas);color:var(--text);font-family:var(--font-ui);font-variant-numeric:lining-nums tabular-nums;border-radius:0;box-shadow:none;border-bottom:1px solid var(--hairline)}
+.data-row:last-child{border-bottom:none}
+
+/* No default border-radius+shadow combo, and no border by default -- a
+   generic .panel is flat fill only. Elevation (a border, never a shadow) is
+   an explicit per-instance opt-in via .panel--elevated, not baked into the
+   base class, since it's meant to be a one-panel-per-screen choice each page
+   makes deliberately rather than something every panel gets automatically. */
+.panel{background:var(--canvas);color:var(--text);padding:20px;border-radius:0;box-shadow:none}
+.panel--elevated{border:1px solid var(--hairline)}
