@@ -44,5 +44,6 @@ tsconfig.tsbuildinfo
 /.sites-runtime/
 /outputs/
 /work/
+/.vinext/
 
 /debug/
