@@ -462,23 +462,22 @@ function Team({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;re
   const[manager,setManager]=useManager(revision);
   let entry:string|null=null;
   try{entry=localStorage.getItem("fpl-edge-entry")}catch{}
-  useEffect(()=>{
+  // "Refresh from official" is the only remaining way this squad's membership or the manager's
+  // official captaincy/chip authority ever changes without an explicit user action -- the auto-
+  // effect that used to run this same fetch on every mount and every background data refresh
+  // (data.updatedAt) was deleted: it unconditionally overwrote a locally-planned Draft Lab squad
+  // the moment this page was visited or simply left open, with no check against local edits and
+  // no disclosure. connectTeam() (already the single source of truth for "Connect"/"Switch team")
+  // is reused as-is -- no new fetch logic.
+  const[refreshBusy,setRefreshBusy]=useState(false);
+  const[refreshMsg,setRefreshMsg]=useState("");
+  const refreshFromOfficial=async()=>{
     if(!entry)return;
-    let cancelled=false;
-    fetch(`/api/fpl/team?entry=${entry}`,{cache:"no-store"}).then(async response=>{
-      if(!response.ok)return null;
-      return response.json();
-    }).then(json=>{
-      if(cancelled||!json?.manager)return;
-      const ids=(json.playerIds as number[]).filter(id=>data.players.some(p=>p.id===id));
-      if(ids.length!==15)return;
-      persist("fpl-edge-squad",JSON.stringify(ids));
-      persist("fpl-edge-manager",JSON.stringify(json.manager));
-      localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());
-      setManager(json.manager as ManagerMeta);
-    }).catch(()=>{});
-    return()=>{cancelled=true};
-  },[entry,data.updatedAt]);
+    setRefreshBusy(true);setRefreshMsg("");
+    try{const m=await connectTeam(entry,data);setManager(m);onTeamChange()}
+    catch(e){setRefreshMsg(e instanceof Error?e.message:"Could not refresh from official")}
+    finally{setRefreshBusy(false)}
+  };
   const squad=useMemo(()=>savedSquad(data),[data,revision,manager]);
   const a=analysis(data,squad);
 
@@ -541,6 +540,8 @@ function Team({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;re
 
   return <div className="coach-page">
     <GameweekNav event={event} branch={branch} onBack={goBack} onForward={goForward} canBack={event.id>backwardBoundId} canForward={event.id<forwardBoundId}/>
+    {entry&&<button onClick={refreshFromOfficial} disabled={refreshBusy}>{refreshBusy?"Refreshing…":"Refresh from official"}</button>}
+    {refreshMsg&&<small>{refreshMsg}</small>}
     {branch==="past"&&<PastGameweekView data={data} event={event} history={history}/>}
     {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} manager={manager} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go}/>}
     {branch==="future"&&<FutureGameweekView data={data} event={event} squad={squad} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank}/>}

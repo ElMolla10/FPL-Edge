@@ -39,6 +39,19 @@ test("Triple Captain uses the official 3xc code and applies x3",()=>{
   assert.equal(result.captainBonus,10);
 });
 
+test("an official record for a different gameweek than the one being scored is ignored, not treated as authoritative",()=>{
+  // Real-world case this guards: Team's manager state can go stale relative to whichever gameweek
+  // is actually live (it's only refreshed by an explicit "Connect"/"Switch team"/"Refresh from
+  // official" action, not automatically every gameweek) -- this is the exact property that makes
+  // it safe for that refresh to stay explicit-only instead of auto-firing on every render.
+  const result=resolve({official:authority("3xc",2,6,10)});
+  assert.equal(result.captaincySource,"local");
+  assert.equal(result.captainId,10);
+  assert.equal(result.viceId,6);
+  assert.equal(result.captainMultiplier,2);
+  assert.equal(result.activeChip,null);
+});
+
 test("Triple Captain transfers the x3 multiplier to a playing vice when the captain records zero minutes",()=>{
   const{xi,bench}=makeSquad();
   xi.find(p=>p.id===10)!.eventMinutes=0;
