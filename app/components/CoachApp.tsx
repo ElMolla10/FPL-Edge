@@ -132,11 +132,17 @@ function Freshness({data,onRefresh,loading}:{data:FplData;onRefresh:()=>void;loa
 
 // Squad/watchlist/locks persist to the server (see app/lib/persistence.ts) when signed in via
 // either method below; both resolve to the same account (see app/lib/auth.ts).
-// No override stored means "follow prefers-color-scheme" (handled in CSS, not here) -- this toggle
-// only ever writes an explicit "light"/"dark" override once the user actually clicks it.
+// Step 3: the app defaults to dark now (see layout.tsx's themeInitScript), which already ran
+// synchronously in <head> before this component's client-side render -- so the initial state is
+// read straight from the DOM via useState's lazy-initializer form rather than guessed and
+// corrected in a later effect. That removes the artificial extra render/repaint cycle a
+// useEffect-based correction adds on top of hydration. This runs during SSR too (CoachApp is
+// server-rendered -- confirmed by tests/mini-league-ui.test.mts crashing here without the guard),
+// where `document` doesn't exist at all, so the guard below is load-bearing, not defensive
+// boilerplate: SSR has no choice but to guess, and "dark" matches the app's real default. This
+// toggle only ever writes an explicit "light"/"dark" override once the user actually clicks it.
 function ThemeToggle(){
-  const[theme,setTheme]=useState<"light"|"dark">("light");
-  useEffect(()=>{const stored=document.documentElement.getAttribute("data-theme");setTheme(stored==="dark"||(!stored&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light")},[]);
+  const[theme,setTheme]=useState<"light"|"dark">(()=>typeof document!=="undefined"&&document.documentElement.getAttribute("data-theme")==="light"?"light":"dark");
   const toggle=()=>{const next=theme==="dark"?"light":"dark";setTheme(next);document.documentElement.setAttribute("data-theme",next);persist("fpl-edge-theme",next)};
   return <button className="theme-toggle" onClick={toggle}>{theme==="dark"?"☀ Light mode":"● Dark mode"}</button>;
 }
