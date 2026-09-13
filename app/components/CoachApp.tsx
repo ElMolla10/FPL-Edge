@@ -306,15 +306,28 @@ export type HistoryWeek={
   captain?:string;viceCaptain?:string;chip?:string|null;transferCost?:number;
 };
 
+export type OfficialRank={rank:number;asOfEvent:number};
 function useGameweekHistory(entry:string|null){
   const[weeks,setWeeks]=useState<HistoryWeek[]|null>(null);
+  // manager.overallRank (FPL's own summary_overall_rank) is the manager's real, current official
+  // overall rank -- always present once at least one gameweek has finished, but it does NOT reflect
+  // points from a gameweek that's still live/in-progress (FPL doesn't publish that until the
+  // gameweek is processed). asOfEvent is the last FINISHED week in this same response, so callers
+  // can label the number honestly instead of implying it's live.
+  const[officialRank,setOfficialRank]=useState<OfficialRank|null>(null);
   useEffect(()=>{
-    if(!entry){setWeeks(null);return}
+    if(!entry){setWeeks(null);setOfficialRank(null);return}
     let cancelled=false;
-    fetch(`/api/fpl/history?entry=${entry}`,{cache:"no-store"}).then(r=>r.ok?r.json():null).then(json=>{if(!cancelled)setWeeks(json?.weeks??null)}).catch(()=>{if(!cancelled)setWeeks(null)});
+    fetch(`/api/fpl/history?entry=${entry}`,{cache:"no-store"}).then(r=>r.ok?r.json():null).then(json=>{
+      if(cancelled)return;
+      const fetchedWeeks:HistoryWeek[]|null=json?.weeks??null;
+      setWeeks(fetchedWeeks);
+      const lastFinished=fetchedWeeks&&fetchedWeeks.length?fetchedWeeks[fetchedWeeks.length-1].event:null;
+      setOfficialRank(typeof json?.manager?.overallRank==="number"&&lastFinished!==null?{rank:json.manager.overallRank,asOfEvent:lastFinished}:null);
+    }).catch(()=>{if(!cancelled){setWeeks(null);setOfficialRank(null)}});
     return()=>{cancelled=true};
   },[entry]);
-  return weeks;
+  return{weeks,officialRank};
 }
 
 export type PastGameweekPlayer={player:FplPlayer;points:number;multiplier:number;isCaptain:boolean;isViceCaptain:boolean};
@@ -526,7 +539,7 @@ function Team({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;re
   // prematurely read as "past" partway through.
   const branch:"past"|"current"|"future"=!event?"future":event.finished?"past":(currentAnchor&&event.id===currentAnchor.id)?"current":"future";
 
-  const history=useGameweekHistory(entry);
+  const{weeks:history,officialRank}=useGameweekHistory(entry);
 
   // Hooks run unconditionally every render regardless of which branch is displayed -- the "current"
   // XI/captaincy is computed here even when a past or future week is what's actually shown.
@@ -548,27 +561,31 @@ function Team({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;re
     <GameweekNav event={event} branch={branch} onBack={goBack} onForward={goForward} canBack={event.id>backwardBoundId} canForward={event.id<forwardBoundId}/>
     {entry&&<button onClick={refreshFromOfficial} disabled={refreshBusy}>{refreshBusy?"Refreshing…":"Refresh from official"}</button>}
     {refreshMsg&&<small>{refreshMsg}</small>}
-    {branch==="past"&&<PastGameweekView data={data} event={event} history={history}/>}
-    {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} manager={manager} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go}/>}
+    {branch==="past"&&<PastGameweekView data={data} event={event} history={history} officialRank={officialRank}/>}
+    {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} manager={manager} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go} officialRank={officialRank}/>}
     {branch==="future"&&<FutureGameweekView data={data} event={event} squad={squad} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank}/>}
   </div>;
 }
 function formation(players:FplPlayer[]){return ["DEF","MID","FWD"].map(pos=>players.filter(p=>p.positionShort===pos).length).join("-")}
 function PlayerPanel({player,data,first,replacements,close}:{player:FplPlayer;data:FplData;first:number;replacements:Transfer[];close:()=>void}){const events=futureEvents(data,5);const m=projectionMetrics(player,first,data.fixtures,first);return <div className="player-panel-backdrop" onClick={close}><aside className="player-panel" onClick={e=>e.stopPropagation()}><button className="panel-close" onClick={close}>×</button><span>{player.teamName} · {player.position}</span><h2>{player.name}</h2><div className="panel-price">£{player.price.toFixed(1)}m <small>{player.selectedBy.toFixed(1)}% owned</small></div><div className="panel-fixtures">{events.map(e=><div key={e.id}><b>{e.name.replace("Gameweek ","GW")}</b><span>{opponent(player,e.id,data)}</span><strong>{playerProjection(player,e.id,data.fixtures,first).toFixed(1)}</strong></div>)}</div><div className="panel-stats"><p><span>Expected minutes</span><b>{Math.round(m.expectedMinutes)}</b></p><p><span>Start probability</span><b>{Math.round(m.startProbability*100)}%</b></p><p><span>Season xG / xA</span><b>{player.expectedGoals.toFixed(2)} / {player.expectedAssists.toFixed(2)}</b></p><p><span>Form</span><b>{player.form.toFixed(1)}</b></p><p><span>Penalties</span><b>{m.penaltyRole?"First choice":"Not confirmed"}</b></p><p><span>Set pieces</span><b>{m.setPieceRole?"First choice":"Not confirmed"}</b></p></div><section><span>COACH VIEW</span><p>{m.startProbability>.8?`LIKELY starter with ${Math.round(m.expectedMinutes)} expected minutes.`:`UNCERTAIN minutes profile: only ${Math.round(m.startProbability*100)}% start probability.`} {m.penaltyRole?"First-choice penalties improve the ceiling.":"No confirmed penalty role is included."}</p></section><section><span>BEST REPLACEMENTS</span>{replacements.length?replacements.map(r=><p key={r.incoming.id}><b>{r.incoming.name}</b> · +{r.gain5.toFixed(1)} five-GW xPts · {r.risk} risk</p>):<p>No clearly stronger legal one-player route was found.</p>}</section></aside></div>}
-function PastGameweekView({data,event,history}:{data:FplData;event:FplEvent;history:HistoryWeek[]|null}){
+function PastGameweekView({data,event,history,officialRank}:{data:FplData;event:FplEvent;history:HistoryWeek[]|null;officialRank:OfficialRank|null}){
   const historyWeek=history?.find(w=>w.event===event.id);
   let locks:LockRecord[]=[];
   try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
   const lock=locks.find(l=>l.event===event.id);
   const resolved=resolvePastGameweek(data.players,historyWeek,lock);
 
-  if(!resolved)return <section className="gw-empty">
-    <span>NO RECORD</span>
-    <h2>No snapshot recorded for this week.</h2>
-    <p>{event.name} wasn't locked in Final Check before its deadline, and this account isn't connected to an official FPL Team ID. Connect a team on Overview to see full official history, or lock upcoming weeks in Final Check to build a record going forward.</p>
-  </section>;
+  if(!resolved)return <>
+    <OfficialRankCard officialRank={officialRank}/>
+    <section className="gw-empty">
+      <span>NO RECORD</span>
+      <h2>No snapshot recorded for this week.</h2>
+      <p>{event.name} wasn't locked in Final Check before its deadline, and this account isn't connected to an official FPL Team ID. Connect a team on Overview to see full official history, or lock upcoming weeks in Final Check to build a record going forward.</p>
+    </section>
+  </>;
 
   return <div className="gw-past">
+    <OfficialRankCard officialRank={officialRank}/>
     <section className="gw-past-summary">
       <div className="gw-past-scoreline">
         <div>
@@ -585,7 +602,7 @@ function PastGameweekView({data,event,history}:{data:FplData;event:FplEvent;hist
   </div>;
 }
 
-function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,setTab,selected,setSelected,bank,go}:{data:FplData;event:FplEvent;squad:FplPlayer[];xi:FplPlayer[];bench:FplPlayer[];captaincy:{captain:FplPlayer;vice:FplPlayer;chooseCaptain:(id:number)=>void;chooseVice:(id:number)=>void};manager:ManagerMeta|null;tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number;go:(v:View)=>void}){
+function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,setTab,selected,setSelected,bank,go,officialRank}:{data:FplData;event:FplEvent;squad:FplPlayer[];xi:FplPlayer[];bench:FplPlayer[];captaincy:{captain:FplPlayer;vice:FplPlayer;chooseCaptain:(id:number)=>void;chooseVice:(id:number)=>void};manager:ManagerMeta|null;tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number;go:(v:View)=>void;officialRank:OfficialRank|null}){
   const{chooseCaptain,chooseVice}=captaincy;
   const gwFixtures=data.fixtures.filter(f=>f.event===event.id);
   const hasStarted=gwFixtures.some(f=>f.started);
@@ -623,6 +640,7 @@ function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,se
     {scoring.armbandPassedToVice&&<p className="gw-armband-note">{captain.name} didn't play -- the armband passed to {vice.name} ({vice.name}'s score is {multiplierWord}).</p>}
     {scoring.captaincyLost&&<p className="gw-armband-note">Neither {captain.name} nor {vice.name} played -- no captain multiplier applies this week.</p>}
     {scoring.activeChip==="bboost"&&<p className="gw-chip-note">Bench Boost is active · {scoring.benchBoostPoints} bench points are included in the live total.</p>}
+    <OfficialRankCard officialRank={officialRank}/>
     {liveRank&&<LiveRankCard result={liveRank}/>}
     {hasStarted&&(movers.hurting.length>0||movers.helping.length>0)&&<LiveMoversCard hurting={movers.hurting} helping={movers.helping}/>}
     <CaptaincyPicker players={xi} captain={captain} vice={vice} onCaptain={chooseCaptain} onVice={chooseVice} event={event.id} data={data} readOnly={officialLocked} status={captaincyStatus}/>
@@ -634,15 +652,31 @@ function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,se
   </div>;
 }
 
+// Primary rank display for the Team page: FPL's own official overall rank (manager.overallRank,
+// i.e. summary_overall_rank), the same real value the History page's top summary shows -- not an
+// estimate. It only reflects points through the last FINISHED gameweek (asOfEvent), so the label
+// says so explicitly rather than letting it read as live. Renders nothing if it isn't available yet
+// (e.g. no connected team, or no gameweek has finished this season) -- never a guessed placeholder.
+function OfficialRankCard({officialRank}:{officialRank:OfficialRank|null}){
+  if(!officialRank)return null;
+  return <section className="gw-official-rank-card">
+    <span>OFFICIAL OVERALL RANK</span>
+    <h3>{officialRank.rank.toLocaleString("en-GB")}</h3>
+    <p>As of GW{officialRank.asOfEvent} (last finished gameweek) -- does not include any points from a gameweek still in progress.</p>
+  </section>;
+}
+// Deprioritized behind the official rank above: a genuine estimate, not FPL's own number, so it
+// stays collapsed by default rather than competing with the real rank for attention. Still fully
+// available for anyone who wants it -- unchanged data/labeling, just no longer the first thing shown.
 function LiveRankCard({result}:{result:LiveRankResult}){
-  return <section className="gw-live-rank-card" aria-live="polite">
-    <span>LIVE RANK ESTIMATE</span>
+  return <details className="gw-live-rank-card">
+    <summary>Live rank estimate (not official)</summary>
     {result.status==="unavailable"?<><h3>Unavailable</h3><p>{result.reason}</p></>:<>
       <h3>{Math.round(result.rank.rank).toLocaleString("en-GB")}</h3>
       {result.rank.clamped!=="none"&&<p className="gw-live-rank-clamped">{result.rank.clamped==="above-range"?"Better than the best real sampled score.":"Worse than the worst real sampled score."}</p>}
       <details><summary>Assumptions and disclosure</summary>{result.assumptions.map(a=><p key={a}>{a}</p>)}</details>
     </>}
-  </section>;
+  </details>;
 }
 function LiveMoversCard({hurting,helping}:{hurting:readonly LiveMover[];helping:readonly LiveMover[]}){
   return <section className="gw-live-movers-card">
