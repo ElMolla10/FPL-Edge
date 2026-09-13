@@ -20,8 +20,10 @@ export const metadata: Metadata = {
 
 // Inline, synchronous, and in <head> so it runs before first paint -- reading localStorage and
 // setting data-theme here (rather than in a React effect) is what prevents a flash of the wrong
-// theme on load. No override stored means "follow prefers-color-scheme", handled purely in CSS.
-const themeInitScript = `try{var t=localStorage.getItem("fpl-edge-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}`;
+// theme on load. Step 3 (shell/nav) flips the app's default from OS-driven to dark-by-default:
+// no stored override, or a stored value that isn't literally "light", now resolves to dark.
+// ThemeToggle's own initial read mirrors this same "light" isn't dark logic.
+const themeInitScript = `try{var t=localStorage.getItem("fpl-edge-theme");document.documentElement.setAttribute("data-theme",t==="light"?"light":"dark")}catch(e){}`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
