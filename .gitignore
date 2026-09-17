@@ -30,6 +30,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Local Worker secrets for `npm run dev` (@cloudflare/vite-plugin reads this the same way
+# `wrangler dev` does) -- real Paymob test-mode keys go here, never committed. Production secrets
+# are set separately via `wrangler secret put` (see README.md's "Setting up Paymob").
+.dev.vars
+
 # vercel
 .vercel
 
