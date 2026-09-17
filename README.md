@@ -133,24 +133,27 @@ No `.env` file is used. Everything below is either a build/tooling override or a
 | `WRANGLER_WRITE_LOGS` | No | Wrangler logging control; the project defaults it to `false` |
 | `WRANGLER_LOG_PATH` | No | Wrangler log directory; scripts use `.sites-runtime/wrangler/logs` |
 | `MINIFLARE_REGISTRY_PATH` | No | Miniflare registry path; scripts keep it inside `.sites-runtime` |
-| `STRIPE_SECRET_KEY` | Yes, for billing | Stripe API secret key (test or live). Without it, `/api/billing/checkout` and `/api/billing/webhook` return a 500/config error — see "Setting up Stripe" below. |
-| `STRIPE_WEBHOOK_SECRET` | Yes, for billing | The signing secret for the specific webhook endpoint registered in the Stripe dashboard, used to verify `POST /api/billing/webhook` really came from Stripe. |
-| `STRIPE_SEASON_PRICE_ID` | Yes, for billing | The Stripe Price ID for the one-time seasonal Pro pass (a `price_...` id from a one-time, not recurring, Price object). |
+| `PAYMOB_API_KEY` | Yes, for billing | Paymob account API key, used to obtain the short-lived auth token for order registration and payment-key requests. |
+| `PAYMOB_INTEGRATION_ID` | Yes, for billing | Identifies which payment method + test/live mode a checkout uses. Paymob has no separate sandbox base URL -- mode is determined entirely by which Integration ID and key you use. |
+| `PAYMOB_HMAC_SECRET` | Yes, for billing | The HMAC secret from the Paymob dashboard, used to verify `POST /api/billing/webhook` callbacks really came from Paymob. |
+| `PAYMOB_IFRAME_ID` | Yes, for billing | Identifies which Paymob-hosted iframe/checkout page to send the user to. |
+| `PAYMOB_SEASON_PRICE_EGP_CENTS` | Yes, for billing | The one-time seasonal Pro price, in EGP piastres (e.g. `10000` = 100.00 EGP). Unlike Stripe's dashboard-managed Price object, Paymob requires the amount directly in each request, so this lives in app config, not just the Paymob dashboard. |
 
 The deployment environment supplies the `ASSETS` and `IMAGES` Cloudflare bindings, plus the `DB` (D1) binding used by auth, squad persistence, and billing (`wrangler.jsonc`'s `d1_databases` block; `.openai/hosting.json`'s `d1` field names the binding for the OpenAI Sites deployment path).
 
-### Setting up Stripe
+### Setting up Paymob
 
-Billing (`app/lib/billing/`, `app/api/billing/*`) is built and unit-tested against a mocked `StripeGateway` interface — as of this writing, no real Stripe credentials have ever been used with this app. To connect it to a real Stripe account (test mode first):
+Billing (`app/lib/billing/`, `app/api/billing/*`) uses Paymob, not Stripe -- Stripe doesn't support Egyptian merchant accounts. It's built and unit-tested against a mocked `PaymobGateway` interface -- as of this writing, no real Paymob credentials have ever been used with this app. To connect it to a real Paymob account (test mode first):
 
-1. Create a Stripe account (or use an existing one) and switch to **test mode**.
-2. Create a one-time (not recurring) Price for the seasonal Pro pass; copy its `price_...` id into `STRIPE_SEASON_PRICE_ID`.
-3. Set `STRIPE_SECRET_KEY` to the test-mode secret key (`sk_test_...`).
-4. In the Stripe dashboard, add a webhook endpoint pointing at `https://<your-domain>/api/billing/webhook`, subscribed to at least `checkout.session.completed`, `payment_intent.payment_failed`, and `charge.refunded` (see `app/lib/billing/webhook-handler.ts` for exactly how each is handled). Copy its signing secret into `STRIPE_WEBHOOK_SECRET`.
-5. Set all three as Worker secrets (`npx wrangler secret put STRIPE_SECRET_KEY`, etc. — not committed to the repo, not put in `wrangler.jsonc`).
-6. Exercise the full flow against Stripe's test-mode event simulator (or a real test-card checkout) before considering billing launch-ready — the unit tests cover the handling logic, not the real network/signature path.
+1. Create a Paymob account (or use an existing one) and note it has no separate sandbox URL -- test vs. live is controlled entirely by which Integration ID and API key you use, both visible in the dashboard.
+2. Set `PAYMOB_API_KEY` to your account's API key, `PAYMOB_INTEGRATION_ID` to a Test-mode card Integration's id, and `PAYMOB_IFRAME_ID` to your iframe id.
+3. Set `PAYMOB_SEASON_PRICE_EGP_CENTS` to the real seasonal price.
+4. In the Paymob dashboard, configure the "Transaction Processed" server-to-server callback to point at `https://<your-domain>/api/billing/webhook`, and copy the HMAC secret into `PAYMOB_HMAC_SECRET`. See `app/lib/billing/webhook-handler.ts` for exactly how a successful/failed/refunded/voided transaction is handled.
+5. Set all five as Worker secrets (`npx wrangler secret put PAYMOB_API_KEY`, etc. — not committed to the repo, not put in `wrangler.jsonc`).
+6. **Before relying on this in production**, confirm two things this integration could not verify from this sandbox (its network egress is blocked from `developers.paymob.com`/`docs.paymob.com`): the exact accepted-fields list on the order-registration and payment-key API reference pages (the implementation is triangulated from third-party sources, not read directly off Paymob's docs), and whether the post-payment redirect needs a per-request field or is fixed once per Integration in the dashboard (`app/lib/billing/paymob-gateway.ts` currently assumes the latter and doesn't send `successUrl`/`cancelUrl` to Paymob at all).
+7. Exercise the full flow with a real test-mode card checkout before considering billing launch-ready — the unit tests cover the handling logic (including a real cross-checked HMAC-SHA512 implementation), not the real network path.
 
-Never switch `STRIPE_SECRET_KEY`/the webhook endpoint to live-mode values without deliberately deciding to go live; nothing in this codebase does that automatically.
+Never switch `PAYMOB_API_KEY`/`PAYMOB_INTEGRATION_ID`/the webhook endpoint to live-mode values without deliberately deciding to go live; nothing in this codebase does that automatically.
 
 The optional ChatGPT request identity integration reads these HTTP headers when they are injected by the hosting dispatch layer; they are headers, not environment variables:
 

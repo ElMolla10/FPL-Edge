@@ -2,9 +2,10 @@
 DRAFT — NOT REVIEWED BY A LAWYER, NOT PUBLISHED.
 Grounded in the actual billing implementation (app/lib/billing/webhook-handler.ts,
 app/api/billing/checkout/route.ts): FPL Edge Pro is a single one-time payment per season,
-processed by Stripe, with a webhook that revokes Pro access the moment Stripe reports a refund.
-Refund window is now a real, decided policy (14 days, full refund) rather than a placeholder.
-[DOMAIN] is the one remaining fact-placeholder.
+processed by Paymob (switched from an earlier Stripe-based design, which Stripe doesn't support
+for Egyptian merchant accounts), with a webhook that revokes Pro access the moment Paymob reports a
+refund or void. Refund window is now a real, decided policy (14 days, full refund) rather than a
+placeholder. [DOMAIN] is the one remaining fact-placeholder.
 -->
 
 # Refund Policy — FPL Edge (DRAFT)
@@ -23,7 +24,7 @@ This 14-day window is a deliberate choice, not an accident: it matches the EU/UK
 
 ## How a refund actually works today
 
-There is no self-service "request a refund" button in the app. To request one, contact support@[DOMAIN] (a dedicated support address, not a personal inbox) within the 14-day window above. If a refund is approved and processed through Stripe, FPL Edge's webhook handling automatically revokes Pro access as soon as Stripe confirms the refund — this isn't a manual follow-up step, it's an automated part of the billing system (`charge.refunded` → access reverts to Free immediately).
+There is no self-service "request a refund" button in the app. To request one, contact support@[DOMAIN] (a dedicated support address, not a personal inbox) within the 14-day window above. If a refund is approved and processed through Paymob, FPL Edge's webhook handling automatically revokes Pro access as soon as Paymob confirms the refund (or a void) — this isn't a manual follow-up step, it's an automated part of the billing system.
 
 ## Payment processing errors
 
@@ -33,4 +34,4 @@ If you were charged in error (e.g., a duplicate charge from a technical issue), 
 
 **Open items for Mohamed:**
 - **[DOMAIN]** — confirm the production domain for the support@ contact address.
-- Once real Stripe test credentials exist, the `charge.refunded` → access-revoked path described above should be exercised against Stripe's test-mode event simulator (not just the mocked unit tests already passing) before this policy goes live, so the policy's claim about automatic revocation is verified against the real integration, not just the code that's supposed to implement it.
+- Once real Paymob test credentials exist, the refund/void → access-revoked path described above should be exercised against a real Paymob test-mode transaction (not just the mocked unit tests already passing) before this policy goes live, so the policy's claim about automatic revocation is verified against the real integration, not just the code that's supposed to implement it.

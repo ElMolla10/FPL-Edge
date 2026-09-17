@@ -26,23 +26,24 @@ This list reflects the real columns in the application's database (`db/schema.ts
 | Display name (optional) | Shown back to you in the app | `users` table |
 | ChatGPT-linked timestamp | Records that your account was verified via ChatGPT sign-in | `users` table |
 | Account creation/update timestamps | Standard record-keeping | `users` table |
-| Pro entitlement status, expiry date, and Stripe customer ID | To know whether you have Pro access and to reconcile Stripe payment/refund events with your account | `users` table |
+| Pro entitlement status and expiry date | To know whether you have Pro access | `users` table |
+| A mapping from a payment order id to your account | To resolve a payment provider's confirmation (or refund) back to your account | `pending_payments` table |
 | Session tokens | To keep you signed in; a session is a random token, not derived from your password, and expires automatically (30 days) or immediately on sign-out | `sessions` table |
 | Your official FPL Team ID and derived squad, watchlist, locks, captain/vice picks, saved plans, and planned chips | To power the app's actual function: reading your public FPL team and generating recommendations for it | `squad_data` table |
 
-**What we do *not* collect:** we never ask for or store your official Fantasy Premier League account password. We don't collect payment card details ourselves — Stripe's hosted checkout collects those directly (see §4).
+**What we do *not* collect:** we never ask for or store your official Fantasy Premier League account password. We don't collect payment card details ourselves — our payment processor's hosted checkout page collects those directly (see §4).
 
 **Locally stored, not sent to us:** some preferences (e.g. light/dark theme, a locally-built draft squad before you connect a real team) are stored only in your browser's local storage, never transmitted to our servers.
 
 ## 3. Why we process this data (lawful basis)
 
-Processing your account and squad data is necessary to perform the contract between you and us — i.e., to provide the FPL Edge service you sign up for. Processing payment data with Stripe is necessary to fulfil a purchase you initiate.
+Processing your account and squad data is necessary to perform the contract between you and us — i.e., to provide the FPL Edge service you sign up for. Processing payment data with our payment processor is necessary to fulfil a purchase you initiate.
 
 *[Standing legal-review flag, not resolved by choosing Egypt as the primary governing jurisdiction elsewhere in these documents: if any user is in the EU/UK, GDPR may still apply to processing their data regardless of where FPL Edge itself is based. "Contract" is very likely the correct lawful basis under GDPR Art. 6 here, but this needs an actual lawyer's confirmation, not just this description, for as long as EU/UK users are a realistic possibility.]*
 
 ## 4. Who we share data with
 
-- **Stripe** (payment processor) — if you purchase Pro access, Stripe receives your email and payment details directly (we never see or store your card number). Stripe's own privacy policy governs its handling of that data.
+- **Paymob** (payment processor) — if you purchase Pro access, Paymob receives your email and payment details directly (we never see or store your card number). Paymob's own privacy policy governs its handling of that data.
 - **Cloudflare** (hosting infrastructure) — the application and its database run on Cloudflare Workers and Cloudflare D1. Cloudflare processes data on our behalf as our hosting provider.
 - **The official Fantasy Premier League API** — we read public data from it (fixtures, prices, and, for your connected Team ID, your public squad/history). We do not send your FPL Edge account data to it; the only thing "sent" is the public Team ID you already control and could look up yourself.
 

@@ -36,7 +36,7 @@ You can create an account with an email and password, or by signing in with Chat
 
 ## 4. Free and Pro access
 
-FPL Edge offers a Free tier and a Pro tier, as described on the pricing section of the site. Pro access is sold as a single payment covering one Premier League season (not a recurring subscription) and is processed by Stripe. See the Refund Policy for how refunds and the resulting loss of Pro access are handled.
+FPL Edge offers a Free tier and a Pro tier, as described on the pricing section of the site. Pro access is sold as a single payment covering one Premier League season (not a recurring subscription) and is processed by Paymob. See the Refund Policy for how refunds and the resulting loss of Pro access are handled.
 
 We may change what's included in Free or Pro from time to time; if we do, the site's pricing section reflects the current, real feature split — this document doesn't duplicate that list so the two can't drift out of sync.
 
