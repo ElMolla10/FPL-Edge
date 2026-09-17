@@ -233,6 +233,42 @@ test("a callback with a bad signature does not grant access", async () => {
   assert.equal(repo.paid, 1);
 });
 
+
+test("signed Paymob failure, void, and refund do not grant a pass", async () => {
+  const secret = "sandbox-hmac-not-live";
+  const checkout = {
+    id: "checkout-1",
+    userId: "user-1",
+    seasonKey: "2026/27",
+    endsAt: "2027-05-31T20:59:59.999Z",
+    amountPiasters: SEASON_PASS_PRICE_PIASTERS,
+    currency: "EGP",
+    status: "pending" as const,
+    paymobOrderId: "555",
+  };
+  const now = new Date("2026-09-18T12:05:00.000Z");
+  const cases = [
+    { label: "declined", patch: { success: false }, reason: "not_successful" },
+    { label: "voided", patch: { is_voided: true }, reason: "void_or_refund" },
+    { label: "refunded", patch: { is_refunded: true }, reason: "void_or_refund" },
+  ];
+  for (const item of cases) {
+    const transaction = sampleCharge(item.patch);
+    const repo = makeRepo(checkout);
+    const signed = await hmac(secret, paymobProcessedCallbackMessage(transaction));
+    const result = await grantSeasonAccessFromCallback(repo, {
+      hmacSecret: secret,
+      receivedHmac: signed,
+      transaction,
+      now,
+    });
+    assert.equal(result.granted, false, item.label);
+    assert.equal(result.reason, item.reason, item.label);
+    assert.equal(repo.saves, 0, item.label);
+    assert.equal(repo.paid, 0, item.label);
+  }
+});
+
 test("ui gates the full desk from the server session and does not offer a free unlock", () => {
   const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
   const dev = readFileSync(new URL("../app/api/season-pass/dev-grant/route.ts", import.meta.url), "utf8");
