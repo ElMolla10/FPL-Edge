@@ -4,12 +4,29 @@
 
 export class AuthError extends Error {}
 
-export type UserRecord = { id: string; email: string; passwordHash: string | null; chatgptLinkedAt: string | null };
+// The billing fields are optional here (rather than required, matching the DB's NOT NULL
+// columns) so every existing call site that builds a literal UserRecord for signup/ChatGPT-link
+// (which know nothing about billing) keeps typechecking unchanged. A row read back from D1 always
+// has them; see app/lib/billing/entitlement.ts for how callers should treat a missing value.
+export type UserRecord = {
+  id: string;
+  email: string;
+  passwordHash: string | null;
+  chatgptLinkedAt: string | null;
+  isOwner?: boolean;
+  entitlementStatus?: string;
+  entitlementExpiresAt?: string | null;
+  stripeCustomerId?: string | null;
+};
 
 // Small repository interface so the identity-resolution logic below (the security-critical
 // part) is unit-testable against an in-memory fake, independent of a real D1 binding.
 export type UserRepo = {
   findByEmail(email: string): Promise<UserRecord | null>;
+  // Used by the billing webhook handler to resolve a Stripe event back to our user -- every
+  // checkout always attaches a Stripe Customer (see app/lib/billing), so every later event for
+  // that purchase (payment failure, refund) carries the same customer id.
+  findByStripeCustomerId(stripeCustomerId: string): Promise<UserRecord | null>;
   insert(user: UserRecord): Promise<void>;
   update(id: string, patch: Partial<Omit<UserRecord, "id">>): Promise<void>;
 };

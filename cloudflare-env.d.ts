@@ -30,5 +30,12 @@ interface D1Database {
 }
 
 declare module "cloudflare:workers" {
-  export const env: { DB: D1Database };
+  export const env: {
+    DB: D1Database;
+    // Worker secrets, set via `wrangler secret put` -- never committed, so these are optional
+    // here and billing routes must check for their absence (see app/lib/billing/env.ts).
+    STRIPE_SECRET_KEY?: string;
+    STRIPE_WEBHOOK_SECRET?: string;
+    STRIPE_SEASON_PRICE_ID?: string;
+  };
 }

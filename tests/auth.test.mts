@@ -18,6 +18,10 @@ function makeInMemoryRepo(seed: UserRecord[] = []): UserRepo {
       for (const row of rows.values()) if (row.email === email) return { ...row };
       return null;
     },
+    async findByStripeCustomerId(stripeCustomerId) {
+      for (const row of rows.values()) if (row.stripeCustomerId === stripeCustomerId) return { ...row };
+      return null;
+    },
     async insert(user) {
       rows.set(user.id, { ...user });
     },
