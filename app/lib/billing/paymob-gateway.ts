@@ -6,6 +6,15 @@
 // fields (not the raw body) and sends the result as a `?hmac=` query parameter (not a header), so
 // verifyAndParseCallback needs the parsed body and the query param, not a raw-body/signature pair.
 //
+// Redirect URLs are NOT part of this interface at all -- confirmed against Mohamed's own live
+// Paymob dashboard (the "Create integration" form), not assumed: they're configured once per
+// Integration ("Integration Processed Callback URL" for the real server-to-server webhook,
+// "Integration Response Callback URL" for where the browser lands after paying, a single URL for
+// both outcomes with Paymob appending its own query params, not two separate success/cancel
+// URLs like Stripe's). There is no per-request field for either, so createCheckoutSession has
+// nothing to send here -- see README.md's "Setting up Paymob" for where to point those two
+// dashboard fields.
+//
 // Base URL note: uses the current accept.paymob.com host. Some older SDKs still reference
 // accept.paymobsolutions.com (Paymob's pre-rebrand domain) -- confirm this is still correct before
 // going live, alongside the other "verify before going live" items in HANDOFF.md.
@@ -29,17 +38,6 @@ export type PaymobGateway = {
     merchantOrderId: string;
     billingEmail: string;
     billingName: string;
-    // Accepted for interface stability with the previous (Stripe) shape, but NOT currently sent
-    // to Paymob -- the working assumption (per Paymob's own "before you begin" integration
-    // checklist listing success/failure redirect URLs as an upfront requirement, not a per-request
-    // API field) is that the post-payment redirect is configured once per Integration in the
-    // Paymob dashboard, not passed dynamically here. This has NOT been confirmed against the
-    // payment-key API reference's exact accepted-fields list. Confirm this, or configure the
-    // dashboard's redirect URLs to point at these same paths directly, before relying on it --
-    // this doesn't affect security or entitlement (only the POST server-to-server callback below
-    // ever grants/revokes access), only where the user's browser lands after paying.
-    successUrl: string;
-    cancelUrl: string;
   }): Promise<PaymobCheckoutResult>;
   // Returns null if the signature doesn't verify -- callers must treat that as untrusted input,
   // never partially act on the parsed transaction.

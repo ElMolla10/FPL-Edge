@@ -37,7 +37,7 @@ test("checkout route: 401 when signed out", async () => {
     async () => 5000,
     async () => makeInMemoryPendingPayments()
   );
-  const response = await POST(new Request("https://fpl.example/api/billing/checkout", { method: "POST" }));
+  const response = await POST();
   assert.equal(response.status, 401);
 });
 
@@ -52,7 +52,7 @@ test("checkout route: returns the gateway's checkout URL and records the order-i
     async () => 5000,
     async () => pendingPayments
   );
-  const response = await POST(new Request("https://fpl.example/api/billing/checkout", { method: "POST" }));
+  const response = await POST();
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.url, "https://accept.paymob.com/test");
@@ -73,7 +73,7 @@ test("checkout route: passes the real season price through to the gateway", asyn
     async () => 12345,
     async () => makeInMemoryPendingPayments()
   );
-  await POST(new Request("https://fpl.example/api/billing/checkout", { method: "POST" }));
+  await POST();
   assert.equal(seenAmountCents, 12345);
 });
 
@@ -89,6 +89,6 @@ test("checkout route: 500 if the gateway throws (e.g. Paymob auth/order/payment-
     async () => 5000,
     async () => makeInMemoryPendingPayments()
   );
-  const response = await POST(new Request("https://fpl.example/api/billing/checkout", { method: "POST" }));
+  const response = await POST();
   assert.equal(response.status, 500);
 });

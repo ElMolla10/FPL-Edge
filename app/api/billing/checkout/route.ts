@@ -14,24 +14,24 @@ export function createCheckoutRoute(
   seasonPriceEgpCents: () => Promise<number>,
   pendingPayments: () => Promise<PendingPaymentsRepo>
 ) {
-  return async function POST(request: Request): Promise<Response> {
+  return async function POST(): Promise<Response> {
     try {
       const user = await getUser();
       if (!user) return Response.json({ error: "Not signed in." }, { status: 401 });
 
-      const origin = new URL(request.url).origin;
       const [paymob, amountCents] = await Promise.all([gateway(), seasonPriceEgpCents()]);
       // Opaque, unique per checkout attempt -- Paymob's own order id (not this value) is what the
       // callback carries and what pendingPayments is keyed on; this is only Paymob's
       // merchant_order_id echo-back for our own logs/dashboard readability.
       const merchantOrderId = `fpl-edge-${user.id}-${Date.now()}`;
+      // No successUrl/cancelUrl here -- confirmed against the real Paymob dashboard that redirect
+      // URLs are configured once per Integration there, not passed per-request (see
+      // paymob-gateway.ts's header comment).
       const session = await paymob.createCheckoutSession({
         amountCents,
         merchantOrderId,
         billingEmail: user.email,
         billingName: user.email.split("@")[0] ?? "FPL Edge",
-        successUrl: `${origin}/?checkout=success`,
-        cancelUrl: `${origin}/?checkout=cancelled`,
       });
 
       const repo = await pendingPayments();
