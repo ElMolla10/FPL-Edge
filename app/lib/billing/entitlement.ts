@@ -1,6 +1,6 @@
-// Pure entitlement logic -- no Stripe/D1 imports, so it's unit-testable in plain Node (see
+// Pure entitlement logic -- no Paymob/D1 imports, so it's unit-testable in plain Node (see
 // tests/entitlement.test.mts). Mirrors app/lib/auth-core.ts's split: the security/business
-// logic lives here against a small repo interface; app/api/billing/* wires it to real D1/Stripe.
+// logic lives here against a small repo interface; app/api/billing/* wires it to real D1/Paymob.
 
 import type { UserRecord, UserRepo } from "../auth-core";
 
@@ -21,19 +21,14 @@ export function hasProAccess(user: UserRecord | null | undefined): boolean {
   return new Date(user.entitlementExpiresAt).getTime() > Date.now();
 }
 
-export async function grantProEntitlementWith(
-  repo: UserRepo,
-  userId: string,
-  expiresAt: string,
-  stripeCustomerId: string | null
-): Promise<void> {
-  const patch: Partial<Omit<UserRecord, "id">> = { entitlementStatus: "pro", entitlementExpiresAt: expiresAt };
-  if (stripeCustomerId) patch.stripeCustomerId = stripeCustomerId;
-  await repo.update(userId, patch);
+export async function grantProEntitlementWith(repo: UserRepo, userId: string, expiresAt: string): Promise<void> {
+  await repo.update(userId, { entitlementStatus: "pro", entitlementExpiresAt: expiresAt } satisfies Partial<Omit<UserRecord, "id">>);
 }
 
-// Reverts to 'free' rather than deleting the row's history -- a refund ends access immediately,
-// it doesn't undo the fact that a purchase happened (stripeCustomerId is left in place).
+// Reverts to 'free' rather than deleting anything -- a refund/void ends access immediately, it
+// doesn't undo the fact that a purchase was attempted (the pendingPayments row stays, see
+// app/lib/billing/pending-payments.ts, since a later refund/void callback for the same order still
+// needs it to resolve back to this user).
 export async function revokeProEntitlementWith(repo: UserRepo, userId: string): Promise<void> {
   await repo.update(userId, { entitlementStatus: "free", entitlementExpiresAt: null });
 }

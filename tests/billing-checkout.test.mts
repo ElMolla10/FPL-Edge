@@ -2,45 +2,93 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCheckoutRoute } from "../app/api/billing/checkout/route.ts";
 import type { UserRecord } from "../app/lib/auth-core.ts";
-import type { StripeGateway } from "../app/lib/billing/stripe-gateway.ts";
+import type { PaymobGateway } from "../app/lib/billing/paymob-gateway.ts";
+import type { PendingPaymentsRepo } from "../app/lib/billing/pending-payments.ts";
 
 const user: UserRecord = { id: "u1", email: "a@example.com", passwordHash: null, chatgptLinkedAt: null };
 
-function makeMockGateway(overrides: Partial<StripeGateway> = {}): StripeGateway {
+function makeMockGateway(overrides: Partial<PaymobGateway> = {}): PaymobGateway {
   return {
-    createCheckoutSession: async () => ({ id: "cs_test", url: "https://checkout.stripe.com/test" }),
-    constructWebhookEvent: async () => {
+    createCheckoutSession: async () => ({ orderId: "order_test", url: "https://accept.paymob.com/test" }),
+    verifyAndParseCallback: async () => {
       throw new Error("not used in this test");
     },
     ...overrides,
   };
 }
 
+function makeInMemoryPendingPayments(): PendingPaymentsRepo & { rows: Map<string, string> } {
+  const rows = new Map<string, string>();
+  return {
+    rows,
+    async record(orderId, userId) {
+      rows.set(orderId, userId);
+    },
+    async findUserId(orderId) {
+      return rows.get(orderId) ?? null;
+    },
+  };
+}
+
 test("checkout route: 401 when signed out", async () => {
-  const POST = createCheckoutRoute(async () => null, async () => makeMockGateway());
+  const POST = createCheckoutRoute(
+    async () => null,
+    async () => makeMockGateway(),
+    async () => 5000,
+    async () => makeInMemoryPendingPayments()
+  );
   const response = await POST(new Request("https://fpl.example/api/billing/checkout", { method: "POST" }));
   assert.equal(response.status, 401);
 });
 
-test("checkout route: returns the gateway's checkout URL, passing the signed-in user's id as client_reference_id", async () => {
-  let seenClientReferenceId: string | undefined;
+test("checkout route: returns the gateway's checkout URL and records the order-id-to-user mapping", async () => {
+  const pendingPayments = makeInMemoryPendingPayments();
   const gateway = makeMockGateway({
-    createCheckoutSession: async (params) => {
-      seenClientReferenceId = params.clientReferenceId;
-      return { id: "cs_test", url: "https://checkout.stripe.com/test" };
-    },
+    createCheckoutSession: async () => ({ orderId: "order_test", url: "https://accept.paymob.com/test" }),
   });
-  const POST = createCheckoutRoute(async () => user, async () => gateway);
+  const POST = createCheckoutRoute(
+    async () => user,
+    async () => gateway,
+    async () => 5000,
+    async () => pendingPayments
+  );
   const response = await POST(new Request("https://fpl.example/api/billing/checkout", { method: "POST" }));
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.url, "https://checkout.stripe.com/test");
-  assert.equal(seenClientReferenceId, "u1");
+  assert.equal(body.url, "https://accept.paymob.com/test");
+  assert.equal(pendingPayments.rows.get("order_test"), "u1");
 });
 
-test("checkout route: 502 if Stripe returns no checkout URL", async () => {
-  const gateway = makeMockGateway({ createCheckoutSession: async () => ({ id: "cs_test", url: null }) });
-  const POST = createCheckoutRoute(async () => user, async () => gateway);
+test("checkout route: passes the real season price through to the gateway", async () => {
+  let seenAmountCents: number | undefined;
+  const gateway = makeMockGateway({
+    createCheckoutSession: async (params) => {
+      seenAmountCents = params.amountCents;
+      return { orderId: "order_test", url: "https://accept.paymob.com/test" };
+    },
+  });
+  const POST = createCheckoutRoute(
+    async () => user,
+    async () => gateway,
+    async () => 12345,
+    async () => makeInMemoryPendingPayments()
+  );
+  await POST(new Request("https://fpl.example/api/billing/checkout", { method: "POST" }));
+  assert.equal(seenAmountCents, 12345);
+});
+
+test("checkout route: 500 if the gateway throws (e.g. Paymob auth/order/payment-key request fails)", async () => {
+  const gateway = makeMockGateway({
+    createCheckoutSession: async () => {
+      throw new Error("Paymob order registration failed: 500");
+    },
+  });
+  const POST = createCheckoutRoute(
+    async () => user,
+    async () => gateway,
+    async () => 5000,
+    async () => makeInMemoryPendingPayments()
+  );
   const response = await POST(new Request("https://fpl.example/api/billing/checkout", { method: "POST" }));
-  assert.equal(response.status, 502);
+  assert.equal(response.status, 500);
 });

@@ -16,17 +16,15 @@ export type UserRecord = {
   isOwner?: boolean;
   entitlementStatus?: string;
   entitlementExpiresAt?: string | null;
-  stripeCustomerId?: string | null;
 };
 
 // Small repository interface so the identity-resolution logic below (the security-critical
-// part) is unit-testable against an in-memory fake, independent of a real D1 binding.
+// part) is unit-testable against an in-memory fake, independent of a real D1 binding. Resolving a
+// Paymob callback back to a user goes through the pendingPayments table (see
+// app/lib/billing/pending-payments.ts), not through this repo -- Paymob has no persistent
+// "customer" concept to key off the way Stripe's customer id did.
 export type UserRepo = {
   findByEmail(email: string): Promise<UserRecord | null>;
-  // Used by the billing webhook handler to resolve a Stripe event back to our user -- every
-  // checkout always attaches a Stripe Customer (see app/lib/billing), so every later event for
-  // that purchase (payment failure, refund) carries the same customer id.
-  findByStripeCustomerId(stripeCustomerId: string): Promise<UserRecord | null>;
   insert(user: UserRecord): Promise<void>;
   update(id: string, patch: Partial<Omit<UserRecord, "id">>): Promise<void>;
 };
@@ -111,7 +109,10 @@ export async function hashPassword(password: string): Promise<string> {
   return `pbkdf2$${PBKDF2_ITERATIONS}$${toBase64Url(salt)}$${toBase64Url(derived)}`;
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
+// Exported for app/lib/billing/paymob-gateway.ts's HMAC comparison -- constant-time string
+// comparison is the same requirement whether the secret being checked is a derived password hash
+// or a webhook signature, so this stays the one implementation rather than a second copy.
+export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);

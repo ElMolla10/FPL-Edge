@@ -22,11 +22,6 @@ export function makeD1UserRepo(): UserRepo {
       const [row] = await db.select().from(users).where(eq(users.email, email)).limit(1);
       return row ?? null;
     },
-    async findByStripeCustomerId(stripeCustomerId) {
-      const db = await getDb();
-      const [row] = await db.select().from(users).where(eq(users.stripeCustomerId, stripeCustomerId)).limit(1);
-      return row ?? null;
-    },
     async insert(user) {
       const db = await getDb();
       await db.insert(users).values(user);

@@ -12,21 +12,32 @@ export const users = sqliteTable("users", {
   displayName: text("display_name"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  // Permanent override, unrelated to any Stripe state -- see app/lib/billing/entitlement.ts.
-  // A real column, not a hardcoded email check, so it survives Stripe test-mode limitations, a
-  // billing outage, or a future refactor without being silently rediscovered as a special case.
+  // Permanent override, unrelated to any payment-provider state -- see
+  // app/lib/billing/entitlement.ts. A real column, not a hardcoded email check, so it survives
+  // provider test-mode limitations, a billing outage, or a future refactor without being silently
+  // rediscovered as a special case.
   isOwner: integer("is_owner", { mode: "boolean" }).notNull().default(false),
-  // 'free' until a completed Stripe Checkout session grants 'pro' (see the webhook handler);
-  // reverted to 'free' on a refund. Never trust this alone without also checking
-  // entitlementExpiresAt against now -- see hasProAccess.
+  // 'free' until a completed Paymob payment grants 'pro' (see the webhook handler); reverted to
+  // 'free' on a refund or void. Never trust this alone without also checking entitlementExpiresAt
+  // against now -- see hasProAccess.
   entitlementStatus: text("entitlement_status").notNull().default("free"),
-  // Null until the first successful checkout. A one-time seasonal payment, not a recurring
-  // subscription -- this is a fixed end-of-season cutoff set at grant time, not something Stripe
-  // renews on its own. "Renewal" for next season is a fresh checkout, not an automatic event.
+  // Null until the first successful payment. A one-time seasonal payment, not a recurring
+  // subscription -- this is a fixed end-of-season cutoff set at grant time, not something the
+  // provider renews on its own. "Renewal" for next season is a fresh checkout, not an automatic
+  // event.
   entitlementExpiresAt: text("entitlement_expires_at"),
-  // Set on the first checkout session creation (Stripe Checkout can create the Customer for us);
-  // reused for subsequent checkouts and to correlate refund webhooks back to a user.
-  stripeCustomerId: text("stripe_customer_id"),
+});
+
+// Maps a Paymob order id (created at checkout time) to the user who initiated it -- Paymob's
+// callback carries the order id, not an arbitrary reference field we control (unlike Stripe's
+// client_reference_id), so this explicit mapping is how the webhook resolves a transaction back to
+// a user. Deliberately never deleted once written: a refund or void callback for the same order can
+// arrive well after the original grant, and still needs this row to resolve back to a user (see
+// app/lib/billing/webhook-handler.ts).
+export const pendingPayments = sqliteTable("pending_payments", {
+  paymobOrderId: text("paymob_order_id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const sessions = sqliteTable("sessions", {

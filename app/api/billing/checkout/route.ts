@@ -1,27 +1,42 @@
 import { isMissingTableError } from "../../../../db";
 import type { UserRecord } from "../../../lib/auth-core";
 import { getCurrentUser } from "../../../lib/auth";
-import { getStripeEnv } from "../../../lib/billing/env";
-import { makeStripeGateway, StripeGateway } from "../../../lib/billing/stripe-gateway";
+import { getPaymobEnv, getSeasonPriceEgpCents } from "../../../lib/billing/env";
+import { makePaymobGateway, PaymobGateway } from "../../../lib/billing/paymob-gateway";
+import { makeD1PendingPaymentsRepo, PendingPaymentsRepo } from "../../../lib/billing/pending-payments";
 
-// DI'd on the gateway (not the concrete Stripe SDK) so this can be unit-tested against a mock --
-// no real Stripe test-mode credentials exist yet (see tests/billing-checkout.test.mts).
-export function createCheckoutRoute(getUser: () => Promise<UserRecord | null>, gateway: () => Promise<StripeGateway>) {
+// DI'd on the gateway, the price, and the pending-payments repo (not the concrete Paymob SDK --
+// there isn't one, it's plain fetch) so this can be unit-tested against a mock. No real Paymob
+// credentials or a real price exist yet (see tests/billing-checkout.test.mts).
+export function createCheckoutRoute(
+  getUser: () => Promise<UserRecord | null>,
+  gateway: () => Promise<PaymobGateway>,
+  seasonPriceEgpCents: () => Promise<number>,
+  pendingPayments: () => Promise<PendingPaymentsRepo>
+) {
   return async function POST(request: Request): Promise<Response> {
     try {
       const user = await getUser();
       if (!user) return Response.json({ error: "Not signed in." }, { status: 401 });
 
       const origin = new URL(request.url).origin;
-      const stripe = await gateway();
-      const session = await stripe.createCheckoutSession({
-        customerId: user.stripeCustomerId ?? null,
-        customerEmail: user.email,
-        clientReferenceId: user.id,
+      const [paymob, amountCents] = await Promise.all([gateway(), seasonPriceEgpCents()]);
+      // Opaque, unique per checkout attempt -- Paymob's own order id (not this value) is what the
+      // callback carries and what pendingPayments is keyed on; this is only Paymob's
+      // merchant_order_id echo-back for our own logs/dashboard readability.
+      const merchantOrderId = `fpl-edge-${user.id}-${Date.now()}`;
+      const session = await paymob.createCheckoutSession({
+        amountCents,
+        merchantOrderId,
+        billingEmail: user.email,
+        billingName: user.email.split("@")[0] ?? "FPL Edge",
         successUrl: `${origin}/?checkout=success`,
         cancelUrl: `${origin}/?checkout=cancelled`,
       });
-      if (!session.url) return Response.json({ error: "Stripe did not return a checkout URL." }, { status: 502 });
+
+      const repo = await pendingPayments();
+      await repo.record(session.orderId, user.id);
+
       return Response.json({ url: session.url });
     } catch (error) {
       console.error("billing checkout error:", error);
@@ -33,7 +48,12 @@ export function createCheckoutRoute(getUser: () => Promise<UserRecord | null>, g
   };
 }
 
-export const POST = createCheckoutRoute(getCurrentUser, async () => {
-  const { secretKey, priceId } = await getStripeEnv();
-  return makeStripeGateway(secretKey, priceId);
-});
+export const POST = createCheckoutRoute(
+  getCurrentUser,
+  async () => {
+    const { apiKey, integrationId, hmacSecret, iframeId } = await getPaymobEnv();
+    return makePaymobGateway(apiKey, integrationId, hmacSecret, iframeId);
+  },
+  getSeasonPriceEgpCents,
+  async () => makeD1PendingPaymentsRepo()
+);
