@@ -55,3 +55,36 @@ export const populationPercentiles = sqliteTable("population_percentiles", {
   // see population-percentile.ts's fetchCurrentEvent. Null before any gameweek has finished.
   recentAverageGameweekScore: integer("recent_average_gameweek_score"),
 });
+
+// Season access is a record tied to users.id, not a client flag. A row in season_passes exists
+// only after a verified Paymob callback (or the dev-only grant). season_checkouts holds the
+// unpaid intention so clicking pay cannot mark a pass active.
+export const seasonCheckouts = sqliteTable("season_checkouts", {
+  id: text("id").primaryKey(), // special_reference sent to Paymob
+  userId: text("user_id").notNull().references(() => users.id),
+  seasonKey: text("season_key").notNull(),
+  endsAt: text("ends_at").notNull(), // season end, not purchase + 12 months
+  amountPiasters: integer("amount_piasters").notNull(),
+  currency: text("currency").notNull().default("EGP"),
+  status: text("status").notNull().default("pending"), // pending | paid
+  paymobIntentionId: text("paymob_intention_id"),
+  // HMAC-covered Paymob order.id (intention_order_id). Correlation key for the webhook.
+  // Nullable until the intention is created; SQLite UNIQUE allows multiple NULLs.
+  paymobOrderId: text("paymob_order_id").unique(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  paidAt: text("paid_at"),
+});
+
+export const seasonPasses = sqliteTable("season_passes", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  seasonKey: text("season_key").notNull(),
+  startsAt: text("starts_at").notNull(),
+  endsAt: text("ends_at").notNull(),
+  amountPiasters: integer("amount_piasters").notNull(),
+  currency: text("currency").notNull().default("EGP"),
+  source: text("source").notNull(), // paymob | dev-grant
+  // Null for the dev grant. Unique so a retried Paymob callback cannot insert twice.
+  paymobTransactionId: text("paymob_transaction_id").unique(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});

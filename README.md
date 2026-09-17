@@ -133,6 +133,14 @@ No application secrets or required `.env` values are needed for the current FPL 
 | `WRANGLER_WRITE_LOGS` | No | Wrangler logging control; the project defaults it to `false` |
 | `WRANGLER_LOG_PATH` | No | Wrangler log directory; scripts use `.sites-runtime/wrangler/logs` |
 | `MINIFLARE_REGISTRY_PATH` | No | Miniflare registry path; scripts keep it inside `.sites-runtime` |
+| `PAYMOB_SECRET_KEY` | For live checkout | Paymob secret key. Sent as `Authorization: Token <key>` to `POST /v1/intention/`. Never committed. |
+| `PAYMOB_PUBLIC_KEY` | For live checkout | Paymob public key used only on the Unified Checkout redirect. |
+| `PAYMOB_HMAC_SECRET` | For live checkout | HMAC secret from Paymob Dashboard → Settings → API Keys. Verifies the Transaction Processed callback. |
+| `PAYMOB_INTEGRATION_ID` | For live checkout | Integer payment integration id. Use a card integration so `notification_url` is delivered. |
+| `PAYMOB_BASE_URL` | No | Defaults to `https://accept.paymob.com`. |
+| `FPL_EDGE_DEV_SEASON_GRANT` | No | Set to exactly `1` to allow `POST /api/season-pass/dev-grant`. Also requires `NODE_ENV` of `development` or `test`. Off by default. Ignored when `NODE_ENV` is `production` or unset. Not linked from the UI. |
+
+Season pass checkout does not activate access when the user clicks pay. A pass is written only after `POST /api/season-pass/callback` verifies Paymob's HMAC (SHA-512 over the documented Transaction Processed fields). If the Paymob variables above are missing, the upgrade UI says checkout is not connected. Point Paymob's notification URL at `https://<host>/api/season-pass/callback` as well as the `notification_url` sent on each intention. Apply `drizzle/0005_season_pass.sql` (generated from `db/schema.ts`) before checkout will persist.
 
 The deployment environment supplies the `ASSETS` and `IMAGES` Cloudflare bindings. If D1 is enabled later, set the `d1` field in `.openai/hosting.json` to the binding name (the existing database helper expects `DB`) and provision that binding in the hosting environment.
 

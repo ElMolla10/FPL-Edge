@@ -30,5 +30,15 @@ interface D1Database {
 }
 
 declare module "cloudflare:workers" {
-  export const env: { DB: D1Database };
+  export const env: {
+    DB: D1Database;
+    // Paymob secrets are set in the deployment environment, not in wrangler.jsonc.
+    PAYMOB_SECRET_KEY?: string;
+    PAYMOB_PUBLIC_KEY?: string;
+    PAYMOB_HMAC_SECRET?: string;
+    PAYMOB_INTEGRATION_ID?: string;
+    PAYMOB_BASE_URL?: string;
+    FPL_EDGE_DEV_SEASON_GRANT?: string;
+    NODE_ENV?: string;
+  };
 }

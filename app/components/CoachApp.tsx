@@ -31,8 +31,12 @@ import { LOAD_PLAN_SIGNAL_KEY, MAX_PLANS, PersistedPlan, createPlan, hydratePlan
 import { DifferentialPosition, TemplatePosition, rawDifferentialsByPosition, templateByPosition } from "../lib/ownership-radar";
 import { narrateCaptainChoice, narrateChipDecision, narrateCurrentRank, narrateDifferentials, narrateLiveStatus, narratePrimaryTransfer, narratePriceRisk, narrateSquadBuild, narrateTransferForPlayer, resolveChipLegality } from "../lib/coach-narration";
 import { ClubFixtureRow, computeClubFixtureRows } from "../lib/fixture-difficulty";
+import { SeasonLocked, SeasonUpgrade } from "./SeasonPass";
 
 type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures";
+type Desk="unknown"|"visitor"|"free"|"season";
+// Signed-in users without an active season pass see these views as the full desk, not the free move.
+const PRO_VIEWS: ReadonlySet<View> = new Set(["news", "draft", "board", "chips", "history"]);
 export type { ManagerMeta, OfficialPick } from "../lib/squad-comparison";
 
 export{evaluateTransferQuality,TRANSFER_ACTION_THRESHOLD}from"../lib/transfer-quality";
@@ -69,8 +73,16 @@ export{opponent}from"../lib/fpl";
 function freshness(updatedAt:string){const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(updatedAt))/60000));return{minutes,label:minutes<2?"just now":`${minutes}m ago`,tone:minutes<=10?"fresh":minutes<=30?"aging":"stale"}}
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
 
-export default function CoachApp({onBack}:{onBack:()=>void}){
+export default function CoachApp({onBack,intent,checkoutReturn}:{onBack:()=>void;intent?:"demo"|"upgrade";checkoutReturn?:boolean}){
   const[view,setView]=useState<View>("overview");const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const[revision,setRevision]=useState(0);
+  const[desk,setDesk]=useState<Desk>("unknown");
+  const[passEndsAt,setPassEndsAt]=useState<string|null>(null);
+  const[upgradeOpen,setUpgradeOpen]=useState(intent==="upgrade");
+  const onAccount=(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>{
+    if(!account){setDesk("visitor");setPassEndsAt(null);return}
+    setPassEndsAt(account.seasonPassEndsAt);
+    setDesk(account.seasonPassActive?"season":"free");
+  };
   // Which group's item list the mobile overlay is currently showing ("My Squad"|"Plan"|"More"),
   // or null when closed -- replaces the old single `more:boolean`. My Squad and Plan are now real
   // multi-item groups on mobile too (not single destinations), so tapping either needs to open
@@ -89,11 +101,11 @@ export default function CoachApp({onBack}:{onBack:()=>void}){
   const inGroup=(group:NavGroup)=>group.items.some(([key])=>key===view);
   const toggleMobileOverlay=(label:string)=>setMobileOverlay(current=>current===label?null:label);
   return <main className="coach-shell">
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{navGroups.map((group,gi)=><div className="coach-nav-group" key={gi}>{group.label&&<span className="coach-nav-label">{group.label}</span>}{group.items.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}</span></button>)}</div>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{navGroups.map((group,gi)=><div className="coach-nav-group" key={gi}>{group.label&&<span className="coach-nav-label">{group.label}</span>}{group.items.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}{desk==="free"&&PRO_VIEWS.has(key)&&<em className="nav-pro">PRO</em>}</span></button>)}</div>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><div><p>FPL EDGE · DECISION ENGINE</p><h1>{titles[view]}</h1></div>{data&&<DeadlineClock data={data}/>}</header>
-      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
+      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/>{upgradeOpen&&desk==="season"&&<section className="season-upgrade"><span>SEASON PASS</span><h2>Active through {passEndsAt?new Date(passEndsAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",timeZone:"Africa/Cairo"}):"this season"}.</h2><p>This account has an active season pass. The full desk is open.</p></section>}{upgradeOpen&&desk!=="season"&&<SeasonUpgrade checkoutReturn={checkoutReturn} onDismiss={()=>setUpgradeOpen(false)}/>}<Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={()=>setUpgradeOpen(true)}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
     </section>
-    <footer className="coach-footer"><AccountBar onAuthChange={runSync}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>
+    <footer className="coach-footer"><AccountBar onAuthChange={runSync} onAccount={onAccount} onUpgrade={()=>setUpgradeOpen(true)}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>
     <nav className="coach-mobile-nav"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i>⌂</i>Home</button><button className={mobileOverlay==="My Squad"||inGroup(mySquadGroup)?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i>◫</i>My Squad</button><button className={mobileOverlay==="Plan"||inGroup(planGroup)?"active":""} onClick={()=>toggleMobileOverlay("Plan")}><i>⇄</i>Plan</button><button className={view==="coach"?"active":""} onClick={()=>go("coach")}><i>♟</i>Coach</button><button className={mobileOverlay==="More"?"active":""} onClick={()=>toggleMobileOverlay("More")}><i>•••</i>More</button></nav>
     {mobileOverlay==="My Squad"&&<div className="mobile-more">{mySquadGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
     {mobileOverlay==="Plan"&&<div className="mobile-more">{planGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
@@ -101,10 +113,17 @@ export default function CoachApp({onBack}:{onBack:()=>void}){
   </main>
 }
 
-function Page({view,data,go,revision,onTeamChange}:{view:View;data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+function Page({view,data,go,revision,onTeamChange,desk,onUpgrade}:{view:View;data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;desk:Desk;onUpgrade:()=>void}){
+  // unknown/visitor keep the demo. Only a signed-in account without a pass is gated, and only from the server session — never a client flag.
+  if(desk==="unknown"&&PRO_VIEWS.has(view))return <div className="coach-page"><p className="truth-note">Checking access…</p></div>;
+  if(desk==="free"&&view==="news")return <SeasonLocked feature="News impact alerts are part of the season pass." onUpgrade={onUpgrade}/>;
+  if(desk==="free"&&(view==="draft"||view==="chips"))return <SeasonLocked feature="Draft and chip optimization are part of the season pass." onUpgrade={onUpgrade}/>;
+  if(desk==="free"&&view==="board")return <SeasonLocked feature="Multi-week transfer planning is part of the season pass." onUpgrade={onUpgrade}/>;
+  if(desk==="free"&&view==="history")return <SeasonLocked feature="Decision history is part of the season pass." onUpgrade={onUpgrade}/>;
+  const fullDesk=desk!=="free";
   if(view==="overview")return <Overview data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
-  if(view==="team")return <Team data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
-  if(view==="transfers")return <Transfers data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
+  if(view==="team")return <Team data={data} go={go} revision={revision} onTeamChange={onTeamChange} fullDesk={fullDesk} onUpgrade={onUpgrade}/>;
+  if(view==="transfers")return <Transfers data={data} go={go} revision={revision} onTeamChange={onTeamChange} fullDesk={fullDesk} onUpgrade={onUpgrade}/>;
   if(view==="league")return <MiniLeagueWarRoom revision={revision} onGoToTeam={()=>go("team")}/>;
   if(view==="draft")return <LiveDraftBuilder/>;
   if(view==="board")return <StrategyBoard data={data} go={go} revision={revision}/>;
@@ -146,15 +165,21 @@ function ThemeToggle(){
   const toggle=()=>{const next=theme==="dark"?"light":"dark";setTheme(next);document.documentElement.setAttribute("data-theme",next);persist("fpl-edge-theme",next)};
   return <button className="theme-toggle" onClick={toggle}>{theme==="dark"?"☀ Light mode":"● Dark mode"}</button>;
 }
-function AccountBar({onAuthChange}:{onAuthChange:()=>void}){
-  const[account,setAccount]=useState<{email:string;method:"password"|"chatgpt"}|null>(null);
+function AccountBar({onAuthChange,onAccount,onUpgrade}:{onAuthChange:()=>void;onAccount:(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>void;onUpgrade:()=>void}){
+  const[account,setAccount]=useState<{email:string;method:"password"|"chatgpt";seasonPassActive:boolean;seasonPassEndsAt:string|null}|null>(null);
   const[checked,setChecked]=useState(false);
   const[open,setOpen]=useState(false);
   const[mode,setMode]=useState<"signin"|"signup">("signin");
   const[form,setForm]=useState({email:"",password:""});
   const[busy,setBusy]=useState(false);
   const[msg,setMsg]=useState("");
-  const refresh=()=>{fetch("/api/auth/me",{cache:"no-store"}).then(r=>r.json()).then(d=>{setAccount(d.user??null);setChecked(true)}).catch(()=>setChecked(true))};
+  const refresh=()=>{fetch("/api/auth/me",{cache:"no-store"}).then(r=>r.json()).then(d=>{
+    const user=d.user??null;
+    if(!user){setAccount(null);onAccount(null);setChecked(true);return}
+    const season=user.seasonPass??{};
+    const next={email:user.email as string,method:(user.method==="chatgpt"?"chatgpt":"password") as "chatgpt"|"password",seasonPassActive:season.active===true,seasonPassEndsAt:typeof season.endsAt==="string"?season.endsAt:null};
+    setAccount(next);onAccount(next);setChecked(true);
+  }).catch(()=>{setChecked(true);onAccount(null)})};
   useEffect(()=>{refresh()},[]);
   const returnTo=typeof window!=="undefined"?encodeURIComponent(window.location.pathname):"%2F";
   const submit=async()=>{
@@ -164,14 +189,14 @@ function AccountBar({onAuthChange}:{onAuthChange:()=>void}){
       const res=await fetch(mode==="signup"?"/api/auth/signup":"/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});
       const json=await res.json();
       if(!res.ok)throw new Error(json.error||"Could not sign in.");
-      setAccount({email:json.email,method:"password"});setOpen(false);setForm({email:"",password:""});onAuthChange();
+      setOpen(false);setForm({email:"",password:""});onAuthChange();refresh();
     }catch(e){setMsg(e instanceof Error?e.message:"Could not sign in.")}
     finally{setBusy(false)}
   };
-  const signOut=async()=>{await fetch("/api/auth/logout",{method:"POST"});setAccount(null);onAuthChange()};
+  const signOut=async()=>{await fetch("/api/auth/logout",{method:"POST"});setAccount(null);onAccount(null);onAuthChange()};
   if(!checked)return <div className="account-bar"><small>Checking sign-in…</small></div>;
-  if(account)return <div className="account-bar signed-in"><small>Signed in</small><b>{account.email}</b>{account.method==="chatgpt"?<a href={`/signout-with-chatgpt?return_to=${returnTo}`}>Sign out</a>:<button onClick={signOut}>Sign out</button>}</div>;
-  return <div className="account-bar">{!open?<button className="account-open" onClick={()=>setOpen(true)}>Sign in / Sign up</button>:<div className="account-form"><div className="segmented">{(["signin","signup"] as const).map(m=><button key={m} className={mode===m?"active":""} onClick={()=>setMode(m)}>{m==="signin"?"Sign in":"Sign up"}</button>)}</div><input type="email" placeholder="Email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/><input type="password" placeholder="Password (min 8 chars)" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/><button onClick={submit} disabled={busy}>{busy?"…":mode==="signin"?"Sign in":"Create account"}</button><a className="chatgpt-signin" href={`/signin-with-chatgpt?return_to=${returnTo}`}>Sign in with ChatGPT</a>{msg&&<small className="account-error">{msg}</small>}<button className="account-cancel" onClick={()=>setOpen(false)}>Cancel</button></div>}</div>;
+  if(account)return <div className="account-bar signed-in"><small className="account-pass">{account.seasonPassActive?"Season pass":"Free"}</small><b>{account.email}</b>{!account.seasonPassActive&&<button onClick={onUpgrade}>Upgrade</button>}{account.method==="chatgpt"?<a href={`/signout-with-chatgpt?return_to=${returnTo}`}>Sign out</a>:<button onClick={signOut}>Sign out</button>}</div>;
+  return <div className="account-bar"><small className="account-pass">Preview — not a season pass</small>{!open?<button className="account-open" onClick={()=>setOpen(true)}>Sign in / Sign up</button>:<div className="account-form"><div className="segmented">{(["signin","signup"] as const).map(m=><button key={m} className={mode===m?"active":""} onClick={()=>setMode(m)}>{m==="signin"?"Sign in":"Sign up"}</button>)}</div><input type="email" placeholder="Email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/><input type="password" placeholder="Password (min 8 chars)" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/><button onClick={submit} disabled={busy}>{busy?"…":mode==="signin"?"Sign in":"Create account"}</button><a className="chatgpt-signin" href={`/signin-with-chatgpt?return_to=${returnTo}`}>Sign in with ChatGPT</a>{msg&&<small className="account-error">{msg}</small>}<button className="account-cancel" onClick={()=>setOpen(false)}>Cancel</button></div>}</div>;
 }
 
 // revision is a required re-read trigger, not just an initial-mount read -- without it, a manager
@@ -472,7 +497,7 @@ export function GameweekAverage({events,eventId}:{events:readonly FplEvent[];eve
   </div>;
 }
 
-function Team({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;fullDesk:boolean;onUpgrade:()=>void}){
   const[manager,setManager]=useManager(revision);
   let entry:string|null=null;
   try{entry=localStorage.getItem("fpl-edge-entry")}catch{}
@@ -558,7 +583,7 @@ function Team({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;re
     {refreshMsg&&<small>{refreshMsg}</small>}
     {branch==="past"&&<PastGameweekView data={data} event={event} history={history} officialRank={officialRank}/>}
     {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} manager={manager} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go} officialRank={officialRank}/>}
-    {branch==="future"&&<FutureGameweekView data={data} event={event} squad={squad} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank}/>}
+    {branch==="future"&&(fullDesk?<FutureGameweekView data={data} event={event} squad={squad} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank}/>:<SeasonLocked feature="Multi-week transfer planning is part of the season pass." onUpgrade={onUpgrade}/>)}
   </div>;
 }
 function formation(players:FplPlayer[]){return ["DEF","MID","FWD"].map(pos=>players.filter(p=>p.positionShort===pos).length).join("-")}
@@ -719,7 +744,7 @@ export function transferHoldNote(nearestDoubles:DoubleGameweek[],rollRecommended
   return `A double gameweek is coming in GW${eventId} (${teamCount} team${teamCount>1?"s":""}) — consider banking this transfer.`;
 }
 
-function Transfers({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;fullDesk:boolean;onUpgrade:()=>void}){
   const[meta,setMeta]=useManager(revision);
   // meta must be a squad dependency (matches Overview's pattern) -- connecting a team here persists
   // squad ids straight to localStorage via ConnectTeam's onConnected callback below, but savedSquad()
@@ -768,9 +793,10 @@ function Transfers({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>vo
   const holdNote=transferHoldNote(nearestInHorizon(detectFixtureAnomalies(data).doubles,futureEvents(data,5).map(e=>e.id)),roll);
   const setWatch=(id:number)=>{const next=watchIds.includes(id)?watchIds.filter(x=>x!==id):[...watchIds,id];setWatchIds(next);persist("fpl-edge-watchlist",JSON.stringify(next))};
   const toggleExpand=(key:string)=>setExpanded(x=>{const next=new Set(x);next.has(key)?next.delete(key):next.add(key);return next});
+  const transferTab=fullDesk?tab:"moves";
   return <div className="coach-page">
-    <section className="transfer-tabs"><button className={tab==="routes"?"active":""} onClick={()=>setTab("routes")}>Route planner</button><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Single moves</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select></label></section>
-    {tab==="routes"?<TransferRoutePlanner routes={routes} horizon={routeHorizon} setHorizon={setRouteHorizon} maxWeeklyHit={maxWeeklyHit} setMaxWeeklyHit={setMaxWeeklyHit}/>:tab==="moves"?<>
+    {fullDesk&&<section className="transfer-tabs"><button className={tab==="routes"?"active":""} onClick={()=>setTab("routes")}>Route planner</button><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Single moves</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select></label></section>}
+    {transferTab==="routes"?<TransferRoutePlanner routes={routes} horizon={routeHorizon} setHorizon={setRouteHorizon} maxWeeklyHit={maxWeeklyHit} setMaxWeeklyHit={setMaxWeeklyHit}/>:transferTab==="moves"?<>
       <section className="recommended-move">
         <div className="call-label"><span>RECOMMENDED MOVE</span><b>{roll?"SAVE":"QUALITY-GATED EDGE"}</b></div>
         <h2>{roll?"ROLL":`${best.out.name} → ${best.incoming.name}`}</h2>
@@ -778,20 +804,21 @@ function Transfers({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>vo
         {!roll&&<div>{[["GW","1",best.gain1],["NEXT","3",best.gain3],["NEXT","5",best.gain5]].map(([label,n,value])=><span key={String(n)}><small>{label} {n}</small><b>{Number(value)>=0?"+":""}{Number(value).toFixed(1)} pts</b></span>)}<span><small>PRICE DIFFERENCE</small><b>{`${best.price>=0?"+":"−"}£${Math.abs(best.price).toFixed(1)}m`}</b></span><span><small>EXPECTED MINUTES</small><b>{`${best.minutes>=0?"+":""}${Math.round(best.minutes)}`}</b></span><span><small>TRANSFER HIT</small><b>{best.hitCost?`−${best.hitCost}`:"None"}</b></span><span><small>NET (AFTER HIT)</small><b>{best.netDifference>=0?"+":""}{best.netDifference.toFixed(1)} pts</b></span>{best.utilityChange!==null&&<span><small>RISK-ADJUSTED OBJECTIVE</small><b>{best.utilityChange>=0?"+":""}{best.utilityChange.toFixed(1)}</b><em>Optimizer objective; not the /100 team rating</em></span>}</div>}
         <strong>{roll?"Recommendation: SAVE THE TRANSFER":best.gain1-best.hitCost>0?"Recommendation: MOVE NOW":"Recommendation: WAIT / RECHECK"}</strong>
       </section>
-      {!roll&&<section className="primary-transfer-confidence" aria-label="Primary transfer Decision Confidence">
+      {!roll&&fullDesk&&<section className="primary-transfer-confidence" aria-label="Primary transfer Decision Confidence">
         <header><span>DECISION CONFIDENCE</span><h2>Primary transfer scenario analysis</h2><p>This analysis is separate from the Actionable / Watchlist / Blocked quality gate and does not change transfer ordering.</p></header>
         <DecisionConfidencePanel title="Primary transfer confidence" state={decisionConfidence.primaryKey&&decisionConfidence.state.results[decisionConfidence.primaryKey]?.main||{status:"pending"}} candidateLabel="Make transfer" baselineLabel="Keep current squad" metricDirection="Transfer minus current squad" metricLabel="transfer delta" />
         <TransferSensitivityPanel state={decisionConfidence.primaryKey&&decisionConfidence.state.results[decisionConfidence.primaryKey]?.sensitivity||{status:"pending"}} onRetry={decisionConfidence.retryPrimary} retryDisabled={decisionConfidence.state.activeKey!==null} />
         <RankEstimatePanel title="Estimated rank if this transfer plays out" result={primaryRankEstimate} />
       </section>}
-      {holdNote&&<p className="transfer-hold-note">{holdNote}</p>}
-      <section className="quality-gate-summary"><header><span>RECOMMENDATION QUALITY GATE</span><h2>Raw upside must earn the right to be ranked.</h2></header><div><article><b>{actionableRows.length}</b><span>Actionable</span><small>Can become the primary recommendation</small></article><article><b>{watchlistRows.length}</b><span>Watchlist</span><small>Promising, but evidence or timing is incomplete</small></article><article><b>{blockedRows.length}</b><span>Blocked</span><small>Fails a hard plausibility or role-security floor</small></article></div></section>
-      <TransferRouteList title="Actionable routes" eyebrow="PASSED EVERY GATE" rows={actionableRows.slice(0,10)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence}/>
-      <TransferRouteList title="Watchlist routes" eyebrow="NOT READY TO RECOMMEND" rows={watchlistRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence}/>
-      <TransferRouteList title="Blocked by the quality gate" eyebrow="VISIBLE FOR AUDIT · NEVER RANKED #1" rows={blockedRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence}/>
-      <PriceIntel rows={rows}/>
-      {process.env.NODE_ENV!=="production"&&<TransferDebugTable rows={rows.slice(0,10)}/>}
-    </>:<Watchlist data={data} squad={squad} ids={watchIds} remove={setWatch} bank={bank}/>}
+      {fullDesk&&holdNote&&<p className="transfer-hold-note">{holdNote}</p>}
+      {fullDesk&&<section className="quality-gate-summary"><header><span>RECOMMENDATION QUALITY GATE</span><h2>Raw upside must earn the right to be ranked.</h2></header><div><article><b>{actionableRows.length}</b><span>Actionable</span><small>Can become the primary recommendation</small></article><article><b>{watchlistRows.length}</b><span>Watchlist</span><small>Promising, but evidence or timing is incomplete</small></article><article><b>{blockedRows.length}</b><span>Blocked</span><small>Fails a hard plausibility or role-security floor</small></article></div></section>}
+      {fullDesk&&<TransferRouteList title="Actionable routes" eyebrow="PASSED EVERY GATE" rows={actionableRows.slice(0,10)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence}/>}
+      {fullDesk&&<TransferRouteList title="Watchlist routes" eyebrow="NOT READY TO RECOMMEND" rows={watchlistRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence}/>}
+      {fullDesk&&<TransferRouteList title="Blocked by the quality gate" eyebrow="VISIBLE FOR AUDIT · NEVER RANKED #1" rows={blockedRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence}/>}
+      {fullDesk&&<PriceIntel rows={rows}/>}
+      {fullDesk&&process.env.NODE_ENV!=="production"&&<TransferDebugTable rows={rows.slice(0,10)}/>}
+      {!fullDesk&&<SeasonLocked feature="Safe and aggressive alternatives, and multi-week routes, are part of the season pass." onUpgrade={onUpgrade}/>}
+    </>:transferTab==="watchlist"?<Watchlist data={data} squad={squad} ids={watchIds} remove={setWatch} bank={bank}/>:null}
   </div>;
 }
 

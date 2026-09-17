@@ -366,3 +366,17 @@
    makes deliberately rather than something every panel gets automatically. */
 .panel{background:var(--canvas);color:var(--text);padding:20px;border-radius:0;box-shadow:none}
 .panel--elevated{border:1px solid var(--hairline)}
+
+.season-upgrade,.season-locked{border:1px solid var(--hairline);background:var(--canvas);color:var(--text);padding:22px 24px;margin:0 0 18px;display:flex;flex-direction:column;gap:10px}
+.season-upgrade span,.season-locked span{font-size:10px;font-weight:900;letter-spacing:.16em;color:var(--text-muted)}
+.season-upgrade h2,.season-locked h2{font-size:22px;margin:0}
+.season-upgrade p,.season-locked p{margin:0;color:var(--text-muted);font-size:13px;line-height:1.5}
+.season-upgrade label{display:flex;flex-direction:column;gap:6px;font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--text-muted)}
+.season-upgrade input{border:1px solid var(--hairline);background:transparent;color:inherit;padding:10px 12px;font-size:14px;max-width:280px;letter-spacing:0;font-weight:500}
+.season-upgrade-actions{display:flex;gap:12px;align-items:center}
+.season-upgrade button,.season-locked button{align-self:flex-start;border:0;background:var(--pitch);color:var(--pitch-ink);padding:10px 14px;font-size:12px;font-weight:900;cursor:pointer}
+.season-dismiss{background:transparent !important;color:var(--text-muted) !important;padding:10px 0 !important}
+.season-note{color:var(--text)}
+.nav-pro{margin-left:8px;font-size:8px;font-style:normal;font-weight:900;letter-spacing:.08em;color:var(--pitch)}
+.price-term{display:block;margin-top:-18px;margin-bottom:24px;font-size:12px;font-style:normal;font-weight:700;letter-spacing:.04em;color:var(--text-muted)}
+.account-pass{font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
