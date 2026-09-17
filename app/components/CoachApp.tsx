@@ -31,7 +31,7 @@ import { LOAD_PLAN_SIGNAL_KEY, MAX_PLANS, PersistedPlan, createPlan, hydratePlan
 import { DifferentialPosition, TemplatePosition, rawDifferentialsByPosition, templateByPosition } from "../lib/ownership-radar";
 import { narrateCaptainChoice, narrateChipDecision, narrateCurrentRank, narrateDifferentials, narrateLiveStatus, narratePrimaryTransfer, narratePriceRisk, narrateSquadBuild, narrateTransferForPlayer, resolveChipLegality } from "../lib/coach-narration";
 import { ClubFixtureRow, computeClubFixtureRows } from "../lib/fixture-difficulty";
-import { SeasonLocked, SeasonUpgrade } from "./SeasonPass";
+import { SeasonLocked } from "./SeasonPass";
 
 type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures";
 type Desk="unknown"|"visitor"|"free"|"season";
@@ -73,14 +73,12 @@ export{opponent}from"../lib/fpl";
 function freshness(updatedAt:string){const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(updatedAt))/60000));return{minutes,label:minutes<2?"just now":`${minutes}m ago`,tone:minutes<=10?"fresh":minutes<=30?"aging":"stale"}}
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
 
-export default function CoachApp({onBack,intent,checkoutReturn}:{onBack:()=>void;intent?:"demo"|"upgrade";checkoutReturn?:boolean}){
+export default function CoachApp({onBack}:{onBack:()=>void}){
   const[view,setView]=useState<View>("overview");const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const[revision,setRevision]=useState(0);
   const[desk,setDesk]=useState<Desk>("unknown");
-  const[passEndsAt,setPassEndsAt]=useState<string|null>(null);
-  const[upgradeOpen,setUpgradeOpen]=useState(intent==="upgrade");
+  const openPay=()=>{window.location.assign("/pay")};
   const onAccount=(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>{
-    if(!account){setDesk("visitor");setPassEndsAt(null);return}
-    setPassEndsAt(account.seasonPassEndsAt);
+    if(!account){setDesk("visitor");return}
     setDesk(account.seasonPassActive?"season":"free");
   };
   // Which group's item list the mobile overlay is currently showing ("My Squad"|"Plan"|"More"),
@@ -103,9 +101,9 @@ export default function CoachApp({onBack,intent,checkoutReturn}:{onBack:()=>void
   return <main className="coach-shell">
     <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{navGroups.map((group,gi)=><div className="coach-nav-group" key={gi}>{group.label&&<span className="coach-nav-label">{group.label}</span>}{group.items.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}{desk==="free"&&PRO_VIEWS.has(key)&&<em className="nav-pro">PRO</em>}</span></button>)}</div>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><div><p>FPL EDGE · DECISION ENGINE</p><h1>{titles[view]}</h1></div>{data&&<DeadlineClock data={data}/>}</header>
-      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/>{upgradeOpen&&desk==="season"&&<section className="season-upgrade"><span>SEASON PASS</span><h2>Active through {passEndsAt?new Date(passEndsAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",timeZone:"Africa/Cairo"}):"this season"}.</h2><p>This account has an active season pass. The full desk is open.</p></section>}{upgradeOpen&&desk!=="season"&&<SeasonUpgrade checkoutReturn={checkoutReturn} onDismiss={()=>setUpgradeOpen(false)}/>}<Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={()=>setUpgradeOpen(true)}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
+      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
     </section>
-    <footer className="coach-footer"><AccountBar onAuthChange={runSync} onAccount={onAccount} onUpgrade={()=>setUpgradeOpen(true)}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>
+    <footer className="coach-footer"><AccountBar onAuthChange={runSync} onAccount={onAccount} onUpgrade={openPay}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>
     <nav className="coach-mobile-nav"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i>⌂</i>Home</button><button className={mobileOverlay==="My Squad"||inGroup(mySquadGroup)?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i>◫</i>My Squad</button><button className={mobileOverlay==="Plan"||inGroup(planGroup)?"active":""} onClick={()=>toggleMobileOverlay("Plan")}><i>⇄</i>Plan</button><button className={view==="coach"?"active":""} onClick={()=>go("coach")}><i>♟</i>Coach</button><button className={mobileOverlay==="More"?"active":""} onClick={()=>toggleMobileOverlay("More")}><i>•••</i>More</button></nav>
     {mobileOverlay==="My Squad"&&<div className="mobile-more">{mySquadGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
     {mobileOverlay==="Plan"&&<div className="mobile-more">{planGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}

@@ -245,3 +245,15 @@ test("ui gates the full desk from the server session and does not offer a free u
   assert.match(callback, /grantSeasonAccessFromCallback/);
   assert.doesNotMatch(callback, /status:\s*"active"/);
 });
+
+test("payment lives on its own page", () => {
+  const pay = readFileSync(new URL("../app/pay/page.tsx", import.meta.url), "utf8");
+  const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const checkout = readFileSync(new URL("../app/api/season-pass/checkout/route.ts", import.meta.url), "utf8");
+  assert.match(pay, /SeasonUpgrade/);
+  assert.match(home, /href="\/pay"/);
+  assert.match(coach, /window\.location\.assign\("\/pay"\)/);
+  assert.doesNotMatch(coach, /SeasonUpgrade/);
+  assert.match(checkout, /\/pay\?checkout=return/);
+});

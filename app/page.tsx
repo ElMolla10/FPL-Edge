@@ -20,16 +20,12 @@ const faq = [
 
 export default function Home() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
-  const [appMode, setAppMode] = useState<null | "demo" | "upgrade">(null);
-  const [checkoutReturn, setCheckoutReturn] = useState(false);
+  const [appMode, setAppMode] = useState<null | "demo">(null);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("checkout") === "return") {
-      setCheckoutReturn(true);
-      setAppMode("upgrade");
-    }
+    if (params.get("checkout") === "return") window.location.replace("/pay?checkout=return");
   }, []);
-  if (appMode) return <CoachApp onBack={() => setAppMode(null)} intent={appMode === "upgrade" ? "upgrade" : "demo"} checkoutReturn={checkoutReturn} />;
+  if (appMode) return <CoachApp onBack={() => setAppMode(null)} />;
 
   return <main className="marketing-page">
     <header className="site-header">
@@ -51,7 +47,7 @@ export default function Home() {
 
     <section className="section" id="method"><div className="method-card"><div className="method-copy"><p className="section-index">03 / BUILT FOR TRUST</p><h2>Not “AI says so.”<br /><em>Evidence says why.</em></h2><p>Every recommendation answers what to do, expected net gain, why it wins, its biggest risk and what could change before the deadline.</p><button className="btn" onClick={() => setAppMode("demo")}>Explore the decision view →</button></div><div className="method-list"><div><b>01</b><span>Expected minutes</span><small>Starts, substitutions, injuries and rotation</small></div><div><b>02</b><span>Fixture context</span><small>Opponent strength, venue, rest and congestion</small></div><div><b>03</b><span>Underlying output</span><small>Role, xG, xA, creation, saves and bonus potential</small></div><div><b>04</b><span>Decision cost</span><small>Hits, budget, flexibility and future transfers</small></div></div></div></section>
 
-    <section className="section" id="pricing"><div className="section-heading compact"><div><p className="section-index">04 / ACCESS</p><h2>Start with a decision.<br /><em>Upgrade for the season.</em></h2></div></div><div className="pricing-grid"><article className="price-card"><p>FREE</p><h3>One clear move</h3><strong>0 EGP</strong><ul><li>One active team</li><li>Current gameweek projection</li><li>Lineup and captain recommendation</li><li>One transfer scenario</li></ul><button className="btn" onClick={() => setAppMode("demo")}>Try the demo</button></article><article className="price-card pro"><div className="pro-tag">MOST USEFUL</div><p>PRO</p><h3>Your full decision desk</h3><strong>{formatSeasonPassPrice()}</strong><em className="price-term">for the rest of this season</em><ul><li>Multi-week transfer planning</li><li>Safe and aggressive alternatives</li><li>News impact alerts</li><li>Draft and chip optimization</li><li>Decision history</li></ul><button className="btn btn-primary" onClick={() => setAppMode("upgrade")}>Get the season pass</button></article></div></section>
+    <section className="section" id="pricing"><div className="section-heading compact"><div><p className="section-index">04 / ACCESS</p><h2>Start with a decision.<br /><em>Upgrade for the season.</em></h2></div></div><div className="pricing-grid"><article className="price-card"><p>FREE</p><h3>One clear move</h3><strong>0 EGP</strong><ul><li>One active team</li><li>Current gameweek projection</li><li>Lineup and captain recommendation</li><li>One transfer scenario</li></ul><button className="btn" onClick={() => setAppMode("demo")}>Try the demo</button></article><article className="price-card pro"><div className="pro-tag">MOST USEFUL</div><p>PRO</p><h3>Your full decision desk</h3><strong>{formatSeasonPassPrice()}</strong><em className="price-term">for the rest of this season</em><ul><li>Multi-week transfer planning</li><li>Safe and aggressive alternatives</li><li>News impact alerts</li><li>Draft and chip optimization</li><li>Decision history</li></ul><a className="btn btn-primary" href="/pay">Get the season pass</a></article></div></section>
 
     <section className="section faq-section"><div><p className="section-index">05 / FAQ</p><h2>What you should<br /><em>know upfront.</em></h2></div><div className="faq-list">{faq.map(([q,a], i) => <button className="faq-item data-row" key={q} onClick={() => setOpenFaq(openFaq === i ? null : i)} aria-expanded={openFaq === i}><span><b>0{i+1}</b>{q}<i>{openFaq === i ? "−" : "+"}</i></span>{openFaq === i && <p>{a}</p>}</button>)}</div></section>
 

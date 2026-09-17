@@ -380,3 +380,6 @@
 .nav-pro{margin-left:8px;font-size:8px;font-style:normal;font-weight:900;letter-spacing:.08em;color:var(--pitch)}
 .price-term{display:block;margin-top:-18px;margin-bottom:24px;font-size:12px;font-style:normal;font-weight:700;letter-spacing:.04em;color:var(--text-muted)}
 .account-pass{font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+
+.pay-page .pay-section{max-width:640px;margin:40px auto 80px}
+.pay-page .season-upgrade{padding:28px}

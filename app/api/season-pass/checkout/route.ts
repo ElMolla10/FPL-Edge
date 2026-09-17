@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       email: user.email,
       phone,
       notificationUrl: `${origin}/api/season-pass/callback`,
-      redirectionUrl: `${origin}/?checkout=return`,
+      redirectionUrl: `${origin}/pay?checkout=return`,
     });
     await attachPaymobOrder(checkoutId, intention.intentionId, intention.orderId);
     // Deliberately no active pass here. The browser is only sent to Paymob.
