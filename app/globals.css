@@ -255,6 +255,7 @@
 :root:not([data-theme="light"]) .fdr-3,[data-theme="dark"] .fdr-3{background:#4a4620}
 :root:not([data-theme="light"]) .fdr-4,[data-theme="dark"] .fdr-4{background:#5c3d2e}
 :root:not([data-theme="light"]) .fdr-5,[data-theme="dark"] .fdr-5{background:#6b2b24}
+:root:not([data-theme="light"]) .watchlist-grid header>b.watch,[data-theme="dark"] .watchlist-grid header>b.watch{background:#39443d}
 
 /* Step 2 (marketing page redesign) removed the light-mode pin that used to live here --
    the marketing page now adopts the real token system and respects the app-wide theme
