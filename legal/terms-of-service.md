@@ -1,11 +1,11 @@
 <!--
-DRAFT — NOT REVIEWED, NOT PUBLISHED.
-Generated from the actual app behavior in this repository as of this commit (Phase 4 of the
-launch-readiness goal). This is a starting point for Mohamed and, ideally, a lawyer to review --
-not a document to wire into any live route or link from the app. Every [BRACKETED] placeholder is
-a fact only Mohamed can supply; nothing has been invented to fill them in. Everything outside the
-brackets is a description of what the app actually does, verified against the codebase, not
-assumed from what a typical SaaS ToS says.
+DRAFT — NOT REVIEWED BY A LAWYER, NOT PUBLISHED.
+Generated from the actual app behavior in this repository (Phase 4 of the launch-readiness goal),
+then updated with Mohamed's real decisions on entity, jurisdiction, and contact. Still not a
+document to wire into any live route or link from the app until a lawyer has reviewed §6 and §8's
+enforceability question. [DOMAIN] is the one remaining fact-placeholder (Mohamed hasn't confirmed
+the production domain yet); everything else outside brackets is either a verified real decision or
+a description of what the app actually does.
 -->
 
 # Terms of Service — FPL Edge (DRAFT)
@@ -14,7 +14,9 @@ assumed from what a typical SaaS ToS says.
 
 ## 1. Who this agreement is with
 
-FPL Edge is operated by [LEGAL ENTITY NAME OR INDIVIDUAL NAME], [BUSINESS ADDRESS OR "an individual based in [COUNTRY]"] ("we," "us," "FPL Edge"). These Terms govern your use of the FPL Edge web application at [DOMAIN].
+FPL Edge is operated by Mohamed Ehab, an individual based in Cairo, Egypt (there is no separate registered business entity) ("we," "us," "FPL Edge"). These Terms govern your use of the FPL Edge web application at [DOMAIN].
+
+*[Flagged for legal review: city/country is stated here deliberately, not a home address — whether Egyptian law requires a more specific address to be disclosed on request (e.g., to a consumer who asks) should be confirmed with a lawyer rather than assumed from this draft alone.]*
 
 **Not affiliated with the Premier League.** FPL Edge is an independent Fantasy Premier League decision-assistant tool. It is not affiliated with, endorsed by, or connected to the Premier League, the Fantasy Premier League game, or any of their operators.
 
@@ -30,7 +32,7 @@ FPL Edge reads publicly available official Fantasy Premier League data (player p
 
 You can create an account with an email and password, or by signing in with ChatGPT (which verifies your email through OpenAI). You're responsible for keeping your login credentials secure and for all activity under your account.
 
-**Account deletion.** As of this draft, FPL Edge does not have a self-service "delete my account" feature. To request deletion of your account and associated data, contact [SUPPORT/PRIVACY CONTACT EMAIL]; see the Privacy Policy for how this is handled. *(Flagged for Mohamed: this is a real, current gap — see the Phase 4 note below on whether to build self-service deletion before or shortly after launch.)*
+**Account deletion.** As of this draft, FPL Edge does not have a self-service "delete my account" feature. To request deletion of your account and associated data, contact support@[DOMAIN] (a dedicated support address, not a personal inbox); see the Privacy Policy for how this is handled. This is a real, current gap, kept as a manual process for launch given zero real users today — see the Privacy Policy's own note on why this belongs on the near-term backlog rather than staying deferred indefinitely.
 
 ## 4. Free and Pro access
 
@@ -46,9 +48,9 @@ We may suspend or terminate access for violation of these terms.
 
 ## 6. Disclaimers and limitation of liability
 
-The service is provided "as is." To the maximum extent permitted by [GOVERNING LAW], we disclaim all warranties, express or implied, and are not liable for indirect, incidental, or consequential damages arising from your use of the service, including any Fantasy Premier League result or financial decision made based on it.
+The service is provided "as is." To the maximum extent permitted by the laws of Egypt, we disclaim all warranties, express or implied, and are not liable for indirect, incidental, or consequential damages arising from your use of the service, including any Fantasy Premier League result or financial decision made based on it.
 
-*[Flagged for legal review: liability limitations are jurisdiction-dependent and some cannot be disclaimed by contract in certain jurisdictions (e.g., consumer-protection law in the EU/UK). This section needs a lawyer, not just Mohamed's sign-off, before publishing.]*
+*[Flagged for legal review — this specifically still needs an actual lawyer, not just Mohamed's sign-off: liability limitations are jurisdiction-dependent, and whether this disclaimer is enforceable as written under Egyptian consumer-protection law hasn't been confirmed. Don't treat Egypt being the chosen governing law as automatically meaning this clause holds up as drafted.]*
 
 ## 7. Changes to these terms
 
@@ -56,15 +58,17 @@ We may update these Terms. Material changes will be reflected by an updated "Las
 
 ## 8. Governing law
 
-These Terms are governed by the laws of [JURISDICTION — not assumed or inferred; this is a business decision, not a fact derivable from the app].
+These Terms are governed by the laws of Egypt.
+
+*[Same legal-review flag as §6 applies here: governing law being Egypt is a real, settled decision, but whether every clause in these Terms (particularly §6's liability limitation) is actually enforceable under Egyptian consumer-protection law is a separate question a lawyer needs to confirm — don't treat "governing law decided" as "enforceability confirmed."]*
 
 ## 9. Contact
 
-Questions about these Terms: [CONTACT EMAIL].
+Questions about these Terms: support@[DOMAIN].
 
 ---
 
-**Open items for Mohamed before this can be published (from the Phase 4 investigation, not invented):**
-- Legal entity/individual name, business address, contact email, governing law/jurisdiction — none of these exist anywhere in the current codebase or marketing copy; all are placeholders above.
-- Whether to build self-service account deletion before launch, or accept a manual request-based process at launch (real GDPR "right to erasure" implications — see the Privacy Policy draft's own note).
-- This entire document, and especially §6 (liability) and §8 (governing law), should go through actual legal review before publishing — this draft is a structured starting point reflecting real app behavior, not a substitute for that review.
+**Open items for Mohamed before this can be published:**
+- **[DOMAIN]** is the only remaining fact-placeholder — confirm the production domain and this can be filled in everywhere it appears.
+- **§6 and §8's enforceability question is a standing legal-review flag, not resolved by deciding entity/jurisdiction.** This document should not be published until an actual lawyer (not just Mohamed) has reviewed whether the liability disclaimer holds up under Egyptian consumer-protection law.
+- Self-service account deletion is a near-term backlog item (see the Privacy Policy's own note) — launching with the manual-request process in §3 is the deliberate choice for now, not an oversight.

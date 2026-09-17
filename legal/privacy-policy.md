@@ -1,10 +1,10 @@
 <!--
-DRAFT — NOT REVIEWED, NOT PUBLISHED.
+DRAFT — NOT REVIEWED BY A LAWYER, NOT PUBLISHED.
 Every data category listed below was verified directly against db/schema.ts and the actual code
-paths that read/write it (app/lib/auth.ts, app/api/squad/route.ts, app/lib/billing/*) as of this
-commit -- not written from a generic privacy-policy template. [BRACKETED] items are facts only
-Mohamed can supply. See the "Open items" section at the end for the real GDPR gaps found during
-this investigation.
+paths that read/write it (app/lib/auth.ts, app/api/squad/route.ts, app/lib/billing/*). Updated with
+Mohamed's real decisions on entity, retention, contact, and the children's age threshold. [DOMAIN]
+and the Cloudflare D1 region (§8) are the two remaining fact-placeholders; the GDPR lawful-basis
+question (§3) is a standing legal-review flag, not a placeholder waiting on Mohamed.
 -->
 
 # Privacy Policy — FPL Edge (DRAFT)
@@ -13,7 +13,7 @@ this investigation.
 
 ## 1. Who controls your data
 
-[LEGAL ENTITY NAME OR INDIVIDUAL NAME] ("we," "us") is the data controller for the personal data described below, collected through the FPL Edge web application at [DOMAIN]. Contact for any privacy request: [PRIVACY CONTACT EMAIL].
+Mohamed Ehab, an individual based in Cairo, Egypt (no separate registered business entity) ("we," "us") is the data controller for the personal data described below, collected through the FPL Edge web application at [DOMAIN]. Contact for any privacy request: support@[DOMAIN] (a dedicated support address, not a personal inbox).
 
 ## 2. What we actually collect and store
 
@@ -36,7 +36,9 @@ This list reflects the real columns in the application's database (`db/schema.ts
 
 ## 3. Why we process this data (lawful basis)
 
-Processing your account and squad data is necessary to perform the contract between you and us — i.e., to provide the FPL Edge service you sign up for. Processing payment data with Stripe is necessary to fulfil a purchase you initiate. *[If operating in the EU/UK: this section should confirm the correct lawful basis under GDPR Art. 6 with a lawyer — "contract" is very likely correct here but this is a legal confirmation, not something to assume from this description alone.]*
+Processing your account and squad data is necessary to perform the contract between you and us — i.e., to provide the FPL Edge service you sign up for. Processing payment data with Stripe is necessary to fulfil a purchase you initiate.
+
+*[Standing legal-review flag, not resolved by choosing Egypt as the primary governing jurisdiction elsewhere in these documents: if any user is in the EU/UK, GDPR may still apply to processing their data regardless of where FPL Edge itself is based. "Contract" is very likely the correct lawful basis under GDPR Art. 6 here, but this needs an actual lawyer's confirmation, not just this description, for as long as EU/UK users are a realistic possibility.]*
 
 ## 4. Who we share data with
 
@@ -52,21 +54,21 @@ FPL Edge sets one cookie (`fpl_edge_session`) to keep you signed in. It's strict
 
 ## 6. Data retention
 
-[RETENTION PERIOD — not specified anywhere in the current codebase; this is a policy decision Mohamed needs to make, e.g. "for as long as your account is active, plus N days/months after deletion for backups."] There is currently no automatic deletion job in the codebase — retention today is, in practice, indefinite until a manual deletion request is processed (see §7 and the Open Items below).
+We keep your data for as long as your account is active, plus 30 days after a deletion request, before it's removed — the same 30-day window the app already uses for session-token expiry, not a separate arbitrary number. There is currently no automatic deletion job in the codebase; today, a deletion request is processed manually within that 30-day window rather than by an automated system (see §7).
 
 ## 7. Your rights
 
-Depending on where you live, you may have rights to access, correct, export, or delete your personal data, and to object to or restrict certain processing. To exercise any of these rights, contact [PRIVACY CONTACT EMAIL].
+Depending on where you live, you may have rights to access, correct, export, or delete your personal data, and to object to or restrict certain processing. To exercise any of these rights, contact support@[DOMAIN].
 
-**Current process (real, not aspirational):** FPL Edge does not yet have a self-service data export or account deletion feature. Requests are handled manually by [Mohamed / support contact] until that's built. See the Open Items section — this is flagged as a real gap, not glossed over.
+**Current process (real, not aspirational):** FPL Edge does not yet have a self-service data export or account deletion feature. Requests are handled manually until that's built. This is the deliberate launch-time choice given zero real users today, not an oversight — but it belongs on the near-term backlog, not permanent deferral: it gets materially more expensive to retrofit self-service export/deletion once real EU/UK users (with GDPR Art. 17/20 rights) actually exist, so this should be revisited as soon as the user base is no longer zero.
 
 ## 8. Where your data is stored
 
-Your data is stored in Cloudflare D1, part of Cloudflare's global infrastructure. [SPECIFIC DATA REGION — not something this investigation could confirm; Cloudflare D1's exact storage location depends on the Cloudflare account's configuration, which wasn't accessible during this draft. Check the Cloudflare dashboard's D1 database settings before stating a specific region/country here.]
+Your data is stored in Cloudflare D1, part of Cloudflare's global infrastructure. [SPECIFIC DATA REGION — not something this investigation could confirm; Cloudflare D1's exact storage location depends on the Cloudflare account's own configuration. Mohamed needs to check the actual Cloudflare dashboard's D1 database settings directly — this isn't something resolvable from the codebase.]
 
 ## 9. Children
 
-FPL Edge is not directed at children under [13 / 16 — pick per jurisdiction] and we do not knowingly collect data from them.
+FPL Edge is not directed at children under 16 and we do not knowingly collect data from them.
 
 ## 10. Changes to this policy
 
@@ -74,9 +76,9 @@ We may update this policy; material changes will be reflected by a new "Last upd
 
 ---
 
-**Open items for Mohamed (real gaps found during this investigation, not invented):**
-- **No self-service account deletion or data export exists in the app today.** This is a real GDPR Article 17 (erasure) / Article 20 (portability) gap if any EU/UK users sign up. Options: (a) build a self-service "delete my account" + "export my data" flow before/shortly after launch, or (b) launch with a documented manual-request process (as drafted above) and build self-service later. This is exactly the kind of decision the goal's Rule #4 (design checkpoint before implementing) and Rule #7 (stop and ask when ambiguous) apply to — it's a real feature-scope decision, not something to build silently.
-- **No defined data-retention period or deletion job exists.** §6 above is a placeholder pending a real policy decision.
-- **Cloudflare D1's actual storage region wasn't determined** — needs checking against the live Cloudflare account, not guessed here.
-- Legal entity name, contact email, and jurisdiction are placeholders throughout, same as the Terms of Service draft.
-- This document, like the ToS, should go through actual legal review (especially §3's lawful-basis claim and §9's age threshold, both jurisdiction-dependent) before publishing.
+**Open items for Mohamed:**
+- **[DOMAIN]** — confirm the production domain; used throughout for the site URL and the support@ contact address.
+- **§8's Cloudflare D1 data region** — check the live Cloudflare dashboard directly; not something derivable from this codebase.
+- **§3's GDPR lawful-basis question is a standing legal-review flag**, independent of the Egypt-jurisdiction decision elsewhere — keep this open for an actual lawyer, not just a sign-off, for as long as EU/UK users are possible.
+- **Self-service deletion/export is on the near-term backlog**, not permanently deferred — revisit once real users (especially EU/UK ones) exist, per §7's own note.
+- This document should go through actual legal review (§3 and §5's cookie-exemption claim in particular) before publishing.
