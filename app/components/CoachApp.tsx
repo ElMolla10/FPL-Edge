@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import LiveDraftBuilder from "./LiveDraftBuilder";
 import MiniLeagueWarRoom from "./MiniLeagueWarRoom";
 import TransferBreakdown from "./TransferBreakdown";
@@ -71,6 +71,7 @@ function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(p
 
 export default function CoachApp({onBack}:{onBack:()=>void}){
   const[view,setView]=useState<View>("overview");const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const[revision,setRevision]=useState(0);
+  const[isPro,setIsPro]=useState(false);
   // Which group's item list the mobile overlay is currently showing ("My Squad"|"Plan"|"More"),
   // or null when closed -- replaces the old single `more:boolean`. My Squad and Plan are now real
   // multi-item groups on mobile too (not single destinations), so tapping either needs to open
@@ -91,9 +92,9 @@ export default function CoachApp({onBack}:{onBack:()=>void}){
   return <main className="coach-shell">
     <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{navGroups.map((group,gi)=><div className="coach-nav-group" key={gi}>{group.label&&<span className="coach-nav-label">{group.label}</span>}{group.items.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}</span></button>)}</div>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><div><p>FPL EDGE · DECISION ENGINE</p><h1>{titles[view]}</h1></div>{data&&<DeadlineClock data={data}/>}</header>
-      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
+      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} isPro={isPro}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
     </section>
-    <footer className="coach-footer"><AccountBar onAuthChange={runSync}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>
+    <footer className="coach-footer"><AccountBar onAuthChange={runSync} onIsProChange={setIsPro}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>
     <nav className="coach-mobile-nav"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i>⌂</i>Home</button><button className={mobileOverlay==="My Squad"||inGroup(mySquadGroup)?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i>◫</i>My Squad</button><button className={mobileOverlay==="Plan"||inGroup(planGroup)?"active":""} onClick={()=>toggleMobileOverlay("Plan")}><i>⇄</i>Plan</button><button className={view==="coach"?"active":""} onClick={()=>go("coach")}><i>♟</i>Coach</button><button className={mobileOverlay==="More"?"active":""} onClick={()=>toggleMobileOverlay("More")}><i>•••</i>More</button></nav>
     {mobileOverlay==="My Squad"&&<div className="mobile-more">{mySquadGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
     {mobileOverlay==="Plan"&&<div className="mobile-more">{planGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
@@ -101,7 +102,33 @@ export default function CoachApp({onBack}:{onBack:()=>void}){
   </main>
 }
 
-function Page({view,data,go,revision,onTeamChange}:{view:View;data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+// Matches the marketing pricing section (app/page.tsx#pricing) exactly: Free is "one active
+// team, current gameweek projection, lineup and captain recommendation, one transfer scenario" --
+// Overview alone already delivers all four (its "THIS WEEK'S RECOMMENDATION" card is literally
+// selectPrimaryTransfer's single best move, and its PROJECTED GW metric already folds in the
+// resolved captain). Team covers "one active team" plus its own lineup/captain display. Every
+// other view goes beyond what Free is sold as, so it's Pro -- an allowlist here (rather than a
+// blocklist of Pro views) so a future new view defaults to gated, not leaked, if this list isn't
+// updated alongside it.
+const FREE_VIEWS:ReadonlySet<View> = new Set<View>(["overview","team"]);
+
+function ProLock({feature}:{feature:string}){
+  const[busy,setBusy]=useState(false);
+  const[msg,setMsg]=useState("");
+  const upgrade=async()=>{
+    setBusy(true);setMsg("");
+    try{
+      const res=await fetch("/api/billing/checkout",{method:"POST"});
+      const json=await res.json();
+      if(!res.ok||!json.url)throw new Error(json.error||"Checkout isn't available yet -- check back soon.");
+      window.location.href=json.url;
+    }catch(e){setMsg(e instanceof Error?e.message:"Checkout isn't available yet -- check back soon.");setBusy(false)}
+  };
+  return <div className="coach-page"><section className="empty-command"><span>FPL EDGE PRO</span><h2>{feature} is part of Pro.</h2><p>One season pass unlocks multi-week transfer planning, safe and aggressive alternatives, draft and chip optimization, personalised news alerts, mini-league insight and full decision history.</p><button onClick={upgrade} disabled={busy}>{busy?"Redirecting…":"Upgrade for the season →"}</button>{msg&&<small className="pro-lock-error">{msg}</small>}</section></div>;
+}
+
+function Page({view,data,go,revision,onTeamChange,isPro}:{view:View;data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;isPro:boolean}){
+  if(!FREE_VIEWS.has(view)&&!isPro)return <ProLock feature={titles[view]}/>;
   if(view==="overview")return <Overview data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="team")return <Team data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="transfers")return <Transfers data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
@@ -146,16 +173,20 @@ function ThemeToggle(){
   const toggle=()=>{const next=theme==="dark"?"light":"dark";setTheme(next);document.documentElement.setAttribute("data-theme",next);persist("fpl-edge-theme",next)};
   return <button className="theme-toggle" onClick={toggle}>{theme==="dark"?"☀ Light mode":"● Dark mode"}</button>;
 }
-function AccountBar({onAuthChange}:{onAuthChange:()=>void}){
-  const[account,setAccount]=useState<{email:string;method:"password"|"chatgpt"}|null>(null);
+function AccountBar({onAuthChange,onIsProChange}:{onAuthChange:()=>void;onIsProChange:(isPro:boolean)=>void}){
+  const[account,setAccount]=useState<{email:string;method:"password"|"chatgpt";isPro:boolean}|null>(null);
   const[checked,setChecked]=useState(false);
   const[open,setOpen]=useState(false);
   const[mode,setMode]=useState<"signin"|"signup">("signin");
   const[form,setForm]=useState({email:"",password:""});
   const[busy,setBusy]=useState(false);
   const[msg,setMsg]=useState("");
-  const refresh=()=>{fetch("/api/auth/me",{cache:"no-store"}).then(r=>r.json()).then(d=>{setAccount(d.user??null);setChecked(true)}).catch(()=>setChecked(true))};
-  useEffect(()=>{refresh()},[]);
+  // onIsProChange fires from each of this function's own call sites below (fetch callbacks and
+  // signOut), not from a useEffect on `account` -- Page()'s Pro gating needs to react to this
+  // account's actual entitlement, but a derived-state effect here would just add another instance
+  // of the set-state-in-effect pattern rather than the more precise direct call.
+  const refresh=useCallback(()=>{fetch("/api/auth/me",{cache:"no-store"}).then(r=>r.json()).then(d=>{const user=d.user??null;setAccount(user);onIsProChange(user?.isPro??false);setChecked(true)}).catch(()=>setChecked(true))},[onIsProChange]);
+  useEffect(()=>{refresh()},[refresh]);
   const returnTo=typeof window!=="undefined"?encodeURIComponent(window.location.pathname):"%2F";
   const submit=async()=>{
     if(!form.email||!form.password){setMsg("Enter email and password.");return}
@@ -164,11 +195,14 @@ function AccountBar({onAuthChange}:{onAuthChange:()=>void}){
       const res=await fetch(mode==="signup"?"/api/auth/signup":"/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});
       const json=await res.json();
       if(!res.ok)throw new Error(json.error||"Could not sign in.");
-      setAccount({email:json.email,method:"password"});setOpen(false);setForm({email:"",password:""});onAuthChange();
+      // Re-fetch rather than construct locally: login/signup only return {email}, and a
+      // freshly-assumed isPro:false would be wrong for an existing account signing back in
+      // with real entitlement (or the owner account).
+      refresh();setOpen(false);setForm({email:"",password:""});onAuthChange();
     }catch(e){setMsg(e instanceof Error?e.message:"Could not sign in.")}
     finally{setBusy(false)}
   };
-  const signOut=async()=>{await fetch("/api/auth/logout",{method:"POST"});setAccount(null);onAuthChange()};
+  const signOut=async()=>{await fetch("/api/auth/logout",{method:"POST"});setAccount(null);onIsProChange(false);onAuthChange()};
   if(!checked)return <div className="account-bar"><small>Checking sign-in…</small></div>;
   if(account)return <div className="account-bar signed-in"><small>Signed in</small><b>{account.email}</b>{account.method==="chatgpt"?<a href={`/signout-with-chatgpt?return_to=${returnTo}`}>Sign out</a>:<button onClick={signOut}>Sign out</button>}</div>;
   return <div className="account-bar">{!open?<button className="account-open" onClick={()=>setOpen(true)}>Sign in / Sign up</button>:<div className="account-form"><div className="segmented">{(["signin","signup"] as const).map(m=><button key={m} className={mode===m?"active":""} onClick={()=>setMode(m)}>{m==="signin"?"Sign in":"Sign up"}</button>)}</div><input type="email" placeholder="Email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/><input type="password" placeholder="Password (min 8 chars)" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/><button onClick={submit} disabled={busy}>{busy?"…":mode==="signin"?"Sign in":"Create account"}</button><a className="chatgpt-signin" href={`/signin-with-chatgpt?return_to=${returnTo}`}>Sign in with ChatGPT</a>{msg&&<small className="account-error">{msg}</small>}<button className="account-cancel" onClick={()=>setOpen(false)}>Cancel</button></div>}</div>;
