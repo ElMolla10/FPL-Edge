@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatSeasonPassPrice } from "../lib/season-pass";
 
 // Clicking pay only starts a Paymob intention. Nothing in this file writes an "unlocked" flag.
@@ -20,8 +20,33 @@ export function SeasonUpgrade({ checkoutReturn, onDismiss }: { checkoutReturn?: 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [disconnected, setDisconnected] = useState(false);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [accountEmail, setAccountEmail] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { user?: { email?: string } | null }) => {
+        if (cancelled) return;
+        const user = data.user ?? null;
+        setSignedIn(Boolean(user));
+        setAccountEmail(typeof user?.email === "string" ? user.email : "");
+      })
+      .catch(() => {
+        if (!cancelled) setSignedIn(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const pay = async () => {
+    if (!signedIn) {
+      setSignedIn(false);
+      setMessage("Sign in first. A payment is attached to your account, not this browser.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     setDisconnected(false);
@@ -42,6 +67,7 @@ export function SeasonUpgrade({ checkoutReturn, onDismiss }: { checkoutReturn?: 
         return;
       }
       if (!response.ok) {
+        if (response.status === 401) setSignedIn(false);
         setMessage(json.error || "Could not start checkout.");
         return;
       }
@@ -62,9 +88,11 @@ export function SeasonUpgrade({ checkoutReturn, onDismiss }: { checkoutReturn?: 
     <h2>Your full decision desk, for the rest of this season.</h2>
     <p>Multi-week transfer planning, safe and aggressive alternatives, news impact alerts, draft and chip optimization, and decision history. Paying sends you to Paymob. Access turns on only after Paymob's verified callback — this page cannot mark the pass active.</p>
     {checkoutReturn && <p className="season-note">You are back from Paymob. If the payment succeeded, refresh in a moment. This return does not unlock the desk by itself.</p>}
+    {signedIn === false && <p className="season-note">Sign in or create an account, then pay. <a href="/signin?return_to=%2Fpay">Sign in</a> · <a href="/signup?return_to=%2Fpay">Sign up</a></p>}
+    {signedIn && accountEmail && <p className="season-note">Signed in as {accountEmail}. The pass is attached to this account.</p>}
     <label>Egyptian mobile<input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="01xxxxxxxxx" autoComplete="tel" /></label>
     <div className="season-upgrade-actions">
-      <button type="button" onClick={pay} disabled={busy}>{busy ? "Opening Paymob…" : `Pay ${formatSeasonPassPrice()}`}</button>
+      <button type="button" onClick={pay} disabled={busy || signedIn !== true}>{busy ? "Opening Paymob…" : `Pay ${formatSeasonPassPrice()}`}</button>
       <button type="button" className="season-dismiss" onClick={onDismiss}>Not now</button>
     </div>
     {disconnected && <p className="season-note">Checkout is not connected yet.</p>}

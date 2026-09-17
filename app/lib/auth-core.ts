@@ -67,7 +67,10 @@ export async function resolveChatGptUserWith(repo: UserRepo, chatgptEmail: strin
 // OWASP's 2023 guidance for PBKDF2-SHA256. Format is self-describing (pbkdf2$iterations$salt$hash)
 // so the iteration count can be raised later without invalidating existing hashes. ---
 
-const PBKDF2_ITERATIONS = 210_000;
+// Workers Web Crypto rejects anything above 100,000
+// ("iteration counts above 100000 are not supported"). The hash stores the
+// count, so an older hash still verifies at whatever count it was created with.
+const PBKDF2_ITERATIONS = 100_000;
 
 function toBase64Url(bytes: Uint8Array): string {
   let binary = "";

@@ -287,7 +287,16 @@ test("payment lives on its own page", () => {
   const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
   const checkout = readFileSync(new URL("../app/api/season-pass/checkout/route.ts", import.meta.url), "utf8");
+  const season = readFileSync(new URL("../app/components/SeasonPass.tsx", import.meta.url), "utf8");
+  const signin = readFileSync(new URL("../app/signin/page.tsx", import.meta.url), "utf8");
+  const signup = readFileSync(new URL("../app/signup/page.tsx", import.meta.url), "utf8");
+  const auth = readFileSync(new URL("../app/components/AuthForm.tsx", import.meta.url), "utf8");
   assert.match(pay, /SeasonUpgrade/);
+  assert.match(signin, /mode="signin"/);
+  assert.match(signup, /mode="signup"/);
+  assert.match(auth, /\/api\/auth\/login/);
+  assert.match(auth, /\/api\/auth\/signup/);
+  assert.match(season, /\/signin\?return_to/);
   assert.match(home, /href="\/pay"/);
   assert.match(coach, /window\.location\.assign\("\/pay"\)/);
   assert.doesNotMatch(coach, /SeasonUpgrade/);

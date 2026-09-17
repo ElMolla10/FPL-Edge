@@ -32,6 +32,7 @@ import { DifferentialPosition, TemplatePosition, rawDifferentialsByPosition, tem
 import { narrateCaptainChoice, narrateChipDecision, narrateCurrentRank, narrateDifferentials, narrateLiveStatus, narratePrimaryTransfer, narratePriceRisk, narrateSquadBuild, narrateTransferForPlayer, resolveChipLegality } from "../lib/coach-narration";
 import { ClubFixtureRow, computeClubFixtureRows } from "../lib/fixture-difficulty";
 import { SeasonLocked } from "./SeasonPass";
+import { formatSeasonPassPrice } from "../lib/season-pass";
 
 type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures";
 type Desk="unknown"|"visitor"|"free"|"season";
@@ -73,7 +74,7 @@ export{opponent}from"../lib/fpl";
 function freshness(updatedAt:string){const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(updatedAt))/60000));return{minutes,label:minutes<2?"just now":`${minutes}m ago`,tone:minutes<=10?"fresh":minutes<=30?"aging":"stale"}}
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
 
-export default function CoachApp({onBack}:{onBack:()=>void}){
+export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;startAuth?:boolean}){
   const[view,setView]=useState<View>("overview");const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const[revision,setRevision]=useState(0);
   const[desk,setDesk]=useState<Desk>("unknown");
   const openPay=()=>{window.location.assign("/pay")};
@@ -99,15 +100,15 @@ export default function CoachApp({onBack}:{onBack:()=>void}){
   const inGroup=(group:NavGroup)=>group.items.some(([key])=>key===view);
   const toggleMobileOverlay=(label:string)=>setMobileOverlay(current=>current===label?null:label);
   return <main className="coach-shell">
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{navGroups.map((group,gi)=><div className="coach-nav-group" key={gi}>{group.label&&<span className="coach-nav-label">{group.label}</span>}{group.items.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}{desk==="free"&&PRO_VIEWS.has(key)&&<em className="nav-pro">PRO</em>}</span></button>)}</div>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
-    <section className="coach-main"><header className="coach-header"><div><p>FPL EDGE · DECISION ENGINE</p><h1>{titles[view]}</h1></div>{data&&<DeadlineClock data={data}/>}</header>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{navGroups.map((group,gi)=><div className="coach-nav-group" key={gi}>{group.label&&<span className="coach-nav-label">{group.label}</span>}{group.items.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro">PRO</em>}</span></button>)}</div>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <section className="coach-main"><header className="coach-header"><div><p>FPL EDGE · DECISION ENGINE</p><h1>{titles[view]}</h1></div>{data&&<DeadlineClock data={data}/>}</header>{desk!=="season"&&<p className="pass-banner">You are on the free desk. The season pass is {formatSeasonPassPrice()} and opens the full desk for the rest of this season. <button type="button" onClick={openPay}>Get the season pass</button></p>}
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
     </section>
-    <footer className="coach-footer"><AccountBar onAuthChange={runSync} onAccount={onAccount} onUpgrade={openPay}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>
+    <footer className="coach-footer"><AccountBar onAuthChange={runSync} onAccount={onAccount} onUpgrade={openPay} initialOpen={startAuth}/><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>
     <nav className="coach-mobile-nav"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i>⌂</i>Home</button><button className={mobileOverlay==="My Squad"||inGroup(mySquadGroup)?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i>◫</i>My Squad</button><button className={mobileOverlay==="Plan"||inGroup(planGroup)?"active":""} onClick={()=>toggleMobileOverlay("Plan")}><i>⇄</i>Plan</button><button className={view==="coach"?"active":""} onClick={()=>go("coach")}><i>♟</i>Coach</button><button className={mobileOverlay==="More"?"active":""} onClick={()=>toggleMobileOverlay("More")}><i>•••</i>More</button></nav>
-    {mobileOverlay==="My Squad"&&<div className="mobile-more">{mySquadGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
-    {mobileOverlay==="Plan"&&<div className="mobile-more">{planGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>}
-    {mobileOverlay==="More"&&<div className="mobile-more">{navGroups.filter(g=>g.label==="Research"||g.label==="League & History").map(group=><div className="mobile-more-group" key={group.label}><span>{group.label}</span>{group.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}</button>)}</div>)}</div>}
+    {mobileOverlay==="My Squad"&&<div className="mobile-more">{mySquadGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro"> PRO</em>}</button>)}</div>}
+    {mobileOverlay==="Plan"&&<div className="mobile-more">{planGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro"> PRO</em>}</button>)}</div>}
+    {mobileOverlay==="More"&&<div className="mobile-more">{navGroups.filter(g=>g.label==="Research"||g.label==="League & History").map(group=><div className="mobile-more-group" key={group.label}><span>{group.label}</span>{group.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro"> PRO</em>}</button>)}</div>)}</div>}
   </main>
 }
 
@@ -163,10 +164,10 @@ function ThemeToggle(){
   const toggle=()=>{const next=theme==="dark"?"light":"dark";setTheme(next);document.documentElement.setAttribute("data-theme",next);persist("fpl-edge-theme",next)};
   return <button className="theme-toggle" onClick={toggle}>{theme==="dark"?"☀ Light mode":"● Dark mode"}</button>;
 }
-function AccountBar({onAuthChange,onAccount,onUpgrade}:{onAuthChange:()=>void;onAccount:(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>void;onUpgrade:()=>void}){
+function AccountBar({onAuthChange,onAccount,onUpgrade,initialOpen=false}:{onAuthChange:()=>void;onAccount:(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>void;onUpgrade:()=>void;initialOpen?:boolean}){
   const[account,setAccount]=useState<{email:string;method:"password"|"chatgpt";seasonPassActive:boolean;seasonPassEndsAt:string|null}|null>(null);
   const[checked,setChecked]=useState(false);
-  const[open,setOpen]=useState(false);
+  const[open,setOpen]=useState(initialOpen);
   const[mode,setMode]=useState<"signin"|"signup">("signin");
   const[form,setForm]=useState({email:"",password:""});
   const[busy,setBusy]=useState(false);
@@ -194,7 +195,7 @@ function AccountBar({onAuthChange,onAccount,onUpgrade}:{onAuthChange:()=>void;on
   const signOut=async()=>{await fetch("/api/auth/logout",{method:"POST"});setAccount(null);onAccount(null);onAuthChange()};
   if(!checked)return <div className="account-bar"><small>Checking sign-in…</small></div>;
   if(account)return <div className="account-bar signed-in"><small className="account-pass">{account.seasonPassActive?"Season pass":"Free"}</small><b>{account.email}</b>{!account.seasonPassActive&&<button onClick={onUpgrade}>Upgrade</button>}{account.method==="chatgpt"?<a href={`/signout-with-chatgpt?return_to=${returnTo}`}>Sign out</a>:<button onClick={signOut}>Sign out</button>}</div>;
-  return <div className="account-bar"><small className="account-pass">Preview — not a season pass</small>{!open?<button className="account-open" onClick={()=>setOpen(true)}>Sign in / Sign up</button>:<div className="account-form"><div className="segmented">{(["signin","signup"] as const).map(m=><button key={m} className={mode===m?"active":""} onClick={()=>setMode(m)}>{m==="signin"?"Sign in":"Sign up"}</button>)}</div><input type="email" placeholder="Email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/><input type="password" placeholder="Password (min 8 chars)" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/><button onClick={submit} disabled={busy}>{busy?"…":mode==="signin"?"Sign in":"Create account"}</button><a className="chatgpt-signin" href={`/signin-with-chatgpt?return_to=${returnTo}`}>Sign in with ChatGPT</a>{msg&&<small className="account-error">{msg}</small>}<button className="account-cancel" onClick={()=>setOpen(false)}>Cancel</button></div>}</div>;
+  return <div className="account-bar"><a className="account-open" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a><a className="account-open" href="/signup?return_to=%2F%3Fapp%3D1">Sign up</a></div>;
 }
 
 // revision is a required re-read trigger, not just an initial-mount read -- without it, a manager

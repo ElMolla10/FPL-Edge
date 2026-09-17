@@ -16,26 +16,28 @@ const faq = [
   ["Does FPL Edge guarantee more points?", "No. FPL contains injuries, rotation and variance. FPL Edge improves the quality and consistency of your decisions by comparing the best options with the information available before the deadline."],
   ["Will it make transfers on my official FPL account?", "No. It is a decision assistant. You stay in control and make the final change on the official FPL website."],
   ["What makes the recommendations trustworthy?", "Every major recommendation shows projected net gain, confidence, the main downside, what could change, and the freshness of the supporting data."],
+  ["What does the season pass add?", "The free desk is the current gameweek: one team, the projection, lineup, captain, and one transfer. The season pass is a one-time payment for the rest of this season. It opens multi-week planning, news alerts, Draft Lab, chips, and decision history."],
 ];
 
 export default function Home() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
-  const [appMode, setAppMode] = useState<null | "demo">(null);
+  const [appMode, setAppMode] = useState<null | "demo" | "signin">(null);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "return") window.location.replace("/pay?checkout=return");
+    if (params.get("app") === "1") setAppMode("demo");
   }, []);
-  if (appMode) return <CoachApp onBack={() => setAppMode(null)} />;
+  if (appMode) return <CoachApp onBack={() => setAppMode(null)} startAuth={appMode === "signin"} />;
 
   return <main className="marketing-page">
     <header className="site-header">
       <a className="brand" href="#top" aria-label="FPL Edge home"><span className="brand-mark">E</span><span>FPL EDGE</span></a>
       <nav className="desktop-nav" aria-label="Primary navigation"><a href="#product">Product</a><a href="#how">How it works</a><a href="#method">Method</a><a href="#pricing">Pricing</a></nav>
-      <button className="btn small" onClick={() => setAppMode("demo")}>Open demo</button>
+      <div className="site-header-actions"><a className="text-link" href="/pay">Season pass · {formatSeasonPassPrice()}</a><a className="btn small" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a><button className="btn small btn-primary" onClick={() => setAppMode("demo")}>Open demo</button></div>
     </header>
 
     <section className="hero" id="top"><div className="hero-grid" />
-      <div className="hero-copy"><p className="kicker"><span /> Your gameweek decision desk</p><h1>Stop guessing.<br /><em>Win the decision.</em></h1><p className="hero-subtitle">Build a stronger squad, choose smarter transfers, set the right lineup and react to team news before every FPL deadline.</p><div className="hero-actions"><button className="btn btn-primary" onClick={() => setAppMode("demo")}>Get my gameweek plan <span>→</span></button><a className="text-link" href="#product">See how it works <span>↓</span></a></div><div className="truth-row"><span>NO BLACK BOX</span><span>NET POINTS, NOT HYPE</span><span>SOURCES &amp; TIMESTAMPS</span></div></div>
+      <div className="hero-copy"><p className="kicker"><span /> Your gameweek decision desk</p><h1>Stop guessing.<br /><em>Win the decision.</em></h1><p className="hero-subtitle">Build a stronger squad, choose smarter transfers, set the right lineup and react to team news before every FPL deadline. The free desk covers this gameweek. The season pass opens the rest.</p><div className="hero-actions"><button className="btn btn-primary" onClick={() => setAppMode("demo")}>Get my gameweek plan <span>→</span></button><a className="text-link" href="#product">See how it works <span>↓</span></a></div><div className="truth-row"><span>NO BLACK BOX</span><span>NET POINTS, NOT HYPE</span><span>SOURCES &amp; TIMESTAMPS</span></div></div>
       <div className="hero-product" aria-label="Example FPL recommendation"><div className="product-topbar"><div><span className="live-dot" /> DEMO PLAN</div><span>GW 1 · 04:52:18 left</span></div><div className="score-row"><div><p>PROJECTED XI</p><strong>67</strong><small>.4 pts</small></div><div className="confidence-ring"><span>82%</span><small>confidence</small></div></div><div className="recommendation"><div className="recommendation-label"><span>BEST MOVE</span><b>ROLL</b></div><h3>Save the transfer.</h3><p>Your current XI already covers the strongest fixtures. No available move clears the value threshold this week.</p><div className="recommendation-metrics"><span><small>Best transfer</small><b>+0.8 pts</b></span><span><small>Flexibility next GW</small><b>High</b></span></div></div><div className="captain-row"><div className="player-token">EH</div><div><small>CAPTAIN</small><b>Erling Haaland</b><span>12.6 projected</span></div><div className="captain-badge">C</div></div><div className="news-alert"><span>!</span><p><b>Recheck after press conferences</b><small>One defender is currently rated 70% to start.</small></p><time>18m</time></div><p className="demo-label">Illustrative demo data — not live</p></div>
     </section>
 
@@ -51,7 +53,7 @@ export default function Home() {
 
     <section className="section faq-section"><div><p className="section-index">05 / FAQ</p><h2>What you should<br /><em>know upfront.</em></h2></div><div className="faq-list">{faq.map(([q,a], i) => <button className="faq-item data-row" key={q} onClick={() => setOpenFaq(openFaq === i ? null : i)} aria-expanded={openFaq === i}><span><b>0{i+1}</b>{q}<i>{openFaq === i ? "−" : "+"}</i></span>{openFaq === i && <p>{a}</p>}</button>)}</div></section>
 
-    <footer><div className="footer-cta"><p>YOUR NEXT DEADLINE STARTS HERE</p><h2>Make the move<br /><em>you can defend.</em></h2><button className="btn btn-primary" onClick={() => setAppMode("demo")}>Get my gameweek plan →</button></div><div className="footer-bottom"><span>FPL EDGE</span><p>Independent FPL decision assistant. Not affiliated with or endorsed by the Premier League.</p><span>© 2026</span></div></footer>
+    <footer><div className="footer-cta"><p>YOUR NEXT DEADLINE STARTS HERE</p><h2>Make the move<br /><em>you can defend.</em></h2><button className="btn btn-primary" onClick={() => setAppMode("demo")}>Get my gameweek plan →</button><a className="btn" href="/pay">Get the season pass</a></div><div className="footer-bottom"><span>FPL EDGE</span><p>Independent FPL decision assistant. Not affiliated with or endorsed by the Premier League.</p><span>© 2026</span></div></footer>
   </main>;
 }
 
