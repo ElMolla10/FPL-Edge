@@ -119,7 +119,7 @@ npm run dev
 
 ## Environment variables
 
-No application secrets or required `.env` values are needed for the current FPL feature set.
+No `.env` file is used. Everything below is either a build/tooling override or a Cloudflare Worker secret set with `wrangler secret put`.
 
 | Variable | Required | Default / use |
 |---|---:|---|
@@ -133,8 +133,24 @@ No application secrets or required `.env` values are needed for the current FPL 
 | `WRANGLER_WRITE_LOGS` | No | Wrangler logging control; the project defaults it to `false` |
 | `WRANGLER_LOG_PATH` | No | Wrangler log directory; scripts use `.sites-runtime/wrangler/logs` |
 | `MINIFLARE_REGISTRY_PATH` | No | Miniflare registry path; scripts keep it inside `.sites-runtime` |
+| `STRIPE_SECRET_KEY` | Yes, for billing | Stripe API secret key (test or live). Without it, `/api/billing/checkout` and `/api/billing/webhook` return a 500/config error — see "Setting up Stripe" below. |
+| `STRIPE_WEBHOOK_SECRET` | Yes, for billing | The signing secret for the specific webhook endpoint registered in the Stripe dashboard, used to verify `POST /api/billing/webhook` really came from Stripe. |
+| `STRIPE_SEASON_PRICE_ID` | Yes, for billing | The Stripe Price ID for the one-time seasonal Pro pass (a `price_...` id from a one-time, not recurring, Price object). |
 
-The deployment environment supplies the `ASSETS` and `IMAGES` Cloudflare bindings. If D1 is enabled later, set the `d1` field in `.openai/hosting.json` to the binding name (the existing database helper expects `DB`) and provision that binding in the hosting environment.
+The deployment environment supplies the `ASSETS` and `IMAGES` Cloudflare bindings, plus the `DB` (D1) binding used by auth, squad persistence, and billing (`wrangler.jsonc`'s `d1_databases` block; `.openai/hosting.json`'s `d1` field names the binding for the OpenAI Sites deployment path).
+
+### Setting up Stripe
+
+Billing (`app/lib/billing/`, `app/api/billing/*`) is built and unit-tested against a mocked `StripeGateway` interface — as of this writing, no real Stripe credentials have ever been used with this app. To connect it to a real Stripe account (test mode first):
+
+1. Create a Stripe account (or use an existing one) and switch to **test mode**.
+2. Create a one-time (not recurring) Price for the seasonal Pro pass; copy its `price_...` id into `STRIPE_SEASON_PRICE_ID`.
+3. Set `STRIPE_SECRET_KEY` to the test-mode secret key (`sk_test_...`).
+4. In the Stripe dashboard, add a webhook endpoint pointing at `https://<your-domain>/api/billing/webhook`, subscribed to at least `checkout.session.completed`, `payment_intent.payment_failed`, and `charge.refunded` (see `app/lib/billing/webhook-handler.ts` for exactly how each is handled). Copy its signing secret into `STRIPE_WEBHOOK_SECRET`.
+5. Set all three as Worker secrets (`npx wrangler secret put STRIPE_SECRET_KEY`, etc. — not committed to the repo, not put in `wrangler.jsonc`).
+6. Exercise the full flow against Stripe's test-mode event simulator (or a real test-card checkout) before considering billing launch-ready — the unit tests cover the handling logic, not the real network/signature path.
+
+Never switch `STRIPE_SECRET_KEY`/the webhook endpoint to live-mode values without deliberately deciding to go live; nothing in this codebase does that automatically.
 
 The optional ChatGPT request identity integration reads these HTTP headers when they are injected by the hosting dispatch layer; they are headers, not environment variables:
 
