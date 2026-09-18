@@ -9,6 +9,74 @@
 
 let signedIn = false;
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
+// Serialises the awaited team write against the delayed background push so a tab that
+// closes after connect is not the only copy, and an older 800ms payload cannot land last.
+let writeChain: Promise<void> = Promise.resolve();
+
+function enqueueWrite<T>(task: () => Promise<T>): Promise<T> {
+  const run = writeChain.then(task, task);
+  writeChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+export function markSignedIn(value: boolean) {
+  signedIn = value;
+}
+
+export type AccountTeamWrite = {
+  squadIds: number[];
+  entry: string | null;
+  manager: unknown | null;
+};
+
+async function putSquadPayload(payload: ReturnType<typeof collectSyncPayload>): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const response = await fetch("/api/squad", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      let error = "Could not save this team to your account.";
+      try {
+        const json = await response.json() as { error?: string };
+        if (json?.error) error = json.error;
+      } catch {
+        // The status is enough; the local desk must not claim the team is linked.
+      }
+      return { ok: false, error };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not save this team to your account." };
+  }
+}
+
+function applyAccountTeamLocally(team: AccountTeamWrite) {
+  localStorage.setItem("fpl-edge-squad", JSON.stringify(team.squadIds));
+  if (team.entry) localStorage.setItem("fpl-edge-entry", team.entry);
+  else localStorage.removeItem("fpl-edge-entry");
+  if (team.manager) localStorage.setItem("fpl-edge-manager", JSON.stringify(team.manager));
+  else localStorage.removeItem("fpl-edge-manager");
+}
+
+// Connect, switch, and disconnect. Refuses without a session, and only then writes
+// localStorage. A failed account write leaves the desk unchanged.
+export async function writeAccountTeam(team: AccountTeamWrite): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!signedIn) return { ok: false, error: "Sign in to connect your team." };
+  if (pushTimer) {
+    clearTimeout(pushTimer);
+    pushTimer = null;
+  }
+  return enqueueWrite(async () => {
+    if (!signedIn) return { ok: false, error: "Sign in to connect your team." };
+    const payload = { ...collectSyncPayload(), squadIds: team.squadIds, entry: team.entry, manager: team.manager };
+    const result = await putSquadPayload(payload);
+    if (!result.ok) return result;
+    applyAccountTeamLocally(team);
+    return { ok: true as const };
+  });
+}
 
 function safeParse<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
@@ -45,16 +113,15 @@ export function collectSyncPayload() {
 }
 
 async function pushToServer() {
-  try {
-    await fetch("/api/squad", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(collectSyncPayload()),
-    });
-  } catch {
-    // Best-effort background sync -- localStorage already has the write, nothing is lost;
-    // it'll push again on the next write or the next sign-in.
-  }
+  await enqueueWrite(async () => {
+    if (!signedIn) return;
+    try {
+      await putSquadPayload(collectSyncPayload());
+    } catch {
+      // Best-effort background sync -- localStorage already has the write, nothing is lost;
+      // it'll push again on the next write or the next sign-in.
+    }
+  });
 }
 
 function schedulePush() {

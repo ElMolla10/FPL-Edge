@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { collectSyncPayload, hasMeaningfulData, hydrateFromServer, readFreeTransfers } from "../app/lib/persistence.ts";
+import { collectSyncPayload, hasMeaningfulData, hydrateFromServer, markSignedIn, readFreeTransfers, writeAccountTeam } from "../app/lib/persistence.ts";
 
 // Minimal in-memory localStorage -- Node's own Web Storage API needs --experimental-webstorage
 // plus a disk-backed file, which is the wrong shape for a unit test; this stands in for the
@@ -12,6 +12,8 @@ function memoryStorage() {
     setItem: (key: string, value: string) => { store.set(key, String(value)); },
     removeItem: (key: string) => { store.delete(key); },
     clear: () => { store.clear(); },
+    key: (index: number) => [...store.keys()][index] ?? null,
+    get length() { return store.size; },
   };
 }
 (globalThis as any).localStorage = memoryStorage();
@@ -120,4 +122,64 @@ test("hydrateFromServer: writes plannedChips from the server, defaulting a missi
 test("hasMeaningfulData: a payload with only plannedChips (no squad/watchlist/entry/plans) still counts as meaningful", () => {
   assert.equal(hasMeaningfulData({ squadIds: [], watchlist: [], entry: null, plannedChips: [{ event: 5, chip: "Wildcard" }] }), true);
   assert.equal(hasMeaningfulData({ squadIds: [], watchlist: [], entry: null, plannedChips: [] }), false);
+});
+
+test("signed out cannot persist a team id to the account", async () => {
+  (globalThis.localStorage as any).clear();
+  markSignedIn(false);
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    throw new Error("signed-out connect must not write the account");
+  }) as typeof fetch;
+  try {
+    const result = await writeAccountTeam({ squadIds: [11, 12], entry: "555001", manager: { teamName: "Visitor FC" } });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /Sign in/);
+    assert.equal(calls, 0);
+    assert.equal(localStorage.getItem("fpl-edge-entry"), null);
+    assert.equal(localStorage.getItem("fpl-edge-squad"), null);
+    assert.equal(localStorage.getItem("fpl-edge-manager"), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+    markSignedIn(false);
+  }
+});
+
+test("signed in connect writes entry", async () => {
+  (globalThis.localStorage as any).clear();
+  localStorage.setItem("fpl-edge-watchlist", JSON.stringify([9]));
+  markSignedIn(true);
+  const originalFetch = globalThis.fetch;
+  const bodies: Array<Record<string, unknown>> = [];
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    assert.equal(init?.method, "PUT");
+    bodies.push(JSON.parse(String(init?.body)));
+    return { ok: true, json: async () => ({ ok: true }) } as Response;
+  }) as typeof fetch;
+  try {
+    const result = await writeAccountTeam({ squadIds: [3, 4, 5], entry: "424242", manager: { teamName: "Edge FC" } });
+    assert.equal(result.ok, true);
+    assert.equal(bodies.length, 1);
+    assert.equal(bodies[0].entry, "424242");
+    assert.deepEqual(bodies[0].squadIds, [3, 4, 5]);
+    assert.deepEqual(bodies[0].manager, { teamName: "Edge FC" });
+    assert.deepEqual(bodies[0].watchlist, [9]);
+    assert.equal(localStorage.getItem("fpl-edge-entry"), "424242");
+    assert.deepEqual(JSON.parse(localStorage.getItem("fpl-edge-squad")!), [3, 4, 5]);
+
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return { ok: false, json: async () => ({ error: "Could not save squad data." }) } as Response;
+    }) as typeof fetch;
+    const failed = await writeAccountTeam({ squadIds: [8], entry: "999111", manager: { teamName: "Other" } });
+    assert.equal(failed.ok, false);
+    if (!failed.ok) assert.equal(failed.error, "Could not save squad data.");
+    assert.equal(localStorage.getItem("fpl-edge-entry"), "424242");
+    assert.equal(bodies.at(-1)?.entry, "999111");
+  } finally {
+    globalThis.fetch = originalFetch;
+    markSignedIn(false);
+  }
 });

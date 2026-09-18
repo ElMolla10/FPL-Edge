@@ -19,7 +19,8 @@ import { FplData, FplEvent, FplFixture, FplPlayer, LiveMover, PROJECTION_MODEL_V
 import { HorizonMode, RiskMode, SquadPhilosophy, createFiveWeekEvaluator, createOptimizer } from "../lib/optimizer";
 import { FiveGwGainBand } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
-import { persist, readFreeTransfers, syncWithServer } from "../lib/persistence";
+import { markSignedIn, persist, readFreeTransfers, syncWithServer, writeAccountTeam } from "../lib/persistence";
+import { TEAM_SIGN_IN_HREF, TeamLinkAuthProvider, useTeamLinkAuth } from "./team-link-auth";
 import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
 import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } from "../lib/bench-order";
 import { RouteTransfer, TransferRoute, solveTransferRoutes } from "../lib/transfer-routes";
@@ -79,7 +80,8 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   const[desk,setDesk]=useState<Desk>("unknown");
   const openPay=()=>{window.location.assign("/pay")};
   const onAccount=(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>{
-    if(!account){setDesk("visitor");return}
+    if(!account){markSignedIn(false);setDesk("visitor");return}
+    markSignedIn(true);
     setDesk(account.seasonPassActive?"season":"free");
   };
   // Which group's item list the mobile overlay is currently showing ("My Squad"|"Plan"|"More"),
@@ -99,7 +101,8 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   const mySquadGroup=navGroups.find(g=>g.label==="My Squad")!,planGroup=navGroups.find(g=>g.label==="Plan")!;
   const inGroup=(group:NavGroup)=>group.items.some(([key])=>key===view);
   const toggleMobileOverlay=(label:string)=>setMobileOverlay(current=>current===label?null:label);
-  return <main className="coach-shell">
+  const teamAuth=desk==="unknown"?"loading":desk==="visitor"?"out":"in";
+  return <TeamLinkAuthProvider value={teamAuth}><main className="coach-shell">
     <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{navGroups.map((group,gi)=><div className="coach-nav-group" key={gi}>{group.label&&<span className="coach-nav-label">{group.label}</span>}{group.items.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro">PRO</em>}</span></button>)}</div>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><div><p>FPL EDGE · DECISION ENGINE</p><h1>{titles[view]}</h1></div>{data&&<DeadlineClock data={data}/>}</header>{desk!=="season"&&<p className="pass-banner">You are on the free desk. The season pass is {formatSeasonPassPrice()} and opens the full desk for the rest of this season. <button type="button" onClick={openPay}>Get the season pass</button></p>}
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p><CoachDock data={data} go={go} revision={revision}/></>:null}
@@ -109,7 +112,7 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
     {mobileOverlay==="My Squad"&&<div className="mobile-more">{mySquadGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro"> PRO</em>}</button>)}</div>}
     {mobileOverlay==="Plan"&&<div className="mobile-more">{planGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro"> PRO</em>}</button>)}</div>}
     {mobileOverlay==="More"&&<div className="mobile-more">{navGroups.filter(g=>g.label==="Research"||g.label==="League & History").map(group=><div className="mobile-more-group" key={group.label}><span>{group.label}</span>{group.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro"> PRO</em>}</button>)}</div>)}</div>}
-  </main>
+  </main></TeamLinkAuthProvider>
 }
 
 function Page({view,data,go,revision,onTeamChange,desk,onUpgrade}:{view:View;data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;desk:Desk;onUpgrade:()=>void}){
@@ -213,13 +216,12 @@ async function connectTeam(id:string,data:FplData):Promise<ManagerMeta>{
   if(!response.ok)throw new Error(json.error||"Could not connect team");
   const ids=(json.playerIds as number[]).filter(pid=>data.players.some(p=>p.id===pid));
   if(ids.length!==15)throw new Error("FPL did not return a complete public squad.");
-  persist("fpl-edge-squad",JSON.stringify(ids));
-  persist("fpl-edge-entry",id);
-  persist("fpl-edge-manager",JSON.stringify(json.manager));
+  const saved=await writeAccountTeam({squadIds:ids,entry:id,manager:json.manager});
+  if(!saved.ok)throw new Error(saved.error);
   localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());
   return json.manager as ManagerMeta;
 }
-export function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:ManagerMeta)=>void}){const[id,setId]=useState("");const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const connect=async()=>{setBusy(true);setMsg("");try{const manager=await connectTeam(id,data);setMsg(`${manager.teamName} connected. Your coach is ready.`);onConnected?.(manager)}catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}finally{setBusy(false)}};return <section className="connect-hero"><div><span>START HERE</span><h2>Connect your official FPL team</h2><p>Enter the number in your FPL team URL. Read-only: we never ask for your password or make changes to your official team.</p></div><div><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect my team →"}</button><small>{msg||"Current public squad becomes available after its deadline."}</small></div></section>}
+export function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:ManagerMeta)=>void}){const teamAuth=useTeamLinkAuth();const[id,setId]=useState("");const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const connect=async()=>{setBusy(true);setMsg("");try{const manager=await connectTeam(id,data);setMsg(`${manager.teamName} connected. Your coach is ready.`);onConnected?.(manager)}catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}finally{setBusy(false)}};if(teamAuth!=="in")return <section className="connect-hero"><div><span>START HERE</span><h2>Sign in to connect your team</h2><p>Your official FPL team id belongs to your email account. Sign in first, then connect it. The next time you sign in, on any browser, that team loads automatically. Read-only: we never ask for your FPL password.</p></div><div><a className="team-signin" href={TEAM_SIGN_IN_HREF}>Sign in to connect your team</a><small>{teamAuth==="loading"?"Checking sign-in…":"Current public squad becomes available after its deadline."}</small></div></section>;return <section className="connect-hero"><div><span>START HERE</span><h2>Connect your official FPL team</h2><p>Enter the number in your FPL team URL. Read-only: we never ask for your password or make changes to your official team.</p></div><div><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect my team →"}</button><small>{msg||"Current public squad becomes available after its deadline."}</small></div></section>}
 
 // Sidebar-resident sibling to ConnectTeam -- that component only renders when there's no usable
 // squad yet (isCompleteSquad fails), so once a team is connected there is no way back to it. This
@@ -230,6 +232,7 @@ export function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:Man
 // the stored id isn't in that squad -- confirmed by reading its call sites, not assumed from the
 // similar pattern elsewhere. A stale id is inert dead data, never a rendering risk.
 function TeamBar({data,revision,onTeamChange}:{data:FplData|null;revision:number;onTeamChange:()=>void}){
+  const teamAuth=useTeamLinkAuth();
   const[meta,setMeta]=useManager(revision);
   const[open,setOpen]=useState(false);
   const[id,setId]=useState("");
@@ -244,13 +247,17 @@ function TeamBar({data,revision,onTeamChange}:{data:FplData|null;revision:number
     }catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}
     finally{setBusy(false)}
   };
-  const disconnect=()=>{
-    if(!confirm("Disconnect this team? You can reconnect anytime with a Team ID."))return;
-    localStorage.removeItem("fpl-edge-squad");
-    localStorage.removeItem("fpl-edge-entry");
-    localStorage.removeItem("fpl-edge-manager");
-    setMeta(null);setOpen(false);onTeamChange();
+  const disconnect=async()=>{
+    if(!confirm("Disconnect this team from your account? You can connect it again after you sign in."))return;
+    setBusy(true);setMsg("");
+    try{
+      const saved=await writeAccountTeam({squadIds:[],entry:null,manager:null});
+      if(!saved.ok)throw new Error(saved.error);
+      setMeta(null);setOpen(false);onTeamChange();
+    }catch(e){setMsg(e instanceof Error?e.message:"Could not disconnect this team from your account.")}
+    finally{setBusy(false)}
   };
+  if(teamAuth!=="in")return <div className="team-bar"><small>FPL TEAM</small><b>{meta?meta.teamName:teamAuth==="loading"?"Checking sign-in…":"Not connected"}</b><a className="team-open" href={TEAM_SIGN_IN_HREF}>Sign in to connect your team</a></div>;
   return <div className="team-bar">{!open?<><small>FPL TEAM</small><b>{meta?meta.teamName:"Not connected"}</b><button className="team-open" onClick={()=>setOpen(true)}>{meta?"Switch team":"Connect team"}</button></>:<div className="team-form"><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect"}</button>{msg&&<small className="team-error">{msg}</small>}<button className="team-cancel" onClick={()=>{setOpen(false);setMsg("")}}>Cancel</button>{meta&&<button className="team-disconnect" onClick={disconnect}>Disconnect team</button>}</div>}</div>;
 }
 
@@ -497,6 +504,7 @@ export function GameweekAverage({events,eventId}:{events:readonly FplEvent[];eve
 }
 
 function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;fullDesk:boolean;onUpgrade:()=>void}){
+  const teamAuth=useTeamLinkAuth();
   const[manager,setManager]=useManager(revision);
   let entry:string|null=null;
   try{entry=localStorage.getItem("fpl-edge-entry")}catch{}
@@ -578,7 +586,7 @@ function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplData;g
 
   return <div className="coach-page">
     <GameweekNav event={event} branch={branch} onBack={goBack} onForward={goForward} canBack={event.id>backwardBoundId} canForward={event.id<forwardBoundId}/>
-    {entry&&<button onClick={refreshFromOfficial} disabled={refreshBusy}>{refreshBusy?"Refreshing…":"Refresh from official"}</button>}
+    {entry&&teamAuth==="in"&&<button onClick={refreshFromOfficial} disabled={refreshBusy}>{refreshBusy?"Refreshing…":"Refresh from official"}</button>}
     {refreshMsg&&<small>{refreshMsg}</small>}
     {branch==="past"&&<PastGameweekView data={data} event={event} history={history} officialRank={officialRank}/>}
     {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} manager={manager} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go} officialRank={officialRank}/>}

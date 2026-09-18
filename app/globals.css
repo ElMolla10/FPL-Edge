@@ -392,3 +392,8 @@
 .season-upgrade .pay-signin>button{align-self:stretch}
 .season-upgrade .pay-signin .chatgpt-signin{text-align:center;color:var(--text);font-size:12px;font-weight:800}
 
+
+/* Team id belongs to the account: the sign-in prompt replaces the numeric input. */
+.connect-hero a.team-signin,.team-import a.team-signin,.history-connect a.team-signin{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;background:var(--lime);color:var(--ink);padding:0 16px;font-weight:900;text-decoration:none;text-align:center}
+.team-import a.team-signin{background:var(--ink);color:var(--text-on-inverse);font-size:8px}
+a.team-open{display:block;text-align:center;text-decoration:none}
