@@ -132,11 +132,11 @@ export default function Home() {
           <p className="paper-call">Save the transfer.</p>
           <p className="paper-why">A connected squad is what makes a move worth more than rolling.</p>
           <div className="paper-captain">
-            <div>
+            <div className="paper-captain-name">
               <b>{desk?.captain?.name ?? "—"}</b>
-              <span>{desk?.captain ? `${desk.captain.teamShort} · ${points(desk.captainPoints)} projected` : "Until a team is connected"}</span>
+              <span className="paper-c" aria-label="Captain">C</span>
             </div>
-            <span className="paper-c" aria-label="Captain">C</span>
+            <span>{desk?.captain ? `${desk.captain.teamShort} · ${points(desk.captainPoints)} projected` : "Until a team is connected"}</span>
           </div>
           <p className="paper-example">Example, until you connect a team.</p>
         </article>
