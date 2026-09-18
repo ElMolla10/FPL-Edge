@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import CoachApp from "./components/CoachApp";
+import { Wordmark } from "./components/Wordmark";
 import { formatSeasonPassPrice } from "./lib/season-pass";
 import { fetchFplData, futureEvents, playerProjection } from "./lib/fpl";
 import type { FplData, FplPlayer } from "./lib/fpl";
@@ -107,7 +108,7 @@ export default function Home() {
   return <main className="paper">
     <header className={scrolled ? "paper-header is-scrolled" : "paper-header"}>
       <div className="paper-wrap paper-header-inner">
-        <a className="paper-wordmark" href="/" aria-label="FPL Edge home">FPL Edge</a>
+        <a className="paper-wordmark" href="/" aria-label="FPL Edge home"><Wordmark/></a>
         <a className="paper-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a>
       </div>
     </header>
@@ -178,7 +179,7 @@ export default function Home() {
       </section>
 
       <footer className="paper-footer">
-        <span className="paper-wordmark">FPL Edge</span>
+        <span className="paper-wordmark"><Wordmark/></span>
         <p>Independent. Not affiliated with the Premier League.</p>
         <span>2026</span>
       </footer>
