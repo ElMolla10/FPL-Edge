@@ -578,7 +578,7 @@ function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplData;g
   const currentBench=currentResolution?.bench??[];
   const currentCaptaincy=useCaptaincy(currentXi,currentAnchor?.id??0,currentResolution?.modelCaptain,currentResolution?.modelVice);
 
-  if(!a)return <><ConnectTeam data={data} onConnected={m=>{setManager(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></>;
+  if(!a&&teamAuth!=="in")return <PitchOutline/>;if(!a)return <><ConnectTeam data={data} onConnected={m=>{setManager(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></>;
 
   const goBack=()=>setNavEventId(id=>Math.max(backwardBoundId,id-1));
   const goForward=()=>setNavEventId(id=>Math.min(forwardBoundId,id+1));
@@ -1106,6 +1106,7 @@ const COACH_INTENTS:readonly{id:CoachIntent;label:string}[]=[
   {id:"build",label:"Build me a squad"},
 ];
 function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+  const teamAuth=useTeamLinkAuth();
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
   const a=analysis(data,squad);
   let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}
@@ -1142,7 +1143,7 @@ function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;r
   const buildOptimizer=useMemo(()=>intent==="build"?createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"):null,[data,intent]);
   const built=useMemo(()=>buildOptimizer?buildOptimizer.optimize():null,[buildOptimizer]);
 
-  if(!a)return <div className="coach-page"><ConnectTeam data={data} onConnected={()=>onTeamChange()}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually first -- most of the coach's questions need a complete squad.</p><button onClick={()=>go("draft")}>Build a squad →</button></section>{intent==="differentials"&&<CoachAnswerCard label="Best differentials">{differentialGroups.map(g=><p key={g.position.id}>{narrateDifferentials(g.position.name,g.players)}</p>)}</CoachAnswerCard>}</div>;
+  if(!a&&teamAuth!=="in")return <div className="coach-page"><section className="coach-intent-picker is-dimmed">{COACH_INTENTS.map(item=><button type="button" disabled key={item.id}>{item.label}</button>)}</section><p className="empty-why">A squad is required before these questions can be answered.</p></div>;if(!a)return <div className="coach-page"><ConnectTeam data={data} onConnected={()=>onTeamChange()}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually first -- most of the coach's questions need a complete squad.</p><button onClick={()=>go("draft")}>Build a squad →</button></section>{intent==="differentials"&&<CoachAnswerCard label="Best differentials">{differentialGroups.map(g=><p key={g.position.id}>{narrateDifferentials(g.position.name,g.players)}</p>)}</CoachAnswerCard>}</div>;
 
   // --- Should I captain X? ---
   const candidates:CaptainCandidate[]=a.xi.players.map(p=>{
@@ -1282,12 +1283,26 @@ function FixtureTickerRow({row,events,sort}:{row:ClubFixtureRow;events:FplEvent[
 // only narrows which of the 20 already-computed real rows are shown. Precondition is deliberately
 // "any saved squad players at all" (not a complete 15-man squad, unlike analysis()'s gate
 // elsewhere) -- a partial squad still has real owned clubs worth showing here.
+
+function PitchOutline(){
+  const rows=[["GKP",1],["DEF",4],["MID",4],["FWD",2]] as const;
+  return <section className="coach-pitch pitch-outline" aria-label="Empty pitch"><div className="pitch-markings"/>{rows.map(([pos,count])=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{Array.from({length:count},(_,i)=><span className="pitch-slot" key={i}/>)}</div>)}</section>;
+}
+function PublicGameweekFixtures({data}:{data:FplData}){
+  const event=data.events.find(e=>e.current)??futureEvents(data,1)[0];
+  if(!event)return <p className="empty-why">No gameweek is published yet.</p>;
+  const short=(id:number)=>data.teams.find(team=>team.id===id)?.short??"—";
+  const fixtures=data.fixtures.filter(fixture=>fixture.event===event.id).sort((a,b)=>Date.parse(a.kickoff??"")-Date.parse(b.kickoff??""));
+  return <div className="coach-page"><section className="fixture-summary"><div><span>OFFICIAL FIXTURES</span><h2>{event.name}</h2><p>Public list for this gameweek. No team is connected.</p></div></section><section className="public-fixtures">{fixtures.map(fixture=><article key={fixture.id}><b>{short(fixture.teamH)} v {short(fixture.teamA)}</b><time>{fixture.kickoff?new Date(fixture.kickoff).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"Time TBC"}</time></article>)}</section></div>;
+}
+
 function MyFixtures({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
+  const teamAuth=useTeamLinkAuth();
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
   const[horizon,setHorizon]=useState(8);
   const[sort,setSort]=useState<"attack"|"defence">("attack");
   const events=futureEvents(data,horizon);
-  if(!squad.length)return <div className="coach-page"><ConnectTeam data={data} onConnected={()=>onTeamChange()}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually first -- this view shows real fixture difficulty for the clubs your own squad's players belong to.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></div>;
+  if(!squad.length&&teamAuth!=="in")return <PublicGameweekFixtures data={data}/>;if(!squad.length)return <div className="coach-page"><ConnectTeam data={data} onConnected={()=>onTeamChange()}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually first -- this view shows real fixture difficulty for the clubs your own squad's players belong to.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></div>;
   const ownedTeamIds=new Set(squad.map(p=>p.teamId));
   const rows=[...computeClubFixtureRows(data,horizon)].filter(row=>ownedTeamIds.has(row.team.id)).sort((a,b)=>sort==="attack"?a.attack-b.attack:a.defence-b.defence);
   return <div className="team-quality-fixtures"><section className="fixture-summary"><div><span>MY SQUAD'S FIXTURES</span><h2>Real fixture difficulty for the clubs you actually own players at.</h2><p>The same club-level difficulty model as the full Fixtures page, narrowed to your own squad -- every player at a club shares that club's real fixture list, so this is per club, not per player.</p></div><div>{[3,5,8].map(value=><button className={horizon===value?"active":""} onClick={()=>setHorizon(value)} key={value}>{value} GW</button>)}</div></section><section className="fixture-ticker"><header><div><span>TEAM</span><button className={sort==="attack"?"active":""} onClick={()=>setSort("attack")}>ATTACK</button><button className={sort==="defence"?"active":""} onClick={()=>setSort("defence")}>DEFENCE</button></div>{events.map(event=><span key={event.id}>{event.name.replace("Gameweek ","GW")}</span>)}</header>{rows.map(row=><FixtureTickerRow row={row} events={events} sort={sort} key={row.team.id}/>)}</section></div>;

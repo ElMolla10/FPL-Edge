@@ -419,3 +419,12 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 /* Season pass sits by the account as a text link, not a full-width bar or a lime button. */
 .pass-link{color:var(--text-muted);font-size:12px;font-weight:500;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
 .pass-link:hover{color:var(--text)}
+
+
+/* Signed-out empty states: an outline pitch, a dimmed coach, and a public fixture list. */
+.pitch-outline .pitch-slot{width:72px;height:88px;border:1px dashed rgba(255,255,255,.5);border-radius:10px}
+.coach-intent-picker.is-dimmed{opacity:.4;pointer-events:none}
+.empty-why{margin:14px 0 0;color:var(--text-muted);font-size:13px}
+.public-fixtures{display:grid;gap:8px}
+.public-fixtures article{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--line);border-radius:8px}
+.public-fixtures time{color:var(--text-muted);font-size:12px}
