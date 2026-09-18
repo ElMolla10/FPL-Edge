@@ -71,6 +71,16 @@ const readIds=(key:string)=>{try{return JSON.parse(localStorage.getItem(key)||"[
 const certainty=(p:FplPlayer)=>p.status!=="a"?"CONFIRMED":projectionMetrics(p,0,[],0).startProbability>.72?"LIKELY":"UNCERTAIN";
 
 export{opponent}from"../lib/fpl";
+
+const PRIMARY_NAV = [
+  ["overview","Overview","⌂"],
+  ["team","Squad","◫"],
+  ["transfers","Transfers","⇄"],
+  ["players","Players","⌕"],
+  ["coach","Coach","♟"],
+] as const;
+function NavLock(){return <em className="nav-lock" aria-label="Locked"/>}
+
 function freshness(updatedAt:string){const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(updatedAt))/60000));return{minutes,label:minutes<2?"just now":`${minutes}m ago`,tone:minutes<=10?"fresh":minutes<=30?"aging":"stale"}}
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
 
@@ -87,7 +97,7 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   // or null when closed -- replaces the old single `more:boolean`. My Squad and Plan are now real
   // multi-item groups on mobile too (not single destinations), so tapping either needs to open
   // its own item list the same way "More" already did, rather than three separate ad-hoc panels.
-  const[mobileOverlay,setMobileOverlay]=useState<string|null>(null);
+  const[mobileOverlay,setMobileOverlay]=useState<string|null>(null);const[sidebarMenu,setSidebarMenu]=useState<"plan"|"research"|null>(null);
   const load=async()=>{setLoading(true);setError("");try{setData(await fetchFplData())}catch(e){setError(e instanceof Error?e.message:"Official FPL data unavailable")}finally{setLoading(false)}};
   useEffect(()=>{load()},[]);
   const currentEvent=data?.events.find(e=>e.current);
@@ -95,22 +105,24 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   useEffect(()=>{const id=window.setInterval(load,isLiveWindow?LIVE_GAMEWEEK_REFRESH_MS:300000);return()=>window.clearInterval(id)},[isLiveWindow]);
   const runSync=()=>{syncWithServer().then(changed=>{if(changed)setRevision(x=>x+1)})};
   useEffect(()=>{runSync()},[]);
-  const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMobileOverlay(null);window.scrollTo({top:0,behavior:"smooth"})};
+  const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(null);window.scrollTo({top:0,behavior:"smooth"})};
   const fresh=data?freshness(data.updatedAt):null;
   const mySquadGroup=navGroups.find(g=>g.label==="My Squad")!,planGroup=navGroups.find(g=>g.label==="Plan")!;
+  const planRest=[...planGroup.items.filter(([key])=>key!=="transfers"),...mySquadGroup.items.filter(([key])=>key!=="team")];
+  const researchRest=navGroups.filter(g=>g.label==="Research"||g.label==="League & History").flatMap(g=>[...g.items]).filter(([key])=>key!=="players");
   const inGroup=(group:NavGroup)=>group.items.some(([key])=>key===view);
   const toggleMobileOverlay=(label:string)=>setMobileOverlay(current=>current===label?null:label);
   const teamAuth=desk==="unknown"?"loading":desk==="visitor"?"out":"in";
   return <TeamLinkAuthProvider value={teamAuth}><main className={desk==="visitor"?"coach-shell signed-out":"coach-shell"}>
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav>{navGroups.map((group,gi)=><div className="coach-nav-group" key={gi}>{group.label&&<span className="coach-nav-label">{group.label}</span>}{group.items.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro">PRO</em>}</span></button>)}</div>)}</nav><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><span className="brand-mark">E</span><span>FPL EDGE</span></button><nav className="coach-primary">{PRIMARY_NAV.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" className={planRest.some(([key])=>key===view)?"active":sidebarMenu==="plan"?"open":""} onClick={()=>setSidebarMenu(m=>m==="plan"?null:"plan")}><i>◇</i><span>Plan</span></button>{sidebarMenu==="plan"&&<div className="sidebar-flyout">{planRest.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}</span>{desk!=="season"&&PRO_VIEWS.has(key)&&<NavLock/>}</button>)}</div>}<button type="button" className={researchRest.some(([key])=>key===view)?"active":sidebarMenu==="research"?"open":""} onClick={()=>setSidebarMenu(m=>m==="research"?null:"research")}><i>◈</i><span>Research</span></button>{sidebarMenu==="research"&&<div className="sidebar-flyout">{researchRest.map(([key,label,icon])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i>{icon}</i><span>{label}</span>{desk!=="season"&&PRO_VIEWS.has(key)&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><span className="brand header-wordmark"><span className="brand-mark">E</span><span>FPL EDGE</span></span><div className="header-tools">{data&&<DeadlineClock data={data}/>}{desk==="visitor"?<div className="signin-action"><a className="team-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a><small>Read-only. We never ask for your FPL password.</small></div>:<AccountBar onAuthChange={runSync} onAccount={onAccount} initialOpen={startAuth}/>}{(desk==="visitor"||desk==="free")&&<a className="pass-link" href="/pay">Season pass, {formatSeasonPassPrice()}</a>}{data&&<CoachDock data={data} go={go} revision={revision}/>}</div></header>
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
     </section>
     {(desk==="free"||desk==="season")&&<footer className="coach-footer"><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>}
     <nav className="coach-mobile-nav"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i>⌂</i>Home</button><button className={mobileOverlay==="My Squad"||inGroup(mySquadGroup)?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i>◫</i>My Squad</button><button className={mobileOverlay==="Plan"||inGroup(planGroup)?"active":""} onClick={()=>toggleMobileOverlay("Plan")}><i>⇄</i>Plan</button><button className={view==="coach"?"active":""} onClick={()=>go("coach")}><i>♟</i>Coach</button><button className={mobileOverlay==="More"?"active":""} onClick={()=>toggleMobileOverlay("More")}><i>•••</i>More</button></nav>
-    {mobileOverlay==="My Squad"&&<div className="mobile-more">{mySquadGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro"> PRO</em>}</button>)}</div>}
-    {mobileOverlay==="Plan"&&<div className="mobile-more">{planGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro"> PRO</em>}</button>)}</div>}
-    {mobileOverlay==="More"&&<div className="mobile-more">{navGroups.filter(g=>g.label==="Research"||g.label==="League & History").map(group=><div className="mobile-more-group" key={group.label}><span>{group.label}</span>{group.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<em className="nav-pro"> PRO</em>}</button>)}</div>)}</div>}
+    {mobileOverlay==="My Squad"&&<div className="mobile-more">{mySquadGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<NavLock/>}</button>)}</div>}
+    {mobileOverlay==="Plan"&&<div className="mobile-more">{planGroup.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<NavLock/>}</button>)}</div>}
+    {mobileOverlay==="More"&&<div className="mobile-more">{navGroups.filter(g=>g.label==="Research"||g.label==="League & History").map(group=><div className="mobile-more-group" key={group.label}><span>{group.label}</span>{group.items.map(([key,label,icon])=><button key={key} onClick={()=>go(key)}><i>{icon}</i>{label}{desk!=="season"&&PRO_VIEWS.has(key)&&<NavLock/>}</button>)}</div>)}</div>}
   </main></TeamLinkAuthProvider>
 }
 

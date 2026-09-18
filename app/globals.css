@@ -441,3 +441,20 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .research-table.wide>header,.research-table.wide>article{grid-template-columns:180px 72px 72px 64px 64px 64px 56px 56px 64px 44px 44px 44px 44px 64px 56px 88px 56px 56px 48px 56px 210px;min-width:1960px}
 .header-tools .coach-dock{position:relative;right:auto;bottom:auto;z-index:6}
 .header-tools .coach-dock>div{top:calc(100% + 8px);bottom:auto;right:0}
+
+
+/* Short sidebar: five destinations, Plan and Research open beside it, Pro is a lock. */
+.coach-sidebar nav{overflow:visible;flex:0 0 auto}
+.sidebar-menus{position:relative;display:flex;flex-direction:column;gap:3px;margin-top:8px;flex:0 0 auto}
+.sidebar-menus>button{border:0;background:transparent;color:var(--text-muted-on-inverse);text-align:left;padding:10px 12px;display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:center;border-radius:6px;font-weight:750;font-size:13px}
+.sidebar-menus>button>i{font-style:normal;font-size:16px;text-align:center}
+.sidebar-menus>button.open{background:#11261c}
+.sidebar-menus>button.active{background:#173026;color:#fff;box-shadow:inset 3px 0 var(--lime)}
+.sidebar-flyout{position:absolute;left:calc(100% + 10px);top:0;width:220px;background:#0b1e16;border:1px solid #254034;border-radius:8px;padding:6px;z-index:40;display:flex;flex-direction:column;gap:2px;box-shadow:10px 16px 36px rgba(0,0,0,.32)}
+.sidebar-flyout button{border:0;background:transparent;color:var(--canvas-light);text-align:left;padding:9px 10px;display:flex;align-items:center;gap:8px;border-radius:6px;font-size:13px;font-weight:700}
+.sidebar-flyout button>i{font-style:normal;width:18px;text-align:center;color:var(--text-muted-on-inverse)}
+.sidebar-flyout button.active{background:#173026;color:#fff}
+.sidebar-flyout button>span{display:flex;align-items:center;gap:8px;flex:1}
+.nav-lock{margin-left:auto;width:10px;height:7px;border:1.5px solid #9aaba2;border-radius:0 0 2px 2px;position:relative;flex:0 0 auto}
+.nav-lock:before{content:"";position:absolute;left:1px;top:-5px;width:4px;height:3px;border:1.5px solid #9aaba2;border-bottom:0;border-radius:5px 5px 0 0}
+.coach-sidebar button.active .nav-lock,.coach-sidebar button.active .nav-lock:before,.sidebar-flyout button.active .nav-lock,.sidebar-flyout button.active .nav-lock:before,.mobile-more .nav-lock,.mobile-more .nav-lock:before{border-color:#9aaba2}
