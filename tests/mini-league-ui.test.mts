@@ -44,10 +44,11 @@ function render(state: MiniLeagueUiState, entryId: number | null = 7) {
 test("Coach navigation exposes a Mini-League destination", () => {
   const html = renderToStaticMarkup(createElement(CoachApp, { onBack: () => {} }));
   // First paint is the short sidebar. Mini-League is not one of those five items.
-  for (const label of ["Overview", "Squad", "Transfers", "Players", "Coach", "Plan", "Research"]) {
+  for (const label of ["Overview", "Squad", "Transfers", "Players", "Coach", "Research", "PRO"]) {
     assert.match(html, new RegExp(`>${label}<`));
   }
   assert.doesNotMatch(html, />Mini-League</);
+  assert.doesNotMatch(html, />Draft lab</);
   // It remains a destination, opened from Research with the other league tools.
   const source = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
   assert.match(source, /\["league","Mini-League"/);

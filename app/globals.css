@@ -462,3 +462,9 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 
 /* Manual path: an outline button, so it does not disappear into the dark card. */
 .empty-command button,.wide-action{background:transparent;color:var(--text);border:1.5px solid currentColor;border-radius:8px}
+
+.sidebar-drop{display:flex;flex-direction:column;gap:1px;margin:2px 0 6px 10px}
+.sidebar-drop button{border:0;background:transparent;color:var(--text-muted-on-inverse);text-align:left;padding:8px 10px;display:flex;align-items:center;gap:8px;border-radius:6px;font-size:13px;font-weight:700}
+.sidebar-drop button>i{font-style:normal;width:18px;text-align:center}
+.sidebar-drop button>span{display:flex;align-items:center;gap:8px;flex:1}
+.sidebar-drop button.active{background:#173026;color:#fff}
