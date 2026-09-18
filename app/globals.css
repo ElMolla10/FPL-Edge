@@ -534,8 +534,13 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 
   .pitch-outline{min-height:0;height:min(520px,calc(100dvh - 250px));margin-bottom:8px}
   .pitch-outline .pitch-slot{width:56px;height:64px}
-  .coach-pitch-row{width:100%;min-width:0;gap:4px}
-  .coach-pitch-row button{width:auto;max-width:none;flex:1 1 0;min-width:0}
+  .coach-pitch-row{width:100%;min-width:0;gap:4px;justify-content:center}
+  /* Do not grow to the row. A lone goalkeeper was flex:1 and became the full pitch width. */
+  .coach-pitch{min-height:0;padding:14px 8px 16px;justify-content:space-evenly;gap:8px}
+  .coach-pitch-row button{flex:0 1 62px;width:62px;max-width:62px;min-width:46px;min-height:78px;padding:5px 2px}
+  .coach-pitch-row button>b{font-size:9px;line-height:1.15;max-width:100%;text-align:center}
+  .coach-pitch-row button>b em{font-size:8px;padding:1px 3px;margin-left:2px}
+  .coach-pitch-row button>span,.coach-pitch-row button>small{max-width:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
   .player-count{flex-direction:row;align-items:center;justify-content:flex-start;padding:2px 0 8px;background:transparent}
   .player-count>div{display:none}
@@ -639,3 +644,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .paper-row{display:grid;grid-template-columns:96px minmax(0,1fr);column-gap:16px;align-items:baseline}
   .paper-price{grid-template-columns:1fr 1fr}
 }
+
+.sidebar-drop button>i{width:22px;flex:0 0 22px}
+.coach-sidebar button>i>svg,.sidebar-drop button>i>svg,.coach-mobile-nav button>i>svg,.sidebar-pro-btn>i>svg{display:block;width:22px;height:22px;flex:0 0 auto}
+.sidebar-menus>button.active>i:first-child,.coach-sidebar nav button.active>i{color:var(--lime)}
