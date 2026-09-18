@@ -397,3 +397,12 @@
 .connect-hero a.team-signin,.team-import a.team-signin,.history-connect a.team-signin{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;background:var(--lime);color:var(--ink);padding:0 16px;font-weight:900;text-decoration:none;text-align:center}
 .team-import a.team-signin{background:var(--ink);color:var(--text-on-inverse);font-size:8px}
 a.team-open{display:block;text-align:center;text-decoration:none}
+
+
+/* One app header: wordmark, deadline, and account. The large page title no longer repeats the sidebar label. */
+.coach-header{align-items:center}
+.header-wordmark{color:var(--text);font-size:16px}
+.header-tools{display:flex;align-items:center;gap:12px;margin-left:auto}
+.coach-header .account-bar{margin-top:0;min-width:0}
+@media(max-width:850px){.coach-header{flex-wrap:wrap;gap:12px}.header-tools{width:100%;justify-content:space-between}}
+@media(max-width:560px){.coach-header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}.coach-header .deadline-chip{width:auto;min-width:160px}}
