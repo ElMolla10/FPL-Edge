@@ -4,7 +4,7 @@ Kill switch: set `FPL_EDGE_PERSONAL_TRANSFER_EXEC` to anything other than `1`, o
 
 ## Why this exists
 
-Edge recommends transfers. The official FPL site is where they are placed. This module is a **personal-only** path so Mohamed can place a recommended transfer on **his** FPL team from Edge. It is not marketed. Public copy stays read-only.
+Edge recommends transfers. The official FPL site is where they are placed. This module is a **personal-only** path so Mohamed can place **any** chosen single transfer (not only the top recommendation) on **his** FPL team from Edge — via Transfers ranked routes, Draft Lab pitch sandbox, or the recommended-move shortcut. It is not marketed. Public copy stays read-only.
 
 ## Auth (2025/26)
 

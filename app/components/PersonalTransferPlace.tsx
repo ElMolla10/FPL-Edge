@@ -14,6 +14,7 @@ export default function PersonalTransferPlace({
   purchasePrice,
   outName,
   inName,
+  note,
 }: {
   elementOut: number;
   elementIn: number;
@@ -21,6 +22,8 @@ export default function PersonalTransferPlace({
   purchasePrice: number;
   outName: string;
   inName: string;
+  /** Optional context line (e.g. sandbox / ranked route). */
+  note?: string;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,7 +44,12 @@ export default function PersonalTransferPlace({
     };
   }, []);
 
+  useEffect(() => {
+    setMessage("");
+  }, [elementOut, elementIn, event]);
+
   if (!status?.enabled) return null;
+  if (!Number.isFinite(elementOut) || !Number.isFinite(elementIn) || elementOut <= 0 || elementIn <= 0) return null;
 
   const purchasePriceTenths = Math.round(purchasePrice * 10);
   const run = async (confirmed: boolean) => {
@@ -81,6 +89,7 @@ export default function PersonalTransferPlace({
       <span>PERSONAL FPL</span>
       <p>
         Place <b>{outName}</b> → <b>{inName}</b> on your allowlisted FPL team. Uses your stored FPL session token — Edge still never asks for your FPL password.
+        {note ? <> {note}</> : null}
       </p>
       <div>
         <button type="button" disabled={busy} onClick={() => run(false)}>
