@@ -13,6 +13,7 @@ import { usePopulationPercentiles } from "./usePopulationPercentiles";
 import { estimateRankDistribution, estimateLiveRankResult, LiveRankResult } from "../lib/rank-estimate-core";
 import { clubLineupCandidates, LINEUP_POSITIONS, LineupCandidate } from "../lib/lineup-intelligence";
 import Pitch from "./Pitch";
+import PersonalTransferPlace from "./PersonalTransferPlace";
 import { Chip, ChipPortfolioPanel, ChipScores, LiveChips, LiveHistory, chipScoresForEvent, useConnectedChipHistory } from "./LiveIntelligence";
 import { PlannedChip, computeChipInventory, plannedChipFor, readPlannedChips, removePlannedChip, writePlannedChips } from "../lib/chip-portfolio";
 import { CaptaincyResolution, resolveCaptainSwap, resolveCaptaincy } from "../lib/captaincy";
@@ -852,6 +853,7 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
         <p>{roll?"No actionable single transfer clears both the 2.2-point threshold and the projection-evidence, minutes and robustness gates.":`This is the highest-ranked legal route that passed every quality gate. ${best.risk} minutes risk.`}</p>
         {!roll&&<div>{[["GW","1",best.gain1],["NEXT","3",best.gain3],["NEXT","5",best.gain5]].map(([label,n,value])=><span key={String(n)}><small>{label} {n}</small><b>{Number(value)>=0?"+":""}{Number(value).toFixed(1)} pts</b></span>)}<span><small>PRICE DIFFERENCE</small><b>{`${best.price>=0?"+":"−"}£${Math.abs(best.price).toFixed(1)}m`}</b></span><span><small>EXPECTED MINUTES</small><b>{`${best.minutes>=0?"+":""}${Math.round(best.minutes)}`}</b></span><span><small>TRANSFER HIT</small><b>{best.hitCost?`−${best.hitCost}`:"None"}</b></span><span><small>NET (AFTER HIT)</small><b>{best.netDifference>=0?"+":""}{best.netDifference.toFixed(1)} pts</b></span>{best.utilityChange!==null&&<span><small>RISK-ADJUSTED OBJECTIVE</small><b>{best.utilityChange>=0?"+":""}{best.utilityChange.toFixed(1)}</b><em>Optimizer objective; not the /100 team rating</em></span>}</div>}
         <strong>{roll?"Recommendation: SAVE THE TRANSFER":best.gain1-best.hitCost>0?"Recommendation: MOVE NOW":"Recommendation: WAIT / RECHECK"}</strong>
+        {!roll&&a&&<PersonalTransferPlace elementOut={best.out.id} elementIn={best.incoming.id} event={a.first} purchasePrice={best.incoming.price} outName={best.out.name} inName={best.incoming.name}/>}
       </section>
       {!roll&&fullDesk&&<section className="primary-transfer-confidence" aria-label="Primary transfer Decision Confidence">
         <header><span>DECISION CONFIDENCE</span><h2>Primary transfer scenario analysis</h2><p>This analysis is separate from the Actionable / Watchlist / Blocked quality gate and does not change transfer ordering.</p></header>

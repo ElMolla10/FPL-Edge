@@ -689,3 +689,12 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .chip-actions-row{grid-template-columns:1fr 1fr}
   .chip-action-triple-captain{padding:10px}
 }
+
+/* Personal-only FPL transfer execution. Hidden for everyone unless the server enables it. */
+.personal-transfer-place{margin-top:16px;padding:14px;border:1px solid var(--wline);border-radius:8px;background:rgba(255,255,255,.04);display:flex;flex-direction:column;gap:8px}
+.personal-transfer-place>span{font-size:9px;font-weight:900;letter-spacing:.12em;color:var(--lime)}
+.personal-transfer-place>p{margin:0;font-size:12px;line-height:1.45;color:var(--text-muted-on-inverse)}
+.personal-transfer-place>div{display:flex;flex-wrap:wrap;gap:8px}
+.personal-transfer-place button{border:0;background:var(--lime);color:var(--ink);padding:10px 12px;font-size:11px;font-weight:800}
+.personal-transfer-place button:disabled{opacity:.55}
+.personal-transfer-place small{font-size:11px;color:var(--text-on-inverse)}
