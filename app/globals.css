@@ -406,3 +406,11 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .coach-header .account-bar{margin-top:0;min-width:0}
 @media(max-width:850px){.coach-header{flex-wrap:wrap;gap:12px}.header-tools{width:100%;justify-content:space-between}}
 @media(max-width:560px){.coach-header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}.coach-header .deadline-chip{width:auto;min-width:160px}}
+
+
+/* Signed out: one Sign in in the header. The sticky account/team bar is not shown. */
+.signin-action{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.signin-action .team-signin{min-height:36px;padding:0 14px}
+.signin-action small{max-width:240px;font-size:11px;line-height:1.35;color:var(--text-muted);text-align:right}
+.coach-shell.signed-out .coach-main{padding-bottom:28px}
+@media(max-width:850px){.coach-shell.signed-out .coach-main{padding-bottom:88px}.signin-action{align-items:flex-start}.signin-action small{text-align:left}}
