@@ -32,7 +32,25 @@ export function BuilderPitchPlayerCard({player,projectedPoints,complete,selected
   player:Player;projectedPoints:string;complete:boolean;selected:boolean;swapTarget:boolean;showPin:boolean;pinned:boolean;
   onSelect:()=>void;onTogglePin:()=>void;onRemove:()=>void;showChipButton?:boolean;chipApplied?:boolean;onApplyChip?:()=>void;
 }){
-  return <article className={`${selected?"selected-player":""} ${swapTarget?"swap-target":""}`.trim()}><button type="button" className="player-transfer-select" aria-label={complete?`Select ${player.name} for transfer`:`Select ${player.name}`} onClick={onSelect}><div className="mini-shirt">{player.positionShort}</div><b>{player.name}</b><small>{player.teamShort} · £{player.price.toFixed(1)}m</small><span>{projectedPoints} xPts</span></button>{showPin&&<button type="button" className={`pin-toggle ${pinned?"active":""}`} aria-label={`${pinned?"Unpin":"Pin"} ${player.name}`} onClick={onTogglePin}>{pinned?"Pinned":"Pin"}</button>}<button type="button" className="remove-player" aria-label={`Remove ${player.name}`} onClick={onRemove}>×</button>{showChipButton&&<button type="button" className={`apply-chip-button ${chipApplied?"applied":""}`} onClick={onApplyChip} aria-label={`Apply Triple Captain to ${player.name}`} title={`Apply Triple Captain to ${player.name}`}>{chipApplied?"TC applied ✓":"Apply TC"}</button>}</article>;
+  return <article className={`${selected?"selected-player":""} ${swapTarget?"swap-target":""}`.trim()}><button type="button" className="player-transfer-select" aria-label={complete?`Select ${player.name} for transfer`:`Select ${player.name}`} onClick={onSelect}><div className="mini-shirt">{player.positionShort}</div><b>{player.name}</b><small>{player.teamShort} · £{player.price.toFixed(1)}m</small><span>{projectedPoints} xPts</span></button>{showPin&&<button type="button" className={`pin-toggle ${pinned?"active":""}`} aria-label={`${pinned?"Unpin":"Pin"} ${player.name}`} onClick={onTogglePin}>{pinned?"Pinned":"Pin"}</button>}<button type="button" className="remove-player" aria-label={`Remove ${player.name}`} onClick={onRemove}>×</button>{chipApplied&&<em className="tc-mark" aria-label="Triple Captain">TC</em>}{showChipButton&&<button type="button" className={`apply-chip-button ${chipApplied?"applied":""}`} onClick={onApplyChip} aria-label={`Apply Triple Captain to ${player.name}`} title={`Apply Triple Captain to ${player.name}`}>{chipApplied?"TC applied ✓":"Apply TC"}</button>}</article>;
+}
+
+// Chip Application card, matching Bench Boost. Arming a pick is its own mode: the button
+// does not select a swap-out player. Cancel, or a successful pick, clears the arm so the
+// next pitch click compares a replacement again.
+export function TripleCaptainAction({plannedEvent,armedWeek,onPlan,onCancel,onRemove}:{
+  plannedEvent:number|null;armedWeek:number|null;onPlan:()=>void;onCancel:()=>void;onRemove:()=>void;
+}){
+  return <div className="chip-action-triple-captain">
+    <b>Triple Captain</b>
+    {plannedEvent!=null&&<span className="chip-portfolio-unmodeled">Planned for GW{plannedEvent}.</span>}
+    {armedWeek!=null&&<small>Tap an owned player on the pitch for GW{armedWeek}. Transfer clicks resume after you pick or cancel.</small>}
+    {plannedEvent!=null
+      ?<button type="button" onClick={onRemove}>Remove Triple Captain plan</button>
+      :armedWeek!=null
+        ?<button type="button" onClick={onCancel}>Cancel</button>
+        :<button type="button" onClick={onPlan}>Plan Triple Captain</button>}
+  </div>;
 }
 
 // Search-space concern, not a scoring concern: optimize() and optimizeConstrained() both call the
@@ -79,6 +97,32 @@ export function resolveResultModeDispatch(resultMode:ResultMode,pinnedIds:Set<nu
   if(resultMode==="Practical Upgrade")return{kind:"optimizeConstrained",maxChanges:PRACTICAL_UPGRADE_MAX_CHANGES,lockedPlayerIds:new Set()};
   if(resultMode==="Keep Core")return{kind:"optimizeConstrained",maxChanges:KEEP_CORE_MAX_CHANGES,lockedPlayerIds:pinnedIds};
   return{kind:"optimize"};
+}
+
+// Triple Captain pick is a temporary mode, not a second chip store and not the transfer
+// sandbox. While armed, a pitch click applies the chip. After a successful pick, cancel,
+// or remove, the arm is clear and the same click is a swap again (or an insight click if
+// the squad is not complete). A failed apply keeps the arm so the user can still cancel.
+export type PitchClickIntent="triple-captain"|"swap"|"insight";
+export function pitchClickIntent(tcArmed:boolean,squadComplete:boolean):PitchClickIntent{
+  if(tcArmed)return"triple-captain";
+  return squadComplete?"swap":"insight";
+}
+export type TripleCaptainArmAction="arm"|"picked"|"cancel"|"failed";
+export function nextTripleCaptainArm(current:number|null,action:TripleCaptainArmAction,week:number|null):number|null{
+  if(action==="arm")return week;
+  if(action==="failed")return current;
+  return null;
+}
+// Save as plan has one plannedChip slot, the same slot Wildcard/Free Hit already use.
+// An explicit Wildcard/Free Hit tag wins. Otherwise a planned Triple Captain is copied
+// onto that slot so the plan keeps it. No player id lives on the plan; the mark is the
+// session appliedChip plus the captain write applyTripleCaptain already makes.
+export function planChipTagForSave(loaded:Readonly<{chip:Chip;event:number}>|undefined,explicit:Readonly<{chip:Chip;event:number}>|null,planned:readonly PlannedChip[]):Readonly<{chip:Chip;event:number}>|undefined{
+  if(explicit)return explicit;
+  const tripleCaptain=planned.find(p=>p.chip==="Triple Captain");
+  if(tripleCaptain)return{chip:"Triple Captain",event:tripleCaptain.event};
+  return loaded;
 }
 
 // Pure validation core of a pitch-click swap, extracted so each rejection path is directly unit
@@ -139,6 +183,8 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
   const [chipPanel,setChipPanel]=useState<{chip:Chip;player:Player|null}|null>(null);
   const [chipPanelWeek,setChipPanelWeek]=useState<number|null>(null);
   const [chipError,setChipError]=useState("");
+  // Null means Triple Captain pick is not armed. Pitch clicks stay on the transfer sandbox.
+  const [tcArmedWeek,setTcArmedWeek]=useState<number|null>(null);
   // Wildcard/Free Hit toggle inside the Save as Plan step -- looser-coupled than Triple Captain's
   // atomic write: a saved plan is fully useful on its own even if the chip application fails, so a
   // planChip rejection here doesn't block the plan save, only its own chip step.
@@ -231,24 +277,37 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
     const currentIds=(sandbox?.currentSquad??squad).map(p=>p.id);
     if(!currentIds.includes(appliedChip.playerId))setAppliedChip(null);
   },[squad,sandbox,appliedChip]);
+  // The plan slot stores the chip and gameweek, not the player. The mark follows the captain
+  // write Triple Captain already made, so a reload still shows who was chosen.
+  useEffect(()=>{
+    if(appliedChip)return;
+    const tripleCaptain=plannedChips.find(p=>p.chip==="Triple Captain");
+    if(!tripleCaptain)return;
+    const id=Number(localStorage.getItem(`fpl-edge-captain-${tripleCaptain.event}`));
+    if(!Number.isFinite(id)||id<=0)return;
+    const owned=(sandbox?.currentSquad??squad).some(p=>p.id===id);
+    if(owned)setAppliedChip({playerId:id,event:tripleCaptain.event});
+  },[plannedChips,squad,sandbox,appliedChip]);
   // Validate the chip plan FIRST -- a rejection (e.g. GW already holds a different chip) must never
   // leave a half-applied state: captaincy set with no matching plan, or vice versa. Writes both
   // storages via resolveCaptainSwap's exact vice-preserving rule, the same one useCaptaincy uses.
   const applyTripleCaptain=(player:Player,eventId:number)=>{
-    if(!data)return;
+    if(!data)return false;
     const result=planChip(plannedChips,{event:eventId,chip:"Triple Captain"});
-    if(!result.ok){setChipError(result.reason);return}
+    if(!result.ok){setChipError(result.reason);return false}
     let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}
     const baseline=sandbox?.currentSquad??squad;
     const storedCaptain=Number(localStorage.getItem(`fpl-edge-captain-${eventId}`));
     const storedVice=Number(localStorage.getItem(`fpl-edge-vice-${eventId}`));
     const current=resolveCaptaincy(baseline,storedCaptain,storedVice,manager?.captainId,manager?.viceCaptainId,undefined,undefined);
-    if(!current)return;
+    if(!current)return false;
     const next=resolveCaptainSwap(current.captainId,current.viceId,player.id);
     persist(`fpl-edge-captain-${eventId}`,String(next.captainId));persist(`fpl-edge-vice-${eventId}`,String(next.viceId));
     setChipError("");setPlannedChips(result.plannedChips);writePlannedChips(result.plannedChips);
     setAppliedChip({playerId:player.id,event:eventId});setChipPanel(null);setChipPanelWeek(null);
+    setTcArmedWeek(week=>nextTripleCaptainArm(week,"picked",null));
     setMessage(`${player.name} set as Triple Captain for GW${eventId}.`);
+    return true;
   };
   // Bench Boost is deliberately NOT player-specific -- a gameweek-level toggle, no pitch click.
   const applyBenchBoost=(eventId:number)=>{
@@ -268,6 +327,23 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
     const candidates=chipCandidates(chip);
     const defaultWeek=eventIds.length&&candidates.some(c=>c.event.id===eventIds[0])?eventIds[0]:candidates[0]?.event.id??null;
     setChipPanel({chip,player});setChipPanelWeek(defaultWeek);setChipError("");
+  };
+  const armTripleCaptain=()=>{
+    const candidates=chipCandidates("Triple Captain");
+    const week=eventIds.length&&candidates.some(c=>c.event.id===eventIds[0])?eventIds[0]:candidates[0]?.event.id??null;
+    if(week==null){setChipError("No legal remaining week found for this chip.");return}
+    setTcArmedWeek(current=>nextTripleCaptainArm(current,"arm",week));setSwapOutId(null);setChipError("");
+    setMessage(`Tap an owned player to set Triple Captain for GW${week}. Cancel to compare transfers again.`);
+  };
+  const cancelTripleCaptainPick=()=>{
+    setTcArmedWeek(current=>nextTripleCaptainArm(current,"cancel",null));
+    setMessage("Triple Captain pick cancelled. Pitch clicks compare replacements again.");
+  };
+  const removeTripleCaptain=()=>{
+    const next=removePlannedChip(plannedChips,"Triple Captain");
+    setPlannedChips(next);writePlannedChips(next);setAppliedChip(null);
+    setTcArmedWeek(current=>nextTripleCaptainArm(current,"cancel",null));
+    setMessage("Triple Captain plan removed. Pitch clicks compare replacements again.");
   };
   const loadedPlan=loadedPlanId?readPlans().find(p=>p.id===loadedPlanId)??null:null;
   const financialContext=useMemo(()=>data?(sandbox?.financialContext??deriveSandboxFinancialContext(squad,data.rules.budget,managerMeta)):null,[data,sandbox,squad,managerMeta]);
@@ -355,6 +431,12 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
   const filtered=useMemo(()=>data?.players.filter(p=>(poolPosition==="ALL"||p.positionShort===poolPosition)&&(team==="ALL"||String(p.teamId)===team)&&(`${p.name} ${p.firstName} ${p.secondName}`).toLowerCase().includes(query.toLowerCase())).sort((a,b)=>b.epNext-a.epNext||b.pointsPerGame-a.pointsPerGame).slice(0,explorer?100:60)??[],[data,poolPosition,team,query,explorer]);
   useEffect(()=>{if(!swapOutId)return;searchRef.current?.focus({preventScroll:true});poolRef.current?.scrollIntoView({behavior:"smooth",block:"start"});},[swapOutId]);
   const beginSwap=(player:Player)=>{if(!complete)return;setSelectedInsight(player.id);setPosition(player.positionShort);setQuery("");setTeam("ALL");setSwapOutId(player.id);setMessage(`${player.name} selected. The replacement pool is locked to ${player.positionShort}.`);};
+  const onPitchPlayer=(player:Player)=>{
+    const intent=pitchClickIntent(tcArmedWeek!=null,complete);
+    if(intent==="triple-captain"){if(tcArmedWeek!=null)applyTripleCaptain(player,tcArmedWeek);return}
+    if(intent==="swap")beginSwap(player);
+    else setSelectedInsight(player.id);
+  };
   const add=(player:Player)=>{ if(!data)return; if(squad.some(p=>p.id===player.id))return; const rule=data.rules.positions.find(r=>r.id===player.positionId)!; if(squad.filter(p=>p.positionId===player.positionId).length>=rule.squad){setMessage(`Remove a ${rule.short} before adding another.`);return;} if(squad.filter(p=>p.teamId===player.teamId).length>=data.rules.teamLimit){setMessage(`Maximum ${data.rules.teamLimit} players from ${player.teamName}.`);return;} if(cost+player.price>data.rules.budget+.001){setMessage(`That selection exceeds the £${data.rules.budget.toFixed(1)}m budget.`);return;} setSquad(x=>[...x,player]);setSavedAt(null);setSwapOutId(null);setSandbox(null);setLoadedPlanId(null);setMessage(`${player.name} added from the official FPL list.`); };
   const remove=(id:number)=>{const player=squad.find(p=>p.id===id);setSquad(x=>x.filter(p=>p.id!==id));setSavedAt(null);setPinnedIds(prev=>prev.has(id)?new Set([...prev].filter(x=>x!==id)):prev);setSwapOutId(prev=>prev===id?null:prev);setSandbox(null);setLoadedPlanId(null);if(player)setMessage(`${player.name} removed. Choose a replacement below.`);};
   // Applies a pitch-click swap in one atomic setSquad call (not remove() then add()) so club-limit
@@ -406,6 +488,8 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
       const result=planChip(plannedChips,{event:saveAsPlanWeek,chip:saveAsPlanChip});
       if(result.ok){setPlannedChips(result.plannedChips);writePlannedChips(result.plannedChips);chipTag={chip:saveAsPlanChip,event:saveAsPlanWeek}}
       else{setChipError(result.reason)}
+    }else{
+      chipTag=planChipTagForSave(chipTag,null,plannedChips);
     }
     // Updating in place refreshes savedUnder to the CURRENT settings -- the point of updating is
     // "this now reflects my current edits under my current settings", the same thing a fresh save
@@ -426,17 +510,20 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
     <section className="live-source"><div><span className="live-dot"/><b>OFFICIAL FPL DATA</b><small>{data.players.length} current players · prices refresh every 5 minutes · updated {new Date(data.updatedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</small></div><button onClick={load} disabled={loading}>{loading?"Refreshing…":"Refresh now"}</button></section>
     {!explorer&&<>{teamAuth==="in"?<section className="team-import"><div><span>IMPORT OFFICIAL TEAM</span><b>Enter your FPL Team ID</b><small>Found in your official team URL. Public picks can be imported after the gameweek deadline.</small></div><div><input value={teamId} onChange={e=>setTeamId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID"/><button onClick={importTeam} disabled={importing}>{importing?"Importing…":"Fetch my squad"}</button></div></section>:<section className="team-import"><div><span>IMPORT OFFICIAL TEAM</span><b>Sign in to connect your team</b><small>Your official FPL team id belongs to your email account. Public picks still load only after the deadline.</small></div></section>}<section className="optimizer-controls"><div><span>TIME HORIZON</span>{(["GW1 Attack","Next 3 GWs","Balanced 5 GWs","Long-term 8 GWs"] as HorizonMode[]).map(mode=><button className={horizonMode===mode?"active":""} onClick={()=>setHorizonMode(mode)} key={mode}>{mode}</button>)}</div><div><span>RISK PROFILE</span>{(["Safe","Balanced","Aggressive"] as RiskMode[]).map(mode=><button className={riskMode===mode?"active":""} onClick={()=>setRiskMode(mode)} key={mode}>{mode}</button>)}</div><div><span>SQUAD PHILOSOPHY</span>{(["Maximum xPts","Flexible","Strong Bench","Premium Heavy","Differential"] as SquadPhilosophy[]).map(mode=><button className={philosophy===mode?"active":""} onClick={()=>setPhilosophy(mode)} key={mode}>{mode}</button>)}</div><div className="structure-presets"><span>QUICK STRUCTURES</span><button onClick={()=>{setRiskMode("Balanced");setPhilosophy("Maximum xPts")}}>Maximum Expected Points</button><button onClick={()=>{setRiskMode("Safe");setPhilosophy("Flexible")}}>Safer</button><button onClick={()=>{setRiskMode("Aggressive");setPhilosophy("Differential")}}>Higher Upside</button></div><div className="result-mode-group"><span>RESULT MODE</span>{(["Pure Optimum","Practical Upgrade","Keep Core"] as ResultMode[]).map(mode=><button className={resultMode===mode?"active":""} onClick={()=>setResultMode(mode)} key={mode}>{mode}</button>)}</div><p className="mode-help">{horizonMode==="GW1 Attack"?"Heavily prioritises the immediate gameweek.":horizonMode==="Next 3 GWs"?"Attacks the short fixture run with limited future weight.":horizonMode==="Balanced 5 GWs"?"Balances immediate points with five-gameweek planning.":"Keeps eight-gameweek structure and flexibility in view."} {riskMode==="Safe"?"Minutes security is prioritised.":riskMode==="Aggressive"?"Volatility and ceiling receive more weight.":"Risk and upside are balanced."} {philosophy} shapes the squad structure. {resultMode==="Practical Upgrade"?`Practical Upgrade searches up to ${PRACTICAL_UPGRADE_MAX_CHANGES} simultaneous changes from your current squad.`:resultMode==="Keep Core"?`Keep Core protects ${pinnedIds.size} pinned player${pinnedIds.size===1?"":"s"} and searches up to ${KEEP_CORE_MAX_CHANGES} simultaneous changes among the rest — pin players on the pitch below.`:"Pure Optimum rebuilds the squad from the entire player pool, with no constraint from your current picks."}</p></section><section className="builder-toolbar"><div><small>SQUAD</small><b>{squad.length} / {data.rules.squadSize}</b></div><div><small>SPENT</small><b>£{cost.toFixed(1)}m</b></div><div><small>REMAINING</small><b>£{Math.max(0,data.rules.budget-cost).toFixed(1)}m</b></div><button className="clear-squad" onClick={()=>{setSquad([]);setSavedAt(null);setSelectedInsight(null);setPinnedIds(new Set());setSwapOutId(null);setSandbox(null);setLoadedPlanId(null);setMessage("Squad cleared. Build it your way.");}}>Clear squad</button><button className="best-squad" onClick={buildBestSquad}>Build best squad</button><button className="save-squad" onClick={saveSquad}>{savedAt?`Saved ${savedAt} ✓`:"Save squad"}</button></section>
     <div className="builder-message">{message}</div>
-    {complete&&<section className={`sandbox-toolbar ${swapOutId?"active":""}`}><div><span>TRANSFER SANDBOX</span><b>{swapOut?`${swapOut.name} selected for transfer`:`Click any owned player on the pitch to compare a live replacement.`}</b><small>The pool locks to the same position; every legal move immediately recalculates XI, bench, formation, captaincy, rating and bank.</small></div><div><strong>{sandbox?.history.length??0} sandbox action{sandbox?.history.length===1?"":"s"}</strong><button type="button" onClick={undoLastTransfer} disabled={!sandbox?.history.length}>Undo last</button><button type="button" onClick={resetAllTransfers} disabled={!sandbox?.history.length}>Reset all</button><button type="button" onClick={saveAsPlan} disabled={!sandbox||(!loadedPlanId&&readPlans().length>=MAX_PLANS)} title={!sandbox?"Make at least one sandbox change first":(!loadedPlanId&&readPlans().length>=MAX_PLANS)?`You already have ${MAX_PLANS} saved plans, the maximum`:undefined}>{loadedPlanId?"Save as plan…":"Save as plan"}</button></div></section>}
+    {complete&&<section className={`sandbox-toolbar ${swapOutId?"active":""}`}><div><span>TRANSFER SANDBOX</span><b>{tcArmedWeek!=null?`Triple Captain armed for GW${tcArmedWeek}. Tap an owned player, then transfer clicks work again.`:swapOut?`${swapOut.name} selected for transfer`:`Click any owned player on the pitch to compare a live replacement.`}</b><small>The pool locks to the same position; every legal move immediately recalculates XI, bench, formation, captaincy, rating and bank.</small></div><div><strong>{sandbox?.history.length??0} sandbox action{sandbox?.history.length===1?"":"s"}</strong><button type="button" onClick={undoLastTransfer} disabled={!sandbox?.history.length}>Undo last</button><button type="button" onClick={resetAllTransfers} disabled={!sandbox?.history.length}>Reset all</button><button type="button" onClick={saveAsPlan} disabled={!sandbox||(!loadedPlanId&&readPlans().length>=MAX_PLANS)} title={!sandbox?"Make at least one sandbox change first":(!loadedPlanId&&readPlans().length>=MAX_PLANS)?`You already have ${MAX_PLANS} saved plans, the maximum`:undefined}>{loadedPlanId?"Save as plan…":"Save as plan"}</button></div></section>}
     {complete&&<section className="chip-actions-panel">
       <header><span>CHIP APPLICATION</span><h3>Plan a chip against this squad.</h3></header>
       {chipError&&<p className="chip-portfolio-error">{chipError}</p>}
       <div className="chip-actions-row">
+        <div className="chip-actions-stack">
         <div className="chip-action-bench-boost">
           <b>Bench Boost</b>
           {plannedChips.find(p=>p.chip==="Bench Boost")&&<span className="chip-portfolio-unmodeled">Planned for GW{plannedChips.find(p=>p.chip==="Bench Boost")!.event}.</span>}
           {plannedChips.some(p=>p.chip==="Bench Boost")
             ?<button type="button" onClick={removeBenchBoost}>Remove Bench Boost plan</button>
             :<button type="button" onClick={()=>openChipPanel("Bench Boost",null)}>Plan Bench Boost</button>}
+        </div>
+        <TripleCaptainAction plannedEvent={plannedChips.find(p=>p.chip==="Triple Captain")?.event??null} armedWeek={tcArmedWeek} onPlan={armTripleCaptain} onCancel={cancelTripleCaptainPick} onRemove={removeTripleCaptain}/>
         </div>
         <div className="chip-action-wildcard">
           <b>Wildcard / Free Hit</b>
@@ -457,7 +544,7 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
         <button type="button" onClick={()=>{setChipPanel(null);setChipPanelWeek(null)}}>Cancel</button>
       </div>}
     </section>}
-    <section className="builder-pitch" aria-label={complete?"Transfer Sandbox interactive squad pitch":"Squad builder pitch"}><div className="pitch-box"/>{data.rules.positions.map(rule=><div className={`builder-pitch-row row-${rule.short.toLowerCase()}`} key={rule.id}>{[...squad.filter(p=>p.positionId===rule.id),...Array.from({length:Math.max(0,rule.squad-squad.filter(p=>p.positionId===rule.id).length)},()=>null)].map((player,i)=>player?<BuilderPitchPlayerCard key={player.id} player={player} projectedPoints={eventIds.length?playerProjection(player,eventIds[0],data.fixtures,eventIds[0]).toFixed(1):"—"} complete={complete} selected={selectedInsight===player.id} swapTarget={swapOutId===player.id} showPin={resultMode==="Keep Core"} pinned={pinnedIds.has(player.id)} onSelect={()=>complete?beginSwap(player):setSelectedInsight(player.id)} onTogglePin={()=>togglePin(player.id)} onRemove={()=>remove(player.id)} showChipButton={!!(complete&&manualEvaluation&&manualEvaluation.weeks[0].xi.some(x=>x.id===player.id))} chipApplied={appliedChip?.playerId===player.id} onApplyChip={()=>openChipPanel("Triple Captain",player)}/>:<button type="button" className="pitch-empty" key={`empty-${i}`} onClick={()=>setPosition(rule.short)}><i>+</i><span>Add {rule.short}</span></button>)}</div>)}</section>
+    <section className="builder-pitch" aria-label={complete?"Transfer Sandbox interactive squad pitch":"Squad builder pitch"}><div className="pitch-box"/>{data.rules.positions.map(rule=><div className={`builder-pitch-row row-${rule.short.toLowerCase()}`} key={rule.id}>{[...squad.filter(p=>p.positionId===rule.id),...Array.from({length:Math.max(0,rule.squad-squad.filter(p=>p.positionId===rule.id).length)},()=>null)].map((player,i)=>player?<BuilderPitchPlayerCard key={player.id} player={player} projectedPoints={eventIds.length?playerProjection(player,eventIds[0],data.fixtures,eventIds[0]).toFixed(1):"—"} complete={complete} selected={selectedInsight===player.id} swapTarget={swapOutId===player.id} showPin={resultMode==="Keep Core"} pinned={pinnedIds.has(player.id)} onSelect={()=>onPitchPlayer(player)} onTogglePin={()=>togglePin(player.id)} onRemove={()=>remove(player.id)} showChipButton={!!(complete&&manualEvaluation&&manualEvaluation.weeks[0].xi.some(x=>x.id===player.id))} chipApplied={appliedChip?.playerId===player.id} onApplyChip={()=>openChipPanel("Triple Captain",player)}/>:<button type="button" className="pitch-empty" key={`empty-${i}`} onClick={()=>setPosition(rule.short)}><i>+</i><span>Add {rule.short}</span></button>)}</div>)}</section>
     {swapOut&&<div className="builder-message swap-banner">Outgoing player: <b>{swapOut.name}</b>. The pool below is locked to {swapOut.positionShort}; illegal replacements are disabled. <button type="button" onClick={()=>setSwapOutId(null)}>Cancel</button></div>}
     <section className={`squad-score ${complete?"complete":""}`}><div><span>SQUAD QUALITY RATING</span><strong>{rating??"—"}<small>/100</small></strong><p>{complete?"Independent quality score—not 100 merely because the optimizer selected it.":"Complete a valid 15-player squad to unlock its rating and projections."}</p>{complete&&optimized&&<small className="efficiency-label">Optimization efficiency: {Math.min(100,manualEvaluation!.objective/optimized.evaluation.objective*100).toFixed(1)}%</small>}</div><div className="gw-projections">{Array.from({length:5},(_,i)=><article key={i}><span>{events[i]?.name??`GW${i+1}`}</span><b>{totals[i]?.toFixed(1)??"—"}</b><small>predicted pts</small></article>)}</div></section>
     {sandbox&&sandboxComparisons&&latestSandboxTransfer&&<SandboxImpactPanel comparison={sandboxComparisons} latestTransfer={latestSandboxTransfer} freeTransfers={freeTransfers} onUndo={undoLastTransfer} onReset={resetAllTransfers} managerMeta={managerMeta} confidenceInput={{data,futureEventIds:eventIds,sandbox,settingsKey:`${horizonMode}|${riskMode}|${philosophy}`}}/>}
@@ -491,7 +578,7 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
         </>}
       </section>}
       <div className="result-tabs">{(["pitch","list","report"] as const).map(t=><button key={t} className={resultTab===t?"active":""} onClick={()=>setResultTab(t)}>{t==="pitch"?"Pitch":t==="list"?"List":"Report"}</button>)}</div>
-      {resultTab==="pitch"&&<Pitch players={manualEvaluation.weeks[0].xi} bench={manualEvaluation.weeks[0].bench} captain={manualEvaluation.weeks[0].captain} vice={manualEvaluation.weeks[0].vice} event={eventIds[0]} data={data} onSelect={beginSwap} onApplyChip={(p)=>openChipPanel("Triple Captain",p)} appliedChipPlayerId={appliedChip?.playerId??null}/>}
+      {resultTab==="pitch"&&<Pitch players={manualEvaluation.weeks[0].xi} bench={manualEvaluation.weeks[0].bench} captain={manualEvaluation.weeks[0].captain} vice={manualEvaluation.weeks[0].vice} event={eventIds[0]} data={data} onSelect={onPitchPlayer} onApplyChip={(p)=>openChipPanel("Triple Captain",p)} appliedChipPlayerId={appliedChip?.playerId??null}/>}
       {resultTab==="list"&&<div className="optimizer-grid"><XiBenchCards week={manualEvaluation.weeks[0]}/></div>}
       {resultTab==="report"&&<section className="optimizer-report"><header><div><span>OPTIMIZER REPORT</span><h2>{manualEvaluation.strategy.formation} · {horizonMode} · {riskMode} · {resultMode}</h2><p>Starting XI, captaincy, bench utility, flexibility and uncertainty are optimized together.</p></div><strong>{manualEvaluation.scores.overall}<small>/100 overall</small></strong></header><div className="rating-breakdown">{[["Projected points",manualEvaluation.scores.projectedPoints],["Captaincy",manualEvaluation.scores.captaincy],["Fixtures",manualEvaluation.scores.fixtures],["Minutes security",manualEvaluation.scores.minutesSecurity],["Bench",manualEvaluation.scores.bench],["Flexibility",manualEvaluation.scores.flexibility],["Value",manualEvaluation.scores.value],["Risk resilience",manualEvaluation.scores.risk]].map(([label,score])=><article key={String(label)}><span>{label}</span><b>{score}</b><i><em style={{width:`${score}%`}}/></i></article>)}</div><div className="optimizer-grid"><XiBenchCards week={manualEvaluation.weeks[0]}/><article><span>BUDGET ALLOCATION</span><h3>{Object.entries(manualEvaluation.strategy.budget).map(([pos,value])=>`${pos} £${Number(value).toFixed(1)}m`).join(" · ")}</h3><p>Bench spend £{manualEvaluation.strategy.benchSpend.toFixed(1)}m · Bank £{manualEvaluation.bank.toFixed(1)}m</p></article><article><span>STRATEGY</span><h3>{manualEvaluation.strategy.premiums.length?manualEvaluation.strategy.premiums.join(" + "):"Value-led structure"}</h3><p>Main targets: {manualEvaluation.strategy.targets.join(", ")} · Main captain: {manualEvaluation.strategy.captain}</p></article></div><div className="comparison-grid"><article><span>YOUR SQUAD VS OPTIMUM</span><h3>{(optimized.evaluation.weeks[0].points-manualEvaluation.weeks[0].points).toFixed(1)} pts GW1 gap</h3><p>{(optimized.evaluation.fiveWeekPoints-manualEvaluation.fiveWeekPoints).toFixed(1)} projected points over five GWs · {(optimized.evaluation.flexibility-manualEvaluation.flexibility).toFixed(0)} flexibility difference.</p><small>Key swaps: {optimized.squad.filter(p=>!squad.some(x=>x.id===p.id)).slice(0,3).map(p=>p.name).join(", ")||"None"}</small></article><article className="warnings"><span>STRUCTURAL CHECKS</span>{manualEvaluation.warnings.length?manualEvaluation.warnings.map(w=><p key={w}>! {w}</p>):<p>✓ No major structural warnings.</p>}</article></div><div className="explain-grid"><article><span>WHY THIS PLAYER?</span>{(()=>{const player=squad.find(p=>p.id===selectedInsight)??squad[0];const explanation=optimized.explanations[player.id]??["Selected in your manual squad. Compare its role and projections with the optimized result."];const metrics=eventIds.length?projectionMetrics(player,eventIds[0],data.fixtures,eventIds[0]):null;const dist=metrics?playerPointsDistribution(metrics,player.positionShort):null;const range=dist?pointsRange(dist):null;return <><h3>{player.name} — £{player.price.toFixed(1)}m</h3>{explanation.map(reason=><p key={reason}>• {reason}</p>)}{dist&&range&&<div className="draft-insight-distribution"><span><small>FLOOR</small><b>{range.floor}</b></span><span><small>MEDIAN</small><b>{range.median}</b></span><span><small>CEILING</small><b>{range.ceiling}</b></span><span><small>BLANK RISK (≤2)</small><b>{Math.round(blankProbability(dist)*100)}%</b></span><span><small>HAUL CHANCE (10+)</small><b>{Math.round(haulProbability(dist)*100)}%</b></span></div>}</>})()}</article><article><span>TOP 5 NEAR MISSES</span>{optimized.nearMisses.length?optimized.nearMisses.map(item=><div key={item.player.id}><b>{item.player.name} · £{item.player.price.toFixed(1)}m</b><small>{item.reason}</small></div>):<p>Not computed for {resultMode} — this mode searches a bounded set of legal swaps directly, rather than ranking every player in the pool against the final squad.</p>}</article></div></section>}
       </>}
