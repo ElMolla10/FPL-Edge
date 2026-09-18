@@ -659,11 +659,18 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .builder-pitch-row article .apply-chip-button.applied{background:var(--success-bg);color:var(--success-text)}
 .coach-pitch-player .apply-chip-button{position:static;width:62px;max-width:100%;min-height:0;height:auto;clip-path:none;flex:0 0 auto}
 @media(max-width:850px){
-  .builder-pitch{min-height:0;padding:12px 6px 16px;gap:8px;border-width:4px}
-  .builder-pitch-row{width:100%;min-width:0;gap:4px;justify-content:center;flex:0 0 auto}
-  .builder-pitch-row article,.builder-pitch-row>.pitch-empty{flex:1 1 0;width:auto;max-width:68px;min-width:0;min-height:0;padding:18px 2px 4px;overflow:hidden}
+  /* Phone squad tiles. Apply TC is a full-width dark bar (theme sunken on a white card)
+     and was covering xPts, so it is omitted at this width. The remove mark stays inside
+     the tile. The keeper row clears the penalty-box overlay instead of sitting on the border. */
+  .builder-pitch{min-height:0;padding:16px 8px 14px;gap:10px;border-width:4px;overflow:hidden}
+  .builder-pitch .pitch-box{top:6px;height:16px;pointer-events:none}
+  .builder-pitch-row{width:100%;min-width:0;gap:6px;justify-content:center;align-items:flex-start;flex:0 0 auto}
+  .builder-pitch-row.row-gkp{margin-top:14px}
+  .builder-pitch-row article,.builder-pitch-row>.pitch-empty{flex:1 1 0;width:auto;max-width:60px;min-width:0;min-height:0;padding:16px 3px 5px;overflow:hidden;position:relative}
   .builder-pitch-row article .player-transfer-select{min-height:0;width:100%}
+  .builder-pitch-row article .remove-player{top:1px;right:1px;width:14px;height:14px;margin:0;padding:0;font-size:11px;line-height:14px;z-index:2}
+  .builder-pitch-row article .apply-chip-button{display:none}
   .builder-pitch-row article b{max-width:100%;font-size:8px}
-  .builder-pitch-row article small,.builder-pitch-row article .player-transfer-select>span{display:block;font-size:7px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .builder-pitch-row .mini-shirt{width:26px;height:20px;max-width:100%;margin:0 auto 3px;padding:0;font-size:6px;line-height:1;display:grid;place-items:center;overflow:hidden}
+  .builder-pitch-row article small,.builder-pitch-row article .player-transfer-select>span{display:block;font-size:7px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#243028}
+  .builder-pitch-row .mini-shirt{width:26px;height:20px;max-width:100%;margin:2px auto 3px;padding:0;font-size:6px;line-height:1;display:grid;place-items:center;overflow:hidden}
 }
