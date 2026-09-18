@@ -558,3 +558,83 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .site-header-actions .text-link{display:none}
   .site-header-actions .btn{width:auto;flex:0 0 auto;white-space:nowrap;padding:0 10px;min-height:34px}
 }
+
+/* Paper marketing homepage. Scoped so the app shell, pay page, and sign-in keep their styles. */
+html.paper-root,
+html.paper-root body{background:#F6F4EF}
+.paper{min-height:100vh;background:#F6F4EF;color:#161916;font-family:var(--font-ui);color-scheme:light}
+.paper p{margin:0}
+.paper h1,.paper h2{font-family:var(--font-ui);font-style:normal;font-weight:560;letter-spacing:0;color:#161916}
+.paper h1{margin:0;font-size:32px;line-height:36px}
+.paper h2{margin:0 0 4px;font-size:22px;line-height:1.2}
+.paper-wrap{width:auto;margin:0 16px}
+.paper-header{position:sticky;top:0;z-index:20;height:56px;background:#F6F4EF;border-bottom:1px solid transparent}
+.paper-header.is-scrolled{border-bottom-color:#E3DFD6}
+.paper-header-inner{height:100%;display:flex;align-items:center;justify-content:space-between}
+.paper-wordmark{font-size:16px;font-weight:600;color:#161916;letter-spacing:0;text-transform:none}
+.paper-signin{font-size:14px;font-weight:500;color:#161916;letter-spacing:0;text-transform:none;text-decoration:none;background:transparent;border:0;padding:0}
+.paper-label{font-size:12px;line-height:1.3;color:#5E675F;letter-spacing:0;text-transform:none;font-weight:500}
+.paper-hero{padding-top:20px}
+.paper-kicker{display:none;margin:0 0 12px;font-size:12px;line-height:1.4;color:#5E675F}
+.paper-lead{margin-top:12px;max-width:36em;color:#5E675F;font-size:16px;line-height:1.5}
+.paper-hero-actions{display:none}
+.paper-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;height:48px;border-radius:10px;border:0;background:#161916;color:#F6F4EF;font-family:var(--font-ui);font-size:16px;font-weight:560;letter-spacing:0;text-decoration:none;cursor:pointer;padding:0 18px;box-sizing:border-box}
+.paper-btn:focus-visible{outline:2px solid #161916;outline-offset:2px}
+.paper-open{min-width:200px;width:auto}
+.paper-card{margin-top:20px;background:#101411;color:#F6F4EF;border-radius:16px;padding:20px}
+.paper-card-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.paper-live{display:inline-flex;align-items:center;gap:8px;font-size:12px;line-height:1.3;color:#A8B0A6}
+.paper-live i{width:6px;height:6px;border-radius:50%;background:#C8F54A;display:block;flex:none}
+.paper-clock{font-size:12px;line-height:1.3;color:#A8B0A6;font-variant-numeric:tabular-nums lining-nums}
+.paper-card-label{margin-top:18px;font-size:12px;line-height:1.3;color:#A8B0A6}
+.paper-card-number{margin-top:2px;font-size:56px;line-height:56px;font-weight:560;color:#F6F4EF;font-variant-numeric:tabular-nums lining-nums}
+.paper-call{margin-top:12px;font-size:18px;line-height:1.3;font-weight:560;color:#F6F4EF}
+.paper-why{margin-top:4px;color:#A8B0A6;font-size:16px;line-height:1.5}
+.paper-captain{margin-top:16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.paper-captain b{display:block;font-size:16px;font-weight:560;color:#F6F4EF}
+.paper-captain span{display:block;margin-top:2px;font-size:12px;color:#A8B0A6;font-variant-numeric:tabular-nums lining-nums}
+.paper-c{width:28px;height:28px;border-radius:50%;border:1px solid #F6F4EF;color:#F6F4EF;display:grid;place-items:center;font-size:13px;font-weight:600;flex:none}
+.paper-example{margin-top:16px;font-size:12px;line-height:1.4;color:#A8B0A6}
+.paper-section{margin-top:48px}
+.paper-row{display:flex;flex-direction:column;gap:12px;padding:16px 0}
+.paper-row+.paper-row{border-top:1px solid #E3DFD6}
+.paper-row .paper-label{font-weight:560}
+.paper-row p{color:#5E675F;font-size:16px;line-height:1.5}
+.paper-price{margin-top:16px;display:grid;grid-template-columns:1fr;gap:16px;align-items:stretch}
+.paper-tier{border-radius:12px;padding:20px;display:flex;flex-direction:column}
+.paper-free{background:#F6F4EF;border:1px solid #E3DFD6;color:#161916}
+.paper-pass{background:#161916;color:#F6F4EF}
+.paper-amount{margin-top:8px;font-size:32px;line-height:1.1;font-weight:560;font-variant-numeric:tabular-nums lining-nums}
+.paper-term{margin-top:4px;font-size:16px;line-height:1.5;color:#5E675F}
+.paper-pass .paper-label,.paper-pass .paper-term,.paper-pass .paper-lines{color:#F6F4EF}
+.paper-pass .paper-label{color:#A8B0A6}
+.paper-lines{list-style:none;margin:16px 0 0;padding:0;font-size:16px;line-height:1.5;color:#5E675F}
+.paper-lines li+li{margin-top:0}
+.paper-pass-btn{margin-top:auto;padding-top:20px}
+.paper-pass-btn .paper-btn{width:100%;background:#F6F4EF;color:#161916}
+.paper-pass-btn .paper-btn:focus-visible{outline-color:#F6F4EF}
+.paper-note{margin-top:16px;color:#5E675F;font-size:16px;line-height:1.5}
+.paper-footer{margin-top:48px;padding-bottom:8px;text-align:left;color:#5E675F;font-size:13px;line-height:1.5}
+.paper-footer .paper-wordmark{font-size:13px;font-weight:560;color:#5E675F}
+.paper-footer p,.paper-footer span{display:block}
+.paper-dock{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#F6F4EF;border-top:1px solid #E3DFD6;padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+.paper-dock .paper-btn{width:100%}
+@media(max-width:899px){
+  .paper{padding-bottom:96px}
+}
+@media(min-width:900px){
+  .paper h1{font-size:52px;line-height:56px}
+  .paper h2{font-size:28px}
+  .paper-wrap{width:min(1120px,calc(100% - 80px));margin:0 auto}
+  .paper-header{height:64px}
+  .paper-kicker{display:block}
+  .paper-hero{display:grid;grid-template-columns:minmax(280px,440px) minmax(0,1fr);gap:48px;align-items:start;padding-top:36px}
+  .paper-lead,.paper-why,.paper-row p,.paper-term,.paper-lines,.paper-note{font-size:17px}
+  .paper-lead{margin-top:16px}
+  .paper-hero-actions{display:flex;flex-direction:column;align-items:flex-start;gap:14px;margin-top:28px}
+  .paper-card{margin-top:0;padding:28px}
+  .paper-dock{display:none}
+  .paper-section{margin-top:80px}
+  .paper-row{display:grid;grid-template-columns:96px minmax(0,1fr);column-gap:16px;align-items:baseline}
+  .paper-price{grid-template-columns:1fr 1fr}
+}

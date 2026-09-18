@@ -13,9 +13,9 @@ const fraunces = Fraunces({ subsets: ["latin"], weight: ["300"], variable: "--fo
 
 export const metadata: Metadata = {
   title: "FPL Edge",
-  description: "Stop guessing. Make the best possible FPL decision every gameweek.",
-  openGraph: { title: "FPL Edge — Win the decision", description: "Draft, transfers, captaincy and team-news intelligence in one FPL decision desk.", type: "website", images: ["/og.png"] },
-  twitter: { card: "summary_large_image", title: "FPL Edge — Win the decision", description: "Make the best possible FPL decision every gameweek.", images: ["/og.png"] },
+  description: "A lineup, a captain, and whether to transfer. Free this gameweek.",
+  openGraph: { title: "FPL Edge", description: "A lineup, a captain, and whether to transfer. Free this gameweek.", type: "website", images: ["/og.png"] },
+  twitter: { card: "summary_large_image", title: "FPL Edge", description: "A lineup, a captain, and whether to transfer. Free this gameweek.", images: ["/og.png"] },
 };
 
 // Inline, synchronous, and in <head> so it runs before first paint -- reading localStorage and
