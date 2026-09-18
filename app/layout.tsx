@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 
@@ -24,6 +24,14 @@ export const metadata: Metadata = {
   },
   openGraph: { title: "FPL Edge", description: "A lineup, a captain, and whether to transfer. Free this gameweek.", type: "website", images: ["/og.png"] },
   twitter: { card: "summary_large_image", title: "FPL Edge", description: "A lineup, a captain, and whether to transfer. Free this gameweek.", images: ["/og.png"] },
+};
+
+// viewport-fit=cover so env(safe-area-inset-*) is non-zero on notched iPhones
+// (Capacitor WKWebView and mobile Safari). Pair with padding in globals.css.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 // Inline, synchronous, and in <head> so it runs before first paint -- reading localStorage and
