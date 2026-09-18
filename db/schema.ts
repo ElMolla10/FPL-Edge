@@ -88,3 +88,11 @@ export const seasonPasses = sqliteTable("season_passes", {
   paymobTransactionId: text("paymob_transaction_id").unique(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Personal-only FPL OIDC refresh token (Mohamed). Rotates on every PingOne exchange.
+// Never exposed via API responses. Seeded from FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN when empty.
+export const personalFplAuth = sqliteTable("personal_fpl_auth", {
+  id: text("id").primaryKey(), // always "default"
+  refreshToken: text("refresh_token").notNull(),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});

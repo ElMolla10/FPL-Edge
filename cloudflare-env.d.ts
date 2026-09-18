@@ -39,6 +39,10 @@ declare module "cloudflare:workers" {
     PAYMOB_INTEGRATION_ID?: string;
     PAYMOB_BASE_URL?: string;
     FPL_EDGE_DEV_SEASON_GRANT?: string;
+    FPL_EDGE_PERSONAL_TRANSFER_EXEC?: string;
+    FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST?: string;
+    FPL_EDGE_PERSONAL_FPL_ENTRY_ID?: string;
+    FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN?: string;
     NODE_ENV?: string;
   };
 }

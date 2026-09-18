@@ -9,6 +9,10 @@ const ENV_KEYS = [
   "PAYMOB_INTEGRATION_ID",
   "PAYMOB_BASE_URL",
   "FPL_EDGE_DEV_SEASON_GRANT",
+  "FPL_EDGE_PERSONAL_TRANSFER_EXEC",
+  "FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST",
+  "FPL_EDGE_PERSONAL_FPL_ENTRY_ID",
+  "FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN",
 ] as const;
 
 export async function readRuntimeEnv(): Promise<Record<string, string | undefined>> {
