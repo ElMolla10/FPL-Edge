@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { SeasonUpgrade } from "../components/SeasonPass";
+import { Wordmark } from "../components/Wordmark";
 
 export default function PayPage() {
   const [checkoutReturn, setCheckoutReturn] = useState(false);
@@ -12,7 +13,7 @@ export default function PayPage() {
 
   return <main className="marketing-page pay-page">
     <header className="site-header">
-      <a className="brand" href="/" aria-label="FPL Edge home"><span className="brand-mark">E</span><span>FPL EDGE</span></a>
+      <a className="brand" href="/" aria-label="FPL Edge home"><Wordmark/></a>
       <a className="text-link" href="/">Back to site</a>
     </header>
     <section className="section pay-section">

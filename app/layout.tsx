@@ -14,6 +14,14 @@ const fraunces = Fraunces({ subsets: ["latin"], weight: ["300"], variable: "--fo
 export const metadata: Metadata = {
   title: "FPL Edge",
   description: "A lineup, a captain, and whether to transfer. Free this gameweek.",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "48x48" },
+      { url: "/icon-512.png", type: "image/png", sizes: "512x512" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
   openGraph: { title: "FPL Edge", description: "A lineup, a captain, and whether to transfer. Free this gameweek.", type: "website", images: ["/og.png"] },
   twitter: { card: "summary_large_image", title: "FPL Edge", description: "A lineup, a captain, and whether to transfer. Free this gameweek.", images: ["/og.png"] },
 };
