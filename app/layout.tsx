@@ -32,6 +32,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Match --canvas-dark so iOS chrome / overscroll isn't pure black.
+  themeColor: "#14181A",
 };
 
 // Inline, synchronous, and in <head> so it runs before first paint -- reading localStorage and
@@ -47,6 +49,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         {/* vinext ViewportHead omits viewport-fit; keep export above and pin the meta here. */}
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#14181A" />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>{children}</body>
