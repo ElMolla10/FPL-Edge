@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -251,4 +252,118 @@ test("Keep Core with no pins yet still dispatches to optimizeConstrained (not Pu
   if (dispatch.kind !== "optimizeConstrained") throw new Error("unreachable");
   assert.equal(dispatch.maxChanges, 4);
   assert.equal(dispatch.lockedPlayerIds.size, 0);
+});
+
+test("chosen Triple Captain is a small in-card mark, not a bar after the apply button or a replacement for xPts", () => {
+  const player = makePlayer({ id: 21, name: "Bruno" });
+  const marked = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, {
+    player,
+    projectedPoints: "5.4",
+    complete: true,
+    selected: false,
+    swapTarget: false,
+    showPin: false,
+    pinned: false,
+    onSelect: () => {},
+    onTogglePin: () => {},
+    onRemove: () => {},
+    showChipButton: false,
+    chipApplied: true,
+  }));
+  assert.match(marked, /<b>Bruno<\/b>/);
+  assert.match(marked, />5\.4 xPts</);
+  assert.match(marked, /<em class="tc-mark" aria-label="Triple Captain">TC<\/em>/);
+  assert.doesNotMatch(marked, /apply-chip-button/, "bench cards keep the mark without bringing the apply button back");
+  assert.match(marked, /<em class="tc-mark" aria-label="Triple Captain">TC<\/em><\/article>$/, "the mark is a small badge on the card, not a second button");
+
+  const appliedWithButton = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, {
+    player,
+    projectedPoints: "5.4",
+    complete: true,
+    selected: false,
+    swapTarget: false,
+    showPin: false,
+    pinned: false,
+    onSelect: () => {},
+    onTogglePin: () => {},
+    onRemove: () => {},
+    showChipButton: true,
+    chipApplied: true,
+    onApplyChip: () => {},
+  }));
+  assert.match(appliedWithButton, /<em class="tc-mark" aria-label="Triple Captain">TC<\/em><button type="button" class="apply-chip-button applied"/, "the mark sits before the existing apply button so phone CSS can still hide that button");
+});
+
+test("Triple Captain chip card is labelled Triple Captain and Plan Triple Captain, then Cancel while armed", () => {
+  const idle = renderToStaticMarkup(createElement(liveDraftBuilder.TripleCaptainAction, {
+    plannedEvent: null, armedWeek: null, onPlan: () => {}, onCancel: () => {}, onRemove: () => {},
+  }));
+  assert.match(idle, /<b>Triple Captain<\/b>/);
+  assert.match(idle, />Plan Triple Captain</);
+  assert.doesNotMatch(idle, />TC</);
+  assert.doesNotMatch(idle, /3xc/);
+
+  const armed = renderToStaticMarkup(createElement(liveDraftBuilder.TripleCaptainAction, {
+    plannedEvent: null, armedWeek: 12, onPlan: () => {}, onCancel: () => {}, onRemove: () => {},
+  }));
+  assert.match(armed, />Cancel</);
+  assert.match(armed, /Tap an owned player on the pitch for GW12/);
+  assert.doesNotMatch(armed, />Plan Triple Captain</);
+
+  const planned = renderToStaticMarkup(createElement(liveDraftBuilder.TripleCaptainAction, {
+    plannedEvent: 12, armedWeek: null, onPlan: () => {}, onCancel: () => {}, onRemove: () => {},
+  }));
+  assert.match(planned, /Planned for GW12/);
+  assert.match(planned, />Remove Triple Captain plan</);
+});
+
+test("arming Triple Captain steals pitch clicks only until pick or cancel", () => {
+  assert.equal(liveDraftBuilder.pitchClickIntent(false, true), "swap");
+  assert.equal(liveDraftBuilder.pitchClickIntent(true, true), "triple-captain");
+  assert.equal(liveDraftBuilder.pitchClickIntent(true, false), "triple-captain");
+  let armed = liveDraftBuilder.nextTripleCaptainArm(null, "arm", 8);
+  assert.equal(armed, 8);
+  assert.equal(liveDraftBuilder.pitchClickIntent(armed != null, true), "triple-captain");
+  armed = liveDraftBuilder.nextTripleCaptainArm(armed, "failed", null);
+  assert.equal(armed, 8, "a rejected apply keeps the arm so cancel is still available");
+  armed = liveDraftBuilder.nextTripleCaptainArm(armed, "picked", null);
+  assert.equal(armed, null);
+  assert.equal(liveDraftBuilder.pitchClickIntent(armed != null, true), "swap", "after a player is chosen, transfer clicks work again");
+  armed = liveDraftBuilder.nextTripleCaptainArm(liveDraftBuilder.nextTripleCaptainArm(null, "arm", 4), "cancel", null);
+  assert.equal(armed, null);
+  assert.equal(liveDraftBuilder.pitchClickIntent(armed != null, true), "swap", "after cancel, transfer clicks work again");
+});
+
+test("Save as plan keeps Triple Captain on the existing plan chip slot, unless Wildcard or Free Hit is explicit", () => {
+  const loaded = { chip: "Wildcard" as const, event: 3 };
+  assert.deepEqual(
+    liveDraftBuilder.planChipTagForSave(loaded, null, [{ event: 9, chip: "Triple Captain" }]),
+    { chip: "Triple Captain", event: 9 },
+  );
+  assert.deepEqual(
+    liveDraftBuilder.planChipTagForSave(loaded, { chip: "Free Hit", event: 6 }, [{ event: 9, chip: "Triple Captain" }]),
+    { chip: "Free Hit", event: 6 },
+  );
+  assert.deepEqual(
+    liveDraftBuilder.planChipTagForSave(loaded, null, [{ event: 2, chip: "Bench Boost" }]),
+    loaded,
+  );
+  assert.equal(liveDraftBuilder.planChipTagForSave(undefined, null, []), undefined);
+});
+
+test("Triple Captain sits under Bench Boost and pitch clicks go through the arm, without a phone apply bar", () => {
+  const source = readFileSync(new URL("../app/components/LiveDraftBuilder.tsx", import.meta.url), "utf8");
+  const row = source.slice(source.indexOf('className="chip-actions-row"'));
+  const boost = row.indexOf("chip-action-bench-boost");
+  const triple = row.indexOf("<TripleCaptainAction");
+  const wild = row.indexOf("chip-action-wildcard");
+  assert.ok(boost >= 0 && triple > boost && wild > triple, "Triple Captain is directly under Bench Boost, before Wildcard / Free Hit");
+  assert.match(source, /onSelect=\{\(\)=>onPitchPlayer\(player\)\}/);
+  assert.match(source, /pitchClickIntent\(tcArmedWeek!=null,complete\)/);
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const phone = css.slice(css.lastIndexOf("@media(max-width:850px)"));
+  assert.match(phone, /\.builder-pitch-row article \.apply-chip-button\{display:none\}/);
+  assert.match(phone, /\.builder-pitch-row article \.remove-player\{top:1px;right:1px/);
+  assert.match(phone, /\.builder-pitch-row article \.tc-mark\{left:1px;top:1px/);
+  assert.doesNotMatch(phone, /\.tc-mark\{[^}]*position:fixed/);
 });
