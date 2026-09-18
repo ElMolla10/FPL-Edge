@@ -549,3 +549,12 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .research-table:not(.wide)>header>span:nth-child(n+4),.research-table:not(.wide)>article>span:nth-child(n+4),.research-table:not(.wide)>article>div{display:none}
   .ranked-moves,.fixture-ticker,.team-list{max-width:100%}
 }
+
+/* Phone marketing header only. Page buttons stay full width; the bar itself stays one row. */
+@media(max-width:720px){
+  .site-header{height:56px;padding:0 14px;gap:8px;flex-wrap:nowrap}
+  .site-header .brand{flex:0 0 auto;white-space:nowrap}
+  .site-header-actions{flex:0 1 auto;flex-wrap:nowrap;gap:6px;min-width:0;justify-content:flex-end}
+  .site-header-actions .text-link{display:none}
+  .site-header-actions .btn{width:auto;flex:0 0 auto;white-space:nowrap;padding:0 10px;min-height:34px}
+}
