@@ -81,4 +81,8 @@ test("marketing trust copy stays read-only and personal module is isolated", () 
   const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
   assert.match(coach, /PersonalTransferPlace/);
   assert.match(coach, /Read-only\. We never ask for your FPL password/);
+  assert.match(coach, /Places this ranked route/);
+  const draft = readFileSync(new URL("../app/components/LiveDraftBuilder.tsx", import.meta.url), "utf8");
+  assert.match(draft, /PersonalTransferPlace/);
+  assert.match(draft, /latestSandboxTransfer/);
 });

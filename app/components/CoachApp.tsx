@@ -853,7 +853,7 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
         <p>{roll?"No actionable single transfer clears both the 2.2-point threshold and the projection-evidence, minutes and robustness gates.":`This is the highest-ranked legal route that passed every quality gate. ${best.risk} minutes risk.`}</p>
         {!roll&&<div>{[["GW","1",best.gain1],["NEXT","3",best.gain3],["NEXT","5",best.gain5]].map(([label,n,value])=><span key={String(n)}><small>{label} {n}</small><b>{Number(value)>=0?"+":""}{Number(value).toFixed(1)} pts</b></span>)}<span><small>PRICE DIFFERENCE</small><b>{`${best.price>=0?"+":"−"}£${Math.abs(best.price).toFixed(1)}m`}</b></span><span><small>EXPECTED MINUTES</small><b>{`${best.minutes>=0?"+":""}${Math.round(best.minutes)}`}</b></span><span><small>TRANSFER HIT</small><b>{best.hitCost?`−${best.hitCost}`:"None"}</b></span><span><small>NET (AFTER HIT)</small><b>{best.netDifference>=0?"+":""}{best.netDifference.toFixed(1)} pts</b></span>{best.utilityChange!==null&&<span><small>RISK-ADJUSTED OBJECTIVE</small><b>{best.utilityChange>=0?"+":""}{best.utilityChange.toFixed(1)}</b><em>Optimizer objective; not the /100 team rating</em></span>}</div>}
         <strong>{roll?"Recommendation: SAVE THE TRANSFER":best.gain1-best.hitCost>0?"Recommendation: MOVE NOW":"Recommendation: WAIT / RECHECK"}</strong>
-        {!roll&&a&&<PersonalTransferPlace elementOut={best.out.id} elementIn={best.incoming.id} event={a.first} purchasePrice={best.incoming.price} outName={best.out.name} inName={best.incoming.name}/>}
+        {!roll&&a&&<PersonalTransferPlace elementOut={best.out.id} elementIn={best.incoming.id} event={a.first} purchasePrice={best.incoming.price} outName={best.out.name} inName={best.incoming.name} note="Shortcut for the top recommended move — expand any ranked route below, or use Draft Lab sandbox, to place a different transfer."/>}
       </section>
       {!roll&&fullDesk&&<section className="primary-transfer-confidence" aria-label="Primary transfer Decision Confidence">
         <header><span>DECISION CONFIDENCE</span><h2>Primary transfer scenario analysis</h2><p>This analysis is separate from the Actionable / Watchlist / Blocked quality gate and does not change transfer ordering.</p></header>
@@ -863,9 +863,9 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
       </section>}
       {fullDesk&&holdNote&&<p className="transfer-hold-note">{holdNote}</p>}
       {fullDesk&&<section className="quality-gate-summary"><header><span>RECOMMENDATION QUALITY GATE</span><h2>Raw upside must earn the right to be ranked.</h2></header><div><article><b>{actionableRows.length}</b><span>Actionable</span><small>Can become the primary recommendation</small></article><article><b>{watchlistRows.length}</b><span>Watchlist</span><small>Promising, but evidence or timing is incomplete</small></article><article><b>{blockedRows.length}</b><span>Blocked</span><small>Fails a hard plausibility or role-security floor</small></article></div></section>}
-      {fullDesk&&<TransferRouteList title="Actionable routes" eyebrow="PASSED EVERY GATE" rows={actionableRows.slice(0,10)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence}/>}
-      {fullDesk&&<TransferRouteList title="Watchlist routes" eyebrow="NOT READY TO RECOMMEND" rows={watchlistRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence}/>}
-      {fullDesk&&<TransferRouteList title="Blocked by the quality gate" eyebrow="VISIBLE FOR AUDIT · NEVER RANKED #1" rows={blockedRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence}/>}
+      {fullDesk&&<TransferRouteList title="Actionable routes" eyebrow="PASSED EVERY GATE" rows={actionableRows.slice(0,10)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
+      {fullDesk&&<TransferRouteList title="Watchlist routes" eyebrow="NOT READY TO RECOMMEND" rows={watchlistRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
+      {fullDesk&&<TransferRouteList title="Blocked by the quality gate" eyebrow="VISIBLE FOR AUDIT · NEVER RANKED #1" rows={blockedRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
       {fullDesk&&<PriceIntel rows={rows}/>}
       {fullDesk&&process.env.NODE_ENV!=="production"&&<TransferDebugTable rows={rows.slice(0,10)}/>}
       {!fullDesk&&<SeasonLocked feature="Safe and aggressive alternatives, and multi-week routes, are part of the season pass." onUpgrade={onUpgrade}/>}
@@ -922,7 +922,7 @@ function TransferRoutePlanner({routes,horizon,setHorizon,maxWeeklyHit,setMaxWeek
   </>;
 }
 
-function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,setWatch,confidence}:{title:string;eyebrow:string;rows:Transfer[];expanded:Set<string>;toggleExpand:(key:string)=>void;watchIds:number[];setWatch:(id:number)=>void;confidence:ReturnType<typeof useTransferDecisionConfidence>}){
+function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,setWatch,confidence,event}:{title:string;eyebrow:string;rows:Transfer[];expanded:Set<string>;toggleExpand:(key:string)=>void;watchIds:number[];setWatch:(id:number)=>void;confidence:ReturnType<typeof useTransferDecisionConfidence>;event:number}){
   if(!rows.length)return null;
   return <section className={`ranked-moves quality-${rows[0].qualityStatus}`}>
     <header><div><span>{eyebrow}</span><h2>{title}</h2></div><small>{rows[0].qualityStatus==="actionable"?"Ranked by quality-adjusted squad impact":"Kept separate from the primary recommendation"}</small></header>
@@ -936,7 +936,10 @@ function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,se
       <em className={r.risk.toLowerCase()}>{r.risk} risk</em>
       <button onClick={()=>toggleExpand(key)}>{isOpen?"Hide detail":"Show detail"}</button>
       <button onClick={()=>setWatch(r.incoming.id)}>{watchIds.includes(r.incoming.id)?"Watching ✓":"Watch"}</button>
-      {isOpen&&<TransferBreakdown r={r} decision={confidence.state.results[confidence.keyFor(r)]} analysisActive={confidence.state.activeKey===confidence.keyFor(r)} analysisBusy={confidence.state.activeKey!==null} onAnalyze={()=>confidence.analyzeAlternative(r)}/>}
+      {isOpen&&<>
+        <TransferBreakdown r={r} decision={confidence.state.results[confidence.keyFor(r)]} analysisActive={confidence.state.activeKey===confidence.keyFor(r)} analysisBusy={confidence.state.activeKey!==null} onAnalyze={()=>confidence.analyzeAlternative(r)}/>
+        <PersonalTransferPlace elementOut={r.out.id} elementIn={r.incoming.id} event={event} purchasePrice={r.incoming.price} outName={r.out.name} inName={r.incoming.name} note="Places this ranked route — not limited to the top recommendation."/>
+      </>}
     </article>})}
   </section>;
 }
