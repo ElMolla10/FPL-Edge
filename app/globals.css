@@ -468,3 +468,13 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .sidebar-drop button>i{font-style:normal;width:18px;text-align:center}
 .sidebar-drop button>span{display:flex;align-items:center;gap:8px;flex:1}
 .sidebar-drop button.active{background:#173026;color:#fff}
+
+.sidebar-menus>button{grid-template-columns:24px 1fr auto}
+.nav-caret{width:0;height:0;margin-left:auto;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor;justify-self:end}
+.sidebar-menus>button.open .nav-caret,.sidebar-pro-btn.open .nav-caret{transform:rotate(180deg)}
+.sidebar-pro{margin-top:12px}
+.sidebar-pro-btn{width:100%;border:1px solid var(--lime);background:#13261c;color:var(--lime);display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;font-weight:800;font-size:13px}
+.sidebar-pro-btn .nav-lock{margin-left:0}
+.sidebar-pro-btn .nav-lock,.sidebar-pro-btn .nav-lock:before{border-color:var(--lime)}
+.sidebar-pro-btn.active{background:#1c3a28}
+.sidebar-pro .sidebar-drop{margin:0 0 6px}
