@@ -458,3 +458,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .nav-lock{margin-left:auto;width:10px;height:7px;border:1.5px solid #9aaba2;border-radius:0 0 2px 2px;position:relative;flex:0 0 auto}
 .nav-lock:before{content:"";position:absolute;left:1px;top:-5px;width:4px;height:3px;border:1.5px solid #9aaba2;border-bottom:0;border-radius:5px 5px 0 0}
 .coach-sidebar button.active .nav-lock,.coach-sidebar button.active .nav-lock:before,.sidebar-flyout button.active .nav-lock,.sidebar-flyout button.active .nav-lock:before,.mobile-more .nav-lock,.mobile-more .nav-lock:before{border-color:#9aaba2}
+
+
+/* Manual path: an outline button, so it does not disappear into the dark card. */
+.empty-command button,.wide-action{background:transparent;color:var(--text);border:1.5px solid currentColor;border-radius:8px}
