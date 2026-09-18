@@ -36,7 +36,8 @@ test("renders production site metadata", async () => {
 test("marketing homepage is the paper desk, not the poster", () => {
   const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(home, /This week&apos;s move\./);
-  assert.match(home, /Open the desk/);
+  assert.match(home, /Check your FPL team/);
+  assert.doesNotMatch(home, /Open the desk/);
   assert.match(home, /What the desk answers/);
   assert.match(home, /Free this week/);
   assert.match(home, /Get the season pass/);
