@@ -57,23 +57,9 @@ test("occupied pitch card renders transfer selection, pin and remove as sibling 
   assert.match(html, /<\/button><button type="button" class="remove-player" aria-label="Remove Bruno"/);
 });
 
-test("pitch card only renders the chip-apply button when showChipButton is true, as a sibling after remove, not a replacement for the name", () => {
-  const player = makePlayer({ id: 21, name: "Bruno" });
-  const withoutChip = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, {
-    player,
-    projectedPoints: "5.4",
-    complete: true,
-    selected: false,
-    swapTarget: false,
-    showPin: false,
-    pinned: false,
-    onSelect: () => {},
-    onTogglePin: () => {},
-    onRemove: () => {},
-  }));
-  assert.doesNotMatch(withoutChip, /apply-chip-button/, "bench cards (showChipButton false) must not render the chip button at all");
-
-  const withChip = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, {
+test("pitch cards never render the Apply bar, at any width, and still show name, price and xPts", () => {
+  const player = makePlayer({ id: 21, name: "Bruno", teamShort: "MUN", price: 8.5 });
+  const props = {
     player,
     projectedPoints: "5.4",
     complete: true,
@@ -85,29 +71,20 @@ test("pitch card only renders the chip-apply button when showChipButton is true,
     onTogglePin: () => {},
     onRemove: () => {},
     showChipButton: true,
-    chipApplied: false,
     onApplyChip: () => {},
-  }));
-  assert.match(withChip, /<b>Bruno<\/b>/, "the player name must still render, not be replaced by the chip button");
-  assert.match(withChip, /<\/button><button type="button" class="apply-chip-button " aria-label="Apply Triple Captain to Bruno" title="Apply Triple Captain to Bruno">Apply TC<\/button><\/article>$/);
+  };
+  const idle = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, { ...props, chipApplied: false }));
+  assert.doesNotMatch(idle, /apply-chip-button|Apply TC|Apply Triple Captain/, "the on-card Apply control is gone even when showChipButton is set");
+  assert.match(idle, /<b>Bruno<\/b>/);
+  assert.match(idle, /MUN · £8\.5m/);
+  assert.match(idle, />5\.4 xPts</);
+  assert.match(idle, /class="remove-player" aria-label="Remove Bruno"/);
+  assert.match(idle, /<\/button><\/article>$/);
 
-  const applied = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, {
-    player,
-    projectedPoints: "5.4",
-    complete: true,
-    selected: false,
-    swapTarget: false,
-    showPin: false,
-    pinned: false,
-    onSelect: () => {},
-    onTogglePin: () => {},
-    onRemove: () => {},
-    showChipButton: true,
-    chipApplied: true,
-    onApplyChip: () => {},
-  }));
-  assert.match(applied, /class="apply-chip-button applied"/);
-  assert.match(applied, />TC applied ✓</);
+  const applied = renderToStaticMarkup(createElement(liveDraftBuilder.BuilderPitchPlayerCard, { ...props, chipApplied: true }));
+  assert.doesNotMatch(applied, /apply-chip-button|Apply TC/);
+  assert.match(applied, /<em class="tc-mark" aria-label="Triple Captain">TC<\/em><\/article>$/);
+  assert.match(applied, />5\.4 xPts</);
 });
 
 test("validateSwap rejects a wrong-position incoming player, even though the UI's own position filter would normally have prevented this", () => {
@@ -291,7 +268,8 @@ test("chosen Triple Captain is a small in-card mark, not a bar after the apply b
     chipApplied: true,
     onApplyChip: () => {},
   }));
-  assert.match(appliedWithButton, /<em class="tc-mark" aria-label="Triple Captain">TC<\/em><button type="button" class="apply-chip-button applied"/, "the mark sits before the existing apply button so phone CSS can still hide that button");
+  assert.doesNotMatch(appliedWithButton, /apply-chip-button|Apply TC/, "the TC mark does not bring the Apply bar back");
+  assert.match(appliedWithButton, /<em class="tc-mark" aria-label="Triple Captain">TC<\/em><\/article>$/);
 });
 
 test("Triple Captain chip card is labelled Triple Captain and Plan Triple Captain, then Cancel while armed", () => {
@@ -363,6 +341,9 @@ test("Triple Captain sits under Bench Boost and pitch clicks go through the arm,
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const phone = css.slice(css.lastIndexOf("@media(max-width:850px)"));
   assert.match(phone, /\.builder-pitch-row article \.apply-chip-button\{display:none\}/);
+  assert.match(css, /\.builder-pitch-row article \.apply-chip-button\{display:none\}/);
+  assert.match(css, /\.coach-pitch-player \.apply-chip-button\{display:none\}/);
+  assert.doesNotMatch(css, /\.builder-pitch-row article \.apply-chip-button\{[^}]*background/);
   assert.match(phone, /\.builder-pitch-row article \.remove-player\{top:1px;right:1px/);
   assert.match(phone, /\.builder-pitch-row article \.tc-mark\{left:1px;top:1px/);
   assert.doesNotMatch(phone, /\.tc-mark\{[^}]*position:fixed/);
