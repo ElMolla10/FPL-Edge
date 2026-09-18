@@ -655,8 +655,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
    and the position shirt spilled onto the next card. The 62px shirt rule must not
    size this button either; that selector is `:not(.apply-chip-button)`. */
 .builder-pitch-row article .remove-player{position:absolute;right:2px;top:2px;width:16px;height:16px;padding:0;border:0;background:transparent;color:#98352c;font-size:13px;line-height:16px;text-align:center}
-.builder-pitch-row article .apply-chip-button{position:static;inset:auto;width:100%;max-width:100%;height:auto;min-height:0;margin:3px 0 0;padding:2px 3px;border:0;border-radius:3px;background:var(--surface-sunken);color:var(--ink);font-size:7px;font-weight:800;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.builder-pitch-row article .apply-chip-button.applied{background:var(--success-bg);color:var(--success-text)}
+.builder-pitch-row article .apply-chip-button{display:none}
 .chip-actions-row{align-items:start}
 .chip-actions-stack{display:flex;flex-direction:column;gap:12px;min-width:0}
 .chip-action-triple-captain{background:var(--surface-sunken);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:6px}
@@ -666,7 +665,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .builder-pitch-row article .tc-mark{position:absolute;left:2px;top:2px;z-index:2;display:inline-block;width:auto;min-width:16px;height:12px;margin:0;padding:0 2px;font-style:normal;font-size:7px;font-weight:900;line-height:12px;letter-spacing:0;text-align:center;background:var(--lime);color:#07100d;pointer-events:none}
 .builder-pitch-row article:has(.pin-toggle) .tc-mark{top:18px}
 
-.coach-pitch-player .apply-chip-button{position:static;width:62px;max-width:100%;min-height:0;height:auto;clip-path:none;flex:0 0 auto}
+.coach-pitch-player .apply-chip-button{display:none}
 @media(max-width:850px){
   /* Phone squad tiles. Apply TC is a full-width dark bar (theme sunken on a white card)
      and was covering xPts, so it is omitted at this width. The remove mark stays inside
