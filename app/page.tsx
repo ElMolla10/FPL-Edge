@@ -81,12 +81,7 @@ export default function Home() {
     if (params.get("app") === "1") setAppMode("demo");
   }, []);
   useEffect(() => {
-    const opened = new URLSearchParams(window.location.search).get("app") === "1";
-    if (appMode || opened) {
-      document.documentElement.classList.remove("paper-root");
-      return;
-    }
-    document.documentElement.classList.add("paper-root");
+    if (appMode || new URLSearchParams(window.location.search).get("app") === "1") return;
     let cancel = false;
     fetchFplData().then((next) => { if (!cancel) setData(next); }).catch(() => {});
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
@@ -95,7 +90,6 @@ export default function Home() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       cancel = true;
-      document.documentElement.classList.remove("paper-root");
       window.clearInterval(tick);
       window.removeEventListener("scroll", onScroll);
     };
@@ -124,7 +118,7 @@ export default function Home() {
           <h1>This week&apos;s move.</h1>
           <p className="paper-lead">A lineup, a captain, and whether to transfer. Free this gameweek.</p>
           <div className="paper-hero-actions">
-            <button type="button" className="paper-btn paper-open" onClick={openDesk}>Open the desk</button>
+            <button type="button" className="paper-btn paper-open" onClick={openDesk}>Check your FPL team</button>
             <a className="paper-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a>
           </div>
         </div>
@@ -190,7 +184,7 @@ export default function Home() {
       </footer>
     </div>
     <div className="paper-dock">
-      <button type="button" className="paper-btn" onClick={openDesk}>Open the desk</button>
+      <button type="button" className="paper-btn" onClick={openDesk}>Check your FPL team</button>
     </div>
   </main>;
 }
