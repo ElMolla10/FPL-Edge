@@ -179,7 +179,7 @@ function Freshness({data,onRefresh,loading}:{data:FplData;onRefresh:()=>void;loa
 function ThemeToggle(){
   const[theme,setTheme]=useState<"light"|"dark">(()=>typeof document!=="undefined"&&document.documentElement.getAttribute("data-theme")==="light"?"light":"dark");
   const toggle=()=>{const next=theme==="dark"?"light":"dark";setTheme(next);document.documentElement.setAttribute("data-theme",next);persist("fpl-edge-theme",next)};
-  return <button className="theme-toggle" onClick={toggle}>{theme==="dark"?"☀ Light mode":"● Dark mode"}</button>;
+  return <button type="button" className={theme==="dark"?"theme-toggle on":"theme-toggle"} role="switch" aria-checked={theme==="dark"} aria-label={theme==="dark"?"Dark mode on":"Light mode on"} onClick={toggle}><span>{theme==="dark"?"Dark":"Light"}</span><i/></button>;
 }
 function AccountBar({onAuthChange,onAccount,initialOpen=false}:{onAuthChange:()=>void;onAccount:(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>void;initialOpen?:boolean}){
   const[account,setAccount]=useState<{email:string;method:"password"|"chatgpt";seasonPassActive:boolean;seasonPassEndsAt:string|null}|null>(null);

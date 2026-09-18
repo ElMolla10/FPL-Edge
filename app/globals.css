@@ -478,3 +478,9 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .sidebar-pro-btn .nav-lock,.sidebar-pro-btn .nav-lock:before{border-color:var(--lime)}
 .sidebar-pro-btn.active{background:#1c3a28}
 .sidebar-pro .sidebar-drop{margin:0 0 6px}
+
+.theme-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%}
+.theme-toggle i{width:36px;height:20px;border-radius:999px;background:#254034;position:relative;flex:0 0 auto}
+.theme-toggle i:after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#e7efe9;transition:transform .16s ease}
+.theme-toggle.on i{background:var(--lime)}
+.theme-toggle.on i:after{transform:translateX(16px);background:#07140f}
