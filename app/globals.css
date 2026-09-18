@@ -414,3 +414,8 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .signin-action small{max-width:240px;font-size:11px;line-height:1.35;color:var(--text-muted);text-align:right}
 .coach-shell.signed-out .coach-main{padding-bottom:28px}
 @media(max-width:850px){.coach-shell.signed-out .coach-main{padding-bottom:88px}.signin-action{align-items:flex-start}.signin-action small{text-align:left}}
+
+
+/* Season pass sits by the account as a text link, not a full-width bar or a lime button. */
+.pass-link{color:var(--text-muted);font-size:12px;font-weight:500;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+.pass-link:hover{color:var(--text)}
