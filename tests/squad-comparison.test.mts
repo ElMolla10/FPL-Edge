@@ -494,16 +494,20 @@ test("official manager prices are selected only when all 15 manager IDs exactly 
   assert.equal(context.baselineSellingPrices.get(1), 4.8);
 });
 
-test("stale manager data with a mismatched player ID falls back atomically to current prices", () => {
+test("stale manager squad still keeps the official bank rather than inventing budget-minus-market ITB", () => {
   const baseline = Array.from({ length: 15 }, (_, index) => pricedPlayer(index + 1, 6));
   const staleBaseline = baseline.map((picked, index) => index === 14 ? pricedPlayer(99, 6) : picked);
-  const manager = officialManager(staleBaseline, 9, new Map([[1, 1]]));
+  const manager = officialManager(staleBaseline, 0.1, new Map([[1, 4.8]]));
 
   const context = deriveFinancialContext(baseline, 100, manager);
 
-  assert.equal(context.source, "current-price-assumption");
-  assert.equal(context.baselineBank, 10);
-  assert.equal(context.baselineSellingPrices.get(1), 6, "no stale official selling price may leak into the fallback context");
+  // Squad ID mismatch means we cannot trust a fully-official selling map, but the known official
+  // bank must still win. Using (budget - market value) here was inventing ~£10.0m ITB and letting
+  // Transfers rank unaffordable upgrades as ACTIONABLE.
+  assert.equal(context.source, "official-bank");
+  assert.equal(context.baselineBank, 0.1);
+  assert.equal(context.baselineSellingPrices.get(1), 4.8, "official selling prices that still match an owned id remain applied");
+  assert.equal(context.baselineSellingPrices.get(15), 6, "ids missing from official picks fall back to current price only for that player");
 });
 
 test("manual squad context retains the £100m current-price behavior", () => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { FplData, FplPlayer } from "../app/lib/fpl.ts";
 import { bestTransfers, isPlaceableTransfer } from "../app/lib/transfers.ts";
+import { deriveSandboxFinancialContext } from "../app/lib/squad-comparison.ts";
 
 function memoryStorage() {
   const store = new Map<string, string>();
@@ -129,4 +130,67 @@ test("isPlaceableTransfer: same-club replacement at the club cap stays legal", (
   const data = dataFor([...initial, replacement]);
   const result = isPlaceableTransfer(data, initial, out, replacement, 0, new Map());
   assert.equal(result.placeable, true, "replacing one of three same-club players with another from that club must stay legal");
+});
+
+
+test("regression: O'Nien-like cheap DEF → expensive DEF is rejected when official bank cannot cover the gap, even if budget-minus-market would invent ITB", () => {
+  // Live prices that triggered the bug report: O'Nien ~£3.9m → Tarkowski ~£6.1m needs ~£2.2m.
+  // A cheap 15-man market value leaves budget-minus-market ITB huge (~£18m+), which wrongly made
+  // the swap look placeable while Mohamed's real ITB could not cover it.
+  const initial = squad();
+  const outIdx = initial.findIndex(p => p.positionShort === "DEF");
+  const onien = makePlayer({
+    id: 539, name: "O'Nien", teamId: 20, teamName: "Sunderland", teamShort: "SUN",
+    positionId: 2, position: "Defender", positionShort: "DEF",
+    price: 3.9, epNext: 2,
+  });
+  initial[outIdx] = onien;
+  // Keep squad market value low so the OLD fallback would invent large ITB.
+  for (const player of initial) {
+    if (player.id !== onien.id && player.price > 5) {
+      player.price = 4.5;
+    }
+  }
+  const tarkowski = makePlayer({
+    id: 229, name: "Tarkowski", teamId: 9, teamName: "Everton", teamShort: "EVE",
+    positionId: 2, position: "Defender", positionShort: "DEF",
+    price: 6.1, epNext: 8, form: 8, pointsPerGame: 6, priorExpectedGoals: 8, priorExpectedAssists: 5,
+  });
+  const data = dataFor([...initial, tarkowski]);
+  const manager = {
+    bank: 0.1,
+    // Deliberately incomplete / mismatched picks — the failure mode that forced current-price ITB.
+    picks: initial.slice(0, 10).map((player, index) => ({
+      elementId: player.id,
+      position: index + 1,
+      multiplier: 1,
+      isCaptain: false,
+      isViceCaptain: false,
+      sellingPrice: player.price,
+    })),
+  };
+  const finance = deriveSandboxFinancialContext(initial, data.rules.budget, manager as never);
+  assert.equal(finance.baselineBank, 0.1, "official bank must be preserved despite incomplete picks");
+  assert.notEqual(finance.source, "current-price-assumption");
+  const assumedBank = Math.max(0, data.rules.budget - initial.reduce((sum, player) => sum + player.price, 0));
+  assert.ok(assumedBank > 2.2, "sanity: budget-minus-market would have been large enough to wrongly afford Tarkowski");
+  const gate = isPlaceableTransfer(data, initial, onien, tarkowski, finance.baselineBank, finance.baselineSellingPrices);
+  assert.equal(gate.placeable, false);
+  if (!gate.placeable) assert.equal(gate.reason, "budget");
+  const rows = bestTransfers(data, initial, finance.baselineBank, 1, 80, finance.baselineSellingPrices);
+  assert.ok(!rows.some(row => row.out.id === onien.id && row.incoming.id === tarkowski.id), "O'Nien→Tarkowski must not appear in Actionable/ranked Transfers when ITB cannot cover it");
+});
+
+test("isPlaceableTransfer: non-finite bank is treated as 0 so NaN cannot pass every swap", () => {
+  const initial = squad();
+  const out = initial.find(p => p.positionShort === "MID")!;
+  const expensive = makePlayer({
+    id: 88, name: "Expensive", teamId: 88, teamName: "X FC", teamShort: "XFC",
+    positionId: 3, position: "Midfielder", positionShort: "MID",
+    price: out.price + 3, epNext: 10,
+  });
+  const data = dataFor([...initial, expensive]);
+  const gate = isPlaceableTransfer(data, initial, out, expensive, Number.NaN, new Map());
+  assert.equal(gate.placeable, false);
+  if (!gate.placeable) assert.equal(gate.reason, "budget");
 });

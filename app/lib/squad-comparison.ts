@@ -8,7 +8,7 @@ export type ComparisonValue = { before: number; after: number; delta: number };
 export type HorizonComparison = ComparisonValue & { availableGameweeks: number };
 export type OfficialPick = { elementId: number; position: number; multiplier: number; isCaptain: boolean; isViceCaptain: boolean; sellingPrice?: number | null };
 export type ManagerMeta = { id: number; name: string; teamName: string; overallPoints: number; overallRank: number; gameweekPoints: number; gameweekRank: number; squadValue: number | null; bank: number | null; transfersMade: number; transferCost: number; captainId: number | null; viceCaptainId: number | null; chip: string | null; event?: number; picks?: OfficialPick[] };
-export type SandboxFinancialSource = "official" | "current-price-assumption";
+export type SandboxFinancialSource = "official" | "official-bank" | "current-price-assumption";
 export type SandboxFinancialContext = { baselineBank: number; baselineSellingPrices: Map<number, number>; source: SandboxFinancialSource };
 export type SandboxFinances = { sellingValue: number; buyingValue: number; finalBank: number; affordable: boolean };
 export type RatingComponentKey = Exclude<keyof SquadScores, "overall">;
@@ -65,18 +65,35 @@ export function sellingPricesFor(meta: ManagerMeta | null): Map<number, number> 
 }
 
 export function deriveSandboxFinancialContext(baselineSquad: FplPlayer[], budget: number, manager: ManagerMeta | null): SandboxFinancialContext {
+  // Per-player current-price selling map -- used as the baseline, then overwritten by any official
+  // selling prices we do have. Never abandon a known official bank just because picks are incomplete:
+  // falling back to (budget - market value) while the UI still shows the real ITB was the PR #37
+  // hole that let O'Nien→Tarkowski appear as "ACTIONABLE" with a low real bank.
+  const currentPriceSelling = () => new Map(baselineSquad.map(player => [player.id, player.price]));
   const currentPriceAssumption = (): SandboxFinancialContext => ({
     baselineBank: money(Math.max(0, budget - baselineSquad.reduce((sum, player) => sum + player.price, 0))),
-    baselineSellingPrices: new Map(baselineSquad.map(player => [player.id, player.price])),
+    baselineSellingPrices: currentPriceSelling(),
     source: "current-price-assumption",
   });
+  const hasOfficialBank = typeof manager?.bank === "number" && Number.isFinite(manager.bank) && manager.bank >= 0;
+  if (!hasOfficialBank) return currentPriceAssumption();
+
   const picks = manager?.picks ?? [];
   const baselineIds = new Set(baselineSquad.map(player => player.id));
   const pickIds = new Set(picks.map(pick => pick.elementId));
   const exactSquad = baselineSquad.length === 15 && picks.length === 15 && baselineIds.size === 15 && pickIds.size === 15 && [...baselineIds].every(id => pickIds.has(id));
-  const completePrices = picks.every(pick => typeof pick.sellingPrice === "number" && Number.isFinite(pick.sellingPrice) && pick.sellingPrice >= 0);
-  if (!exactSquad || !completePrices || typeof manager?.bank !== "number" || !Number.isFinite(manager.bank) || manager.bank < 0) return currentPriceAssumption();
-  return { baselineBank: money(manager.bank), baselineSellingPrices: sellingPricesFor(manager), source: "official" };
+  const officialSelling = sellingPricesFor(manager);
+  const completePrices = picks.length === 15 && picks.every(pick => typeof pick.sellingPrice === "number" && Number.isFinite(pick.sellingPrice) && pick.sellingPrice >= 0);
+
+  // Start from current-price selling so every owned id has a value, then overlay official selling
+  // prices where FPL gave them. Affordability then uses real ITB + best available sale value.
+  const selling = currentPriceSelling();
+  for (const [id, price] of officialSelling) selling.set(id, price);
+
+  if (exactSquad && completePrices) {
+    return { baselineBank: money(manager!.bank!), baselineSellingPrices: selling, source: "official" };
+  }
+  return { baselineBank: money(manager!.bank!), baselineSellingPrices: selling, source: "official-bank" };
 }
 
 export function calculateSandboxFinances(context: SandboxFinancialContext, baselineSquad: FplPlayer[], proposedSquad: FplPlayer[]): SandboxFinances {
@@ -89,7 +106,9 @@ export function calculateSandboxFinances(context: SandboxFinancialContext, basel
 }
 
 export function sandboxFinancialSourceLabel(source: SandboxFinancialSource): string {
-  return source === "official" ? "Official FPL bank and selling prices" : "Current-price assumption";
+  if (source === "official") return "Official FPL bank and selling prices";
+  if (source === "official-bank") return "Official FPL bank (selling prices partially assumed)";
+  return "Current-price assumption";
 }
 
 function pointsComparison(before: SquadEvaluation, after: SquadEvaluation, requestedGameweeks: number): HorizonComparison {
