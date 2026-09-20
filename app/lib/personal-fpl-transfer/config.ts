@@ -65,3 +65,19 @@ export function evaluatePersonalTransferGate(
   if (!entryId) return { ok: false, reason: "missing-entry" };
   return { ok: true, entryId };
 }
+
+/** Gate for reconnect / health — allowlisted + entry, without EXEC kill switch. */
+export type PersonalAuthManageGate =
+  | { ok: true; entryId: string }
+  | { ok: false; reason: "not-allowlisted" | "missing-entry" | "unauthenticated" };
+
+export function evaluatePersonalAuthManageGate(
+  env: PersonalTransferEnv,
+  userEmail: string | null,
+): PersonalAuthManageGate {
+  if (!userEmail) return { ok: false, reason: "unauthenticated" };
+  if (!isEmailAllowlisted(userEmail, env)) return { ok: false, reason: "not-allowlisted" };
+  const entryId = personalFplEntryId(env);
+  if (!entryId) return { ok: false, reason: "missing-entry" };
+  return { ok: true, entryId };
+}

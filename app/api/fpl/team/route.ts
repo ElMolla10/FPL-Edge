@@ -56,6 +56,8 @@ export async function GET(request: Request) {
     const liveAttempt = await tryFetchLiveTeamFinance(entry, env);
     const liveFinance = liveAttempt.ok ? liveAttempt.finance : null;
     const liveOverlayError = liveAttempt.ok ? null : liveAttempt.error;
+    // Personal entry + failed live overlay: never rank on public history bank.
+    const personalLiveRequired = liveOverlayError !== null;
 
     for (const event of candidateEvents) {
       const picksResponse = await fetch(`${FPL}/entry/${entry}/event/${event.id}/picks/`, {
@@ -102,7 +104,14 @@ export async function GET(request: Request) {
       const bankResolved = resolveTransferBankMillions({
         historyBankMillions: historyResolved,
         liveBankMillions: liveFinance?.bankMillions,
+        disallowHistoryFallback: personalLiveRequired,
       });
+      const rankingFinance =
+        bankResolved.source === "unavailable" || personalLiveRequired
+          ? "unavailable"
+          : "ready";
+      // Diagnostics only — clients must not rank on this when rankingFinance is unavailable.
+      const publicHistoryBank = historyResolved;
 
       const responsePicks = liveFinance
         ? liveFinance.picks.map((pick) => ({
@@ -156,6 +165,8 @@ export async function GET(request: Request) {
                 : null,
             bank: bankResolved.bank,
             bankSource: bankResolved.source,
+            rankingFinance,
+            publicHistoryBank,
             liveOverlayError: liveOverlayError ?? null,
             transfersMade: liveFinance ? liveFinance.transfersMade : Number(history.event_transfers) || 0,
             transferCost: liveFinance ? liveFinance.transferCost : Number(history.event_transfers_cost) || 0,
@@ -169,6 +180,8 @@ export async function GET(request: Request) {
           playerIds: ownedIds,
           liveOverlay: Boolean(liveFinance),
           liveOverlayError: liveOverlayError ?? null,
+          rankingFinance,
+          publicHistoryBank,
         },
         { headers: { "Cache-Control": "private, max-age=60" } },
       );
