@@ -4,12 +4,14 @@ export {
   PERSONAL_FPL_ENTRY_ID_ENV,
   PERSONAL_FPL_REFRESH_TOKEN_ENV,
   evaluatePersonalTransferGate,
+  evaluatePersonalAuthManageGate,
   isPersonalTransferExecEnabled,
   isEmailAllowlisted,
   parseRefreshTokenInput,
   personalFplEntryId,
   type PersonalTransferEnv,
   type PersonalTransferGate,
+  type PersonalAuthManageGate,
 } from "./config";
 export { exchangeRefreshToken, FplOidcError, FPL_OIDC_CLIENT_ID, FPL_OIDC_TOKEN_URL } from "./oidc";
 export {
@@ -38,4 +40,6 @@ export {
   type LiveOverlayError,
   type LiveTeamFinance,
   type LiveTeamFinanceAttempt,
+  type TransferBankSource,
 } from "./live-team";
+export { keepAlivePersonalFplAuth, type KeepAliveResult } from "./keep-alive";

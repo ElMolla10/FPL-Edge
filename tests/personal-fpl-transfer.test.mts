@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   buildTransferLeg,
+  evaluatePersonalAuthManageGate,
   evaluatePersonalTransferGate,
   isEmailAllowlisted,
   isPersonalTransferExecEnabled,
@@ -10,6 +11,11 @@ import {
   parseRefreshTokenInput,
   resolveTransferBankMillions,
 } from "../app/lib/personal-fpl-transfer/index.ts";
+import {
+  deriveSandboxFinancialContext,
+  isRankingFinanceUnavailable,
+  type ManagerMeta,
+} from "../app/lib/squad-comparison.ts";
 
 test("personal transfer kill switch defaults off", () => {
   assert.equal(isPersonalTransferExecEnabled({}), false);
@@ -155,4 +161,73 @@ test("FplOidcError marks invalid_grant as expired", async () => {
   const err = new FplOidcError(400, "invalid_grant", "refresh token expired or revoked");
   assert.equal(err.isInvalidGrant, true);
   assert.match(err.message, /invalid_grant/);
+});
+
+test("resolveTransferBankMillions: personal live failure never falls back to history", () => {
+  const resolved = resolveTransferBankMillions({
+    historyBankMillions: 2.1,
+    liveBankMillions: null,
+    disallowHistoryFallback: true,
+  });
+  assert.equal(resolved.bank, null);
+  assert.equal(resolved.source, "unavailable");
+});
+
+test("evaluatePersonalAuthManageGate: allowlist without EXEC", () => {
+  const env = {
+    FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST: "imody10@gmail.com",
+    FPL_EDGE_PERSONAL_FPL_ENTRY_ID: "261593",
+  };
+  assert.deepEqual(evaluatePersonalAuthManageGate(env, null), { ok: false, reason: "unauthenticated" });
+  assert.deepEqual(evaluatePersonalAuthManageGate(env, "stranger@example.com"), { ok: false, reason: "not-allowlisted" });
+  assert.deepEqual(evaluatePersonalAuthManageGate(env, "imody10@gmail.com"), { ok: true, entryId: "261593" });
+});
+
+test("deriveSandboxFinancialContext: unavailable when liveOverlayError / bankSource unavailable", () => {
+  const squad = Array.from({ length: 15 }, (_, i) => ({
+    id: i + 1,
+    price: 5,
+    priceChangeSinceStart: 0,
+  })) as never;
+  const blocked: ManagerMeta = {
+    id: 261593,
+    name: "M",
+    teamName: "T",
+    overallPoints: 0,
+    overallRank: 0,
+    gameweekPoints: 0,
+    gameweekRank: 0,
+    squadValue: 100,
+    bank: 2.1,
+    bankSource: "entry-history",
+    liveOverlayError: "token-expired",
+    transfersMade: 0,
+    transferCost: 0,
+    captainId: null,
+    viceCaptainId: null,
+    chip: null,
+  };
+  assert.equal(isRankingFinanceUnavailable(blocked), true);
+  const finance = deriveSandboxFinancialContext(squad, 100, blocked);
+  assert.equal(finance.source, "unavailable");
+  assert.equal(finance.baselineBank, 0);
+
+  const explicit: ManagerMeta = { ...blocked, bank: null, bankSource: "unavailable", liveOverlayError: "token-expired", rankingFinance: "unavailable" };
+  assert.equal(deriveSandboxFinancialContext(squad, 100, explicit).source, "unavailable");
+});
+
+test("README documents reconnect path and cron keep-alive", () => {
+  const readme = readFileSync(new URL("../app/lib/personal-fpl-transfer/README.md", import.meta.url), "utf8");
+  assert.match(readme, /Reconnect FPL/);
+  assert.match(readme, /\/api\/personal\/fpl-auth\/reconnect/);
+  assert.match(readme, /keepAlivePersonalFplAuth|0 \*\/4 \* \* \*/);
+  assert.match(readme, /rankingFinance: "unavailable"/);
+  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  assert.match(coach, /ReconnectFplPanel/);
+  assert.match(coach, /Live FPL bank unavailable/);
+  const wrangler = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+  assert.match(wrangler, /0 \*\/4 \* \* \*/);
+  const worker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
+  assert.match(worker, /keepAlivePersonalFplAuth/);
+  assert.match(worker, /scheduled/);
 });

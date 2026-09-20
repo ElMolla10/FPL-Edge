@@ -163,17 +163,27 @@ export async function tryFetchLiveTeamFinance(
   }
 }
 
+export type TransferBankSource = "live-my-team" | "entry-history" | "unavailable" | null;
+
 /**
  * Choose bank for affordability: live my-team wins over deadline/history whenever
  * both are known (they diverge after pending next-GW transfers).
+ *
+ * When `disallowHistoryFallback` is set (personal entry live overlay failed), never
+ * treat public entry-history bank as authoritative for Transfers rankings.
  */
 export function resolveTransferBankMillions(options: {
   historyBankMillions: number | null | undefined;
   liveBankMillions: number | null | undefined;
-}): { bank: number | null; source: "live-my-team" | "entry-history" | null } {
+  /** Personal entry + live my-team failed — ranking must not use £history. */
+  disallowHistoryFallback?: boolean;
+}): { bank: number | null; source: TransferBankSource } {
   const live = options.liveBankMillions;
   if (typeof live === "number" && Number.isFinite(live) && live >= 0) {
     return { bank: Math.round(live * 10) / 10, source: "live-my-team" };
+  }
+  if (options.disallowHistoryFallback) {
+    return { bank: null, source: "unavailable" };
   }
   const history = options.historyBankMillions;
   if (typeof history === "number" && Number.isFinite(history) && history >= 0) {

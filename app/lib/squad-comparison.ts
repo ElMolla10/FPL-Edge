@@ -8,8 +8,8 @@ export type DeltaState = "positive" | "negative" | "neutral";
 export type ComparisonValue = { before: number; after: number; delta: number };
 export type HorizonComparison = ComparisonValue & { availableGameweeks: number };
 export type OfficialPick = { elementId: number; position: number; multiplier: number; isCaptain: boolean; isViceCaptain: boolean; sellingPrice?: number | null };
-export type ManagerMeta = { id: number; name: string; teamName: string; overallPoints: number; overallRank: number; gameweekPoints: number; gameweekRank: number; squadValue: number | null; bank: number | null; bankSource?: "live-my-team" | "entry-history" | null; liveOverlayError?: string | null; transfersMade: number; transferCost: number; captainId: number | null; viceCaptainId: number | null; chip: string | null; event?: number; picks?: OfficialPick[] };
-export type SandboxFinancialSource = "official" | "official-bank" | "current-price-assumption";
+export type ManagerMeta = { id: number; name: string; teamName: string; overallPoints: number; overallRank: number; gameweekPoints: number; gameweekRank: number; squadValue: number | null; bank: number | null; bankSource?: "live-my-team" | "entry-history" | "unavailable" | null; rankingFinance?: "ready" | "unavailable" | null; publicHistoryBank?: number | null; liveOverlayError?: string | null; transfersMade: number; transferCost: number; captainId: number | null; viceCaptainId: number | null; chip: string | null; event?: number; picks?: OfficialPick[] };
+export type SandboxFinancialSource = "official" | "official-bank" | "current-price-assumption" | "unavailable";
 export type SandboxFinancialContext = { baselineBank: number; baselineSellingPrices: Map<number, number>; source: SandboxFinancialSource };
 export type SandboxFinances = { sellingValue: number; buyingValue: number; finalBank: number; affordable: boolean };
 export type RatingComponentKey = Exclude<keyof SquadScores, "overall">;
@@ -80,6 +80,16 @@ export function sellingPriceForPlayer(player: FplPlayer, officialSelling?: numbe
   return money(player.price);
 }
 
+/** True when personal live overlay failed — do not rank Transfers on public history bank. */
+export function isRankingFinanceUnavailable(manager: ManagerMeta | null | undefined): boolean {
+  if (!manager) return false;
+  if (manager.rankingFinance === "unavailable" || manager.bankSource === "unavailable") return true;
+  // liveOverlayError is only set for the personal entry; treat as blocked even if a stale
+  // entry-history bank is still present in an older cache payload.
+  if (manager.liveOverlayError && manager.bankSource !== "live-my-team") return true;
+  return false;
+}
+
 export function deriveSandboxFinancialContext(baselineSquad: FplPlayer[], budget: number, manager: ManagerMeta | null): SandboxFinancialContext {
   // Never abandon a known official bank just because picks are incomplete: falling back to
   // (budget - market value) while the UI still shows the real ITB was the PR #37 hole that let
@@ -93,6 +103,10 @@ export function deriveSandboxFinancialContext(baselineSquad: FplPlayer[], budget
     const official = manager?.picks?.find(pick => pick.elementId === player.id)?.sellingPrice;
     return [player.id, sellingPriceForPlayer(player, official)] as [number, number];
   }));
+  // Personal live overlay failed: never invent ranking bank from public history or market.
+  if (isRankingFinanceUnavailable(manager)) {
+    return { baselineBank: 0, baselineSellingPrices: conservativeSelling(), source: "unavailable" };
+  }
   const currentPriceAssumption = (): SandboxFinancialContext => ({
     baselineBank: money(Math.max(0, budget - baselineSquad.reduce((sum, player) => sum + player.price, 0))),
     baselineSellingPrices: conservativeSelling(),
@@ -129,6 +143,7 @@ export function calculateSandboxFinances(context: SandboxFinancialContext, basel
 export function sandboxFinancialSourceLabel(source: SandboxFinancialSource): string {
   if (source === "official") return "Official FPL bank and selling prices";
   if (source === "official-bank") return "Official FPL bank (selling prices partially assumed)";
+  if (source === "unavailable") return "Live FPL bank unavailable";
   return "Current-price assumption";
 }
 

@@ -60,19 +60,50 @@ When overlay fails for the personal entry, the JSON includes a metric-safe
 The UI shows **live bank unavailable** instead of quietly treating £2.1 public
 history as live.
 
-### If live overlay stays on `token-expired`
+### Correctness over availability (personal entry)
 
-Mohamed must re-seed the Worker secret (do not paste the token into chat):
+For entry `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` (261593):
+
+- Live my-team succeeds → `bankSource: "live-my-team"`, rankings use live bank/picks.
+- Live my-team fails (`token-expired`, etc.) → **do not** treat public
+  `entry_history` bank as authoritative for Transfers rankings.
+  - API sets `liveOverlay: false`, `liveOverlayError`, `rankingFinance: "unavailable"`,
+    `manager.bankSource: "unavailable"`, `manager.bank: null`.
+  - `publicHistoryBank` may still be present for diagnostics only.
+  - Client (`deriveSandboxFinancialContext` / Transfers / Overview) shows a blocking
+    empty state: **Live FPL bank unavailable — reconnect FPL** instead of false
+    Actionable lists driven by £2.1 history.
+
+### Reconnect FPL (in-app — preferred)
+
+Signed-in allowlisted user (no wrangler required):
 
 1. Sign in at https://fantasy.premierleague.com
 2. DevTools → Application → Local Storage → `https://fantasy.premierleague.com`
 3. Copy the `oidc.user:…` JSON (or its `refresh_token`)
-4. Update Cloudflare Worker secret `FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN`
-5. Optionally clear the D1 row so the seed is adopted immediately:
-   `DELETE FROM personal_fpl_auth WHERE id = 'default';`
-   (next request re-seeds from the secret)
+4. In Edge, open Transfers/Overview when the reconnect panel is shown (or any time
+   live bank is unavailable) and paste into **Reconnect FPL**
+5. `POST /api/personal/fpl-auth/reconnect` writes the new seed to D1
+   `personal_fpl_auth` (never logged). UI force-refreshes `/api/fpl/team` so
+   `bankSource` flips to `live-my-team` without a deploy.
 
-Confirm `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` is still `261593`.
+Allowlist + auth required. EXEC kill switch is **not** required for reconnect
+(live overlay is read-only). Health check: `GET /api/personal/fpl-auth/health`
+(allowlisted) returns metric-safe `{ liveOverlay, liveOverlayError, hasRefreshToken }`.
+
+### Fallback: Worker secret re-seed
+
+If the in-app form is unavailable, update Cloudflare Worker secret
+`FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN`, then optionally
+`DELETE FROM personal_fpl_auth WHERE id = 'default';` so the next request adopts
+the seed. Confirm `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` is still `261593`.
+
+### Cron keep-alive
+
+Worker cron `0 */4 * * *` (every 4 hours) runs `keepAlivePersonalFplAuth`:
+exchanges/refreshes via the same CAS + access-token D1 cache as live overlay,
+persists the new refresh + access tokens, and never invents bank on
+`token-expired` (overlay stays unavailable for reconnect).
 
 The CoachApp client must not keep ranking from a stale `fpl-edge-manager` /
 `fpl-edge-squad` snapshot. `refreshConnectedTeamFromApi` **always** writes live

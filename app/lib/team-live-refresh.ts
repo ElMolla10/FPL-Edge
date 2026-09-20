@@ -15,7 +15,10 @@ import { isSignedIn, writeAccountTeam } from "./persistence";
 
 export type TeamApiManagerSnapshot = {
   bank?: number | null;
-  bankSource?: "live-my-team" | "entry-history" | null;
+  bankSource?: "live-my-team" | "entry-history" | "unavailable" | null;
+  rankingFinance?: "ready" | "unavailable" | null;
+  publicHistoryBank?: number | null;
+  liveOverlayError?: string | null;
   picks?: Array<{ elementId: number; sellingPrice?: number | null }>;
   [key: string]: unknown;
 };
@@ -25,6 +28,8 @@ export type TeamApiResponse = {
   manager?: TeamApiManagerSnapshot;
   liveOverlay?: boolean;
   liveOverlayError?: string | null;
+  rankingFinance?: "ready" | "unavailable" | null;
+  publicHistoryBank?: number | null;
   error?: string;
 };
 
@@ -107,6 +112,7 @@ export function shouldForceTeamRefreshOnTransfers(): boolean {
   const cached = safeParse<TeamApiManagerSnapshot | null>(localStorage.getItem("fpl-edge-manager"), null);
   if (!cached) return true;
   if (cached.bankSource !== "live-my-team") return true;
+  if (cached.rankingFinance === "unavailable" || cached.liveOverlayError) return true;
   return false;
 }
 
@@ -168,6 +174,8 @@ export async function refreshConnectedTeamFromApi(
   const managerForCache = {
     ...json.manager,
     liveOverlayError: json.liveOverlayError ?? json.manager.liveOverlayError ?? null,
+    rankingFinance: json.rankingFinance ?? json.manager.rankingFinance ?? null,
+    publicHistoryBank: json.publicHistoryBank ?? json.manager.publicHistoryBank ?? null,
   };
   writeLocalTeamCache({ squadIds: ids, entry, manager: managerForCache });
 

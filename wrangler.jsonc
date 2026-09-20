@@ -21,5 +21,10 @@
   },
   "images": {
     "binding": "IMAGES"
+  },
+  "triggers": {
+    "crons": [
+      "0 */4 * * *"
+    ]
   }
 }
