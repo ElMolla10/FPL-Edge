@@ -170,8 +170,10 @@ export function isPlaceableTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer
   if(incoming.status==="u")return{placeable:false,reason:"unavailable"};
   const rest=squad.filter(player=>player.id!==out.id);
   if(rest.filter(player=>player.teamId===incoming.teamId).length>=data.rules.teamLimit)return{placeable:false,reason:"club-limit"};
+  // Non-finite bank must not silently pass every swap (NaN comparisons are always false).
+  const safeBank=Number.isFinite(bank)?bank:0;
   const saleValue=sellingPrices.get(out.id)??out.price;
-  if(incoming.price>saleValue+bank+.001)return{placeable:false,reason:"budget"};
+  if(incoming.price>saleValue+safeBank+.001)return{placeable:false,reason:"budget"};
   const next=squad.map(player=>player.id===out.id?incoming:player);
   if(!isCompleteSquad(next,data))return{placeable:false,reason:"squad-shape"};
   return{placeable:true};
