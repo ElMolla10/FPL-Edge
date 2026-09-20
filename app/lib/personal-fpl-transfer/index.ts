@@ -8,6 +8,7 @@ export {
   isPersonalTransferExecEnabled,
   isEmailAllowlisted,
   parseRefreshTokenInput,
+  extractRefreshToken,
   personalFplEntryId,
   type PersonalTransferEnv,
   type PersonalTransferGate,
@@ -31,6 +32,8 @@ export {
   reloadPersonalAuthSessionFromDb,
   tryAdoptEnvSeedRefreshToken,
   casPersistPersonalAuthSession,
+  claimRefreshLease,
+  clearRefreshLease,
   type PersonalAuthSession,
 } from "./store";
 export {

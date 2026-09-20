@@ -37,17 +37,58 @@ export function personalFplEntryId(env: PersonalTransferEnv): string | null {
   return /^\d+$/.test(id) ? id : null;
 }
 
-export function parseRefreshTokenInput(pasted: string): string {
+/** Worker secrets are capped at 5 KB — whole oidc.user JSON often exceeds that and truncates. */
+export const WORKER_SECRET_MAX_BYTES = 5 * 1024;
+/** Bare PingOne refresh tokens fit under this; larger blobs are almost always truncated JSON. */
+export const MAX_BARE_REFRESH_TOKEN_CHARS = 2048;
+export const MIN_REFRESH_TOKEN_CHARS = 8;
+
+function looksLikeJsonBlob(value: string): boolean {
+  const t = value.trim();
+  return t.startsWith("{") || t.includes("access_token") || t.includes("oidc.user") || t.includes("id_token");
+}
+
+function isPlausibleRefreshToken(token: string): boolean {
+  if (token.length < MIN_REFRESH_TOKEN_CHARS) return false;
+  if (token.length > MAX_BARE_REFRESH_TOKEN_CHARS) return false;
+  if (looksLikeJsonBlob(token)) return false;
+  if (/[\u0000-\u001f]/.test(token)) return false;
+  return true;
+}
+
+/**
+ * Extract ONLY refresh_token. Never persist whole oidc.user JSON — Worker secrets
+ * truncate near 5 KB and truncated JSON becomes invalid_grant.
+ * Returns null when input is missing, truncated, or not a plausible token.
+ */
+export function extractRefreshToken(pasted: string): string | null {
   const trimmed = pasted.trim();
+  if (!trimmed) return null;
+
   try {
     const parsed = JSON.parse(trimmed) as { refresh_token?: unknown };
-    if (parsed && typeof parsed.refresh_token === "string" && parsed.refresh_token.length > 0) {
-      return parsed.refresh_token;
+    if (parsed && typeof parsed.refresh_token === "string") {
+      const token = parsed.refresh_token.trim();
+      return isPlausibleRefreshToken(token) ? token : null;
     }
   } catch {
-    // Bare token.
+    // Truncated / bare token path below.
   }
-  return trimmed;
+
+  // Truncated oidc.user JSON: pull a complete "refresh_token":"..." value if present.
+  const field = trimmed.match(/"refresh_token"\s*:\s*"([^"]+)"/);
+  if (field?.[1]) {
+    const token = field[1].trim();
+    return isPlausibleRefreshToken(token) ? token : null;
+  }
+
+  if (looksLikeJsonBlob(trimmed)) return null;
+  return isPlausibleRefreshToken(trimmed) ? trimmed : null;
+}
+
+/** Back-compat: returns "" when extraction fails (callers treat short/empty as missing). */
+export function parseRefreshTokenInput(pasted: string): string {
+  return extractRefreshToken(pasted) ?? "";
 }
 
 export type PersonalTransferGate =

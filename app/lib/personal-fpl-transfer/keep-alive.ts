@@ -13,7 +13,10 @@ import { personalFplEntryId, type PersonalTransferEnv } from "./config";
 import { FplOidcError } from "./oidc";
 import {
   casPersistPersonalAuthSession,
+  claimRefreshLease,
+  clearRefreshLease,
   loadPersonalAuthSession,
+  persistPersonalAuthSession,
   reloadPersonalAuthSessionFromDb,
   tryAdoptEnvSeedRefreshToken,
 } from "./store";
@@ -62,6 +65,9 @@ export async function keepAlivePersonalFplAuth(env: PersonalTransferEnv): Promis
       persistSession: casPersistPersonalAuthSession,
       reloadSession: reloadPersonalAuthSessionFromDb,
       adoptEnvSeed: (failed) => tryAdoptEnvSeedRefreshToken(env, failed),
+      claimRefreshLease: (expected) => claimRefreshLease(expected),
+      clearRefreshLease: (expected) => clearRefreshLease(expected),
+      forcePersistSession: (next) => persistPersonalAuthSession(next),
     });
     // Prefer cached access when still valid (avoids race-rotating with concurrent
     // /api/fpl/team). When expired (typical after idle hours), exchange + CAS persist.

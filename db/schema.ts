@@ -97,5 +97,7 @@ export const personalFplAuth = sqliteTable("personal_fpl_auth", {
   // Cached PingOne access token — avoids rotating the refresh token on every my-team read.
   accessToken: text("access_token"),
   accessExpiresAt: text("access_expires_at"), // epoch ms as string
+  // Cross-isolate single-flight: epoch ms until which another isolate owns PingOne refresh.
+  refreshLeaseUntil: text("refresh_lease_until"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 /**
- * Personal-only: paste oidc.user JSON / refresh_token to reseed D1 without wrangler.
- * Never logs the token. Parent should force-refresh /api/fpl/team after success.
+ * Personal-only reconnect without manual token hunting.
+ * Primary path: bookmarklet on fantasy.premierleague.com posts refresh_token via #fpl_rt=.
+ * Fallback: paste bare refresh_token only (never whole oidc.user JSON).
  */
 export default function ReconnectFplPanel({
   onReconnected,
@@ -18,8 +19,23 @@ export default function ReconnectFplPanel({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [ok, setOk] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
 
-  const submit = async () => {
+  const catchBase = useMemo(() => {
+    if (typeof window === "undefined") return "https://fpl-edge.elmolla10.workers.dev/?app=1";
+    const url = new URL(window.location.href);
+    url.hash = "";
+    if (!url.searchParams.has("app")) url.searchParams.set("app", "1");
+    return url.toString();
+  }, []);
+
+  const bookmarklet = useMemo(() => {
+    // Extracts refresh_token only and returns to Edge with #fpl_rt=…
+    const js = `(()=>{try{var k=Object.keys(localStorage).find(function(x){return x.indexOf("oidc.user:")===0});if(!k){alert("Sign in to FPL first");return;}var j=JSON.parse(localStorage.getItem(k)||"{}");var rt=j&&j.refresh_token;if(!rt){alert("No refresh_token in FPL session");return;}location=${JSON.stringify(catchBase)}+"#fpl_rt="+encodeURIComponent(rt);}catch(e){alert("Could not read FPL session");}})();`;
+    return `javascript:${js}`;
+  }, [catchBase]);
+
+  const submitToken = async (raw: string) => {
     setBusy(true);
     setMessage("");
     setOk(false);
@@ -27,7 +43,7 @@ export default function ReconnectFplPanel({
       const response = await fetch("/api/personal/fpl-auth/reconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token: raw }),
       });
       const json = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || !json.ok) {
@@ -37,24 +53,39 @@ export default function ReconnectFplPanel({
             : json.error === "not-allowlisted"
               ? "This account cannot reconnect FPL."
               : json.error === "missing-token"
-                ? "Paste the oidc.user JSON or refresh_token from fantasy.premierleague.com."
-                : typeof json.error === "string"
-                  ? json.error
-                  : "Could not save the FPL token.",
+                ? "Could not find a refresh_token. Use the bookmarklet after signing in to FPL."
+                : json.error === "token-invalid"
+                  ? "That FPL session was rejected. Sign in to FPL again, then click the bookmarklet."
+                  : typeof json.error === "string"
+                    ? json.error
+                    : "Could not save the FPL token.",
         );
-        return;
+        return false;
       }
       setToken("");
       setOk(true);
-      setMessage("FPL token saved. Refreshing live bank…");
+      setMessage("FPL session saved. Refreshing live bank…");
       await onReconnected?.();
       setMessage("Live FPL reconnected. Rankings will use your live bank.");
+      return true;
     } catch {
       setMessage("Could not reach the reconnect API.");
+      return false;
     } finally {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash || "";
+    const match = hash.match(/^#fpl_rt=(.+)$/);
+    if (!match) return;
+    const raw = decodeURIComponent(match[1]);
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    void submitToken(raw);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot hash capture
+  }, []);
 
   return (
     <section className="reconnect-fpl-panel" aria-label="Reconnect FPL">
@@ -65,27 +96,52 @@ export default function ReconnectFplPanel({
         history bank is not used for Actionable routes.
         {errorHint ? ` (${errorHint})` : ""}
       </p>
+      <p>
+        PingOne sessions last about 30 days from the last FPL sign-in (refresh does not extend
+        that). After expiry, reconnect once with the bookmarklet — no manual token hunting.
+      </p>
       <ol>
-        <li>Sign in at fantasy.premierleague.com</li>
-        <li>DevTools → Application → Local Storage → fantasy.premierleague.com</li>
-        <li>Copy the oidc.user:… JSON (or its refresh_token)</li>
-        <li>Paste below and save — do not paste into chat</li>
+        <li>
+          Drag this link to your bookmarks bar:{" "}
+          <a href={bookmarklet} onClick={(e) => e.preventDefault()}>
+            Send FPL session to Edge
+          </a>
+        </li>
+        <li>
+          Open{" "}
+          <a href="https://fantasy.premierleague.com" target="_blank" rel="noreferrer">
+            fantasy.premierleague.com
+          </a>{" "}
+          and sign in
+        </li>
+        <li>Click the bookmark — you return here and the live bank reconnects automatically</li>
       </ol>
-      <label>
-        oidc.user JSON / refresh_token
-        <textarea
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          rows={4}
-          spellCheck={false}
-          autoComplete="off"
-          placeholder="Paste oidc.user JSON or refresh_token"
-          disabled={busy}
-        />
-      </label>
-      <button type="button" onClick={submit} disabled={busy || token.trim().length < 20}>
-        {busy ? "Saving…" : "Reconnect FPL"}
+      <button type="button" onClick={() => setShowPaste((v) => !v)} disabled={busy}>
+        {showPaste ? "Hide advanced paste" : "Advanced: paste refresh_token only"}
       </button>
+      {showPaste && (
+        <>
+          <p>
+            Paste the bare <code>refresh_token</code> value only — not the whole oidc.user JSON
+            (Worker secrets truncate near 5 KB).
+          </p>
+          <label>
+            refresh_token
+            <textarea
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              rows={3}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="Paste refresh_token only"
+              disabled={busy}
+            />
+          </label>
+          <button type="button" onClick={() => void submitToken(token)} disabled={busy || token.trim().length < 20}>
+            {busy ? "Saving…" : "Reconnect FPL"}
+          </button>
+        </>
+      )}
       {message && <p className={ok ? "reconnect-ok" : "reconnect-err"}>{message}</p>}
     </section>
   );

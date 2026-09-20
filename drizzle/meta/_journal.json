@@ -57,6 +57,13 @@
       "when": 1789710000000,
       "tag": "0007_personal_fpl_access_token",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789720000000,
+      "tag": "0008_personal_fpl_refresh_lease",
+      "breakpoints": true
     }
   ]
 }
