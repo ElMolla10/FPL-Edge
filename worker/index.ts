@@ -57,7 +57,7 @@ const worker = {
    * Keep the personal FPL refresh token alive even when nobody opens Transfers.
    * Uses the same CAS/access-token cache as live overlay — never race-rotates.
    * On token-expired: leave overlay unavailable (no invented bank).
-   * Schedule: every 4 hours (`0 */4 * * *` in wrangler.jsonc).
+   * Schedule: every 4 hours (see wrangler.jsonc triggers.crons).
    */
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
