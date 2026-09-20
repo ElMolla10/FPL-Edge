@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 /**
  * Personal-only reconnect without manual token hunting.
  * Primary path: bookmarklet on fantasy.premierleague.com posts refresh_token via #fpl_rt=.
+ * Prefer Copy bookmarklet → Edit bookmark → paste URL (drag often strips javascript:).
  * Fallback: paste bare refresh_token only (never whole oidc.user JSON).
  */
 export default function ReconnectFplPanel({
@@ -20,6 +21,7 @@ export default function ReconnectFplPanel({
   const [message, setMessage] = useState("");
   const [ok, setOk] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const catchBase = useMemo(() => {
     if (typeof window === "undefined") return "https://fpl-edge.elmolla10.workers.dev/?app=1";
@@ -34,6 +36,20 @@ export default function ReconnectFplPanel({
     const js = `(()=>{try{var k=Object.keys(localStorage).find(function(x){return x.indexOf("oidc.user:")===0});if(!k){alert("Sign in to FPL first");return;}var j=JSON.parse(localStorage.getItem(k)||"{}");var rt=j&&j.refresh_token;if(!rt){alert("No refresh_token in FPL session");return;}location=${JSON.stringify(catchBase)}+"#fpl_rt="+encodeURIComponent(rt);}catch(e){alert("Could not read FPL session");}})();`;
     return `javascript:${js}`;
   }, [catchBase]);
+
+  const copyBookmarklet = async () => {
+    try {
+      await navigator.clipboard.writeText(bookmarklet);
+      setCopied(true);
+      setMessage("Bookmarklet URL copied. Edit a bookmark and paste it into the URL field.");
+      setOk(true);
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setCopied(false);
+      setOk(false);
+      setMessage("Could not copy. Select the bookmarklet link, copy manually, then paste into a bookmark URL.");
+    }
+  };
 
   const submitToken = async (raw: string) => {
     setBusy(true);
@@ -100,12 +116,22 @@ export default function ReconnectFplPanel({
         PingOne sessions last about 30 days from the last FPL sign-in (refresh does not extend
         that). After expiry, reconnect once with the bookmarklet — no manual token hunting.
       </p>
+
+      <div className="reconnect-primary">
+        <button type="button" onClick={() => void copyBookmarklet()} disabled={busy}>
+          {copied ? "Copied" : "Copy bookmarklet"}
+        </button>
+        <a href={bookmarklet} onClick={(e) => e.preventDefault()} className="reconnect-bookmark-link">
+          Send FPL session to Edge
+        </a>
+      </div>
+
       <ol>
         <li>
-          Drag this link to your bookmarks bar:{" "}
-          <a href={bookmarklet} onClick={(e) => e.preventDefault()}>
-            Send FPL session to Edge
-          </a>
+          <strong>Preferred:</strong> tap <strong>Copy bookmarklet</strong>, then create or edit a
+          bookmark and paste the full <code>javascript:…</code> URL into the bookmark&apos;s URL
+          field (Chrome: Bookmarks → Bookmark manager → ⋮ → Edit; Safari: Bookmarks → Edit
+          Bookmarks → select bookmark → paste URL). Dragging often strips <code>javascript:</code>.
         </li>
         <li>
           Open{" "}
@@ -116,7 +142,20 @@ export default function ReconnectFplPanel({
         </li>
         <li>Click the bookmark — you return here and the live bank reconnects automatically</li>
       </ol>
-      <button type="button" onClick={() => setShowPaste((v) => !v)} disabled={busy}>
+
+      <p className="reconnect-hint">
+        If clicking the bookmark on FPL does nothing (no alert, no redirect), the bookmark is not a{" "}
+        <code>javascript:</code> bookmark — browsers often strip that scheme when dragging. Use{" "}
+        <strong>Copy bookmarklet</strong> and paste into Edit bookmark → URL, then try again. Mobile
+        Safari may block bookmarklets entirely; use Advanced paste below on desktop.
+      </p>
+
+      <button
+        type="button"
+        className="reconnect-secondary"
+        onClick={() => setShowPaste((v) => !v)}
+        disabled={busy}
+      >
         {showPaste ? "Hide advanced paste" : "Advanced: paste refresh_token only"}
       </button>
       {showPaste && (

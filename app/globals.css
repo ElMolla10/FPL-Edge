@@ -717,10 +717,15 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .reconnect-fpl-panel h2{font-size:22px;margin:0;color:var(--text)}
 .reconnect-fpl-panel p{font-size:13px;color:var(--text-muted);line-height:1.5;margin:0}
 .reconnect-fpl-panel ol{margin:0;padding-left:18px;font-size:12px;color:var(--text-muted);line-height:1.55}
+.reconnect-fpl-panel ol strong{color:var(--text);font-weight:800}
 .reconnect-fpl-panel label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:800;color:var(--text)}
 .reconnect-fpl-panel textarea{border:1px solid var(--line);background:var(--surface-card);color:var(--text);padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;border-radius:6px;resize:vertical}
-.reconnect-fpl-panel>button{align-self:flex-start;border:0;background:var(--ink);color:var(--text-on-inverse);padding:12px 16px;font-weight:900}
-.reconnect-fpl-panel>button:disabled{opacity:.5}
+.reconnect-fpl-panel>button,.reconnect-fpl-panel .reconnect-primary>button{align-self:flex-start;border:0;background:var(--ink);color:var(--text-on-inverse);padding:12px 16px;font-weight:900}
+.reconnect-fpl-panel>button:disabled,.reconnect-fpl-panel .reconnect-primary>button:disabled{opacity:.5}
+.reconnect-fpl-panel .reconnect-primary{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.reconnect-fpl-panel .reconnect-bookmark-link{font-size:12px;font-weight:700;color:var(--text);text-decoration:underline}
+.reconnect-fpl-panel .reconnect-hint{font-size:12px;border-left:3px solid var(--danger-text);padding-left:10px}
+.reconnect-fpl-panel .reconnect-secondary{background:transparent;border:1px solid var(--line)!important;color:var(--text)!important}
 .reconnect-fpl-panel .reconnect-ok{color:var(--success-text);font-weight:700}
 .reconnect-fpl-panel .reconnect-err{color:var(--danger-text);font-weight:700}
 .live-overlay-banner{background:var(--warning-bg);border:1px solid var(--warning-text);border-radius:8px;padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
