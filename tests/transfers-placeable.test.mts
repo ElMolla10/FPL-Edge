@@ -357,3 +357,80 @@ test("regression: live bank £0.8 rejects Thomas/Maguire→Tarkowski and O'Nien�
   assert.ok(!rows.some((row) => row.out.id === maguire.id && row.incoming.id === tarkowski.id));
   assert.ok(!rows.some((row) => row.out.id === onien.id && row.incoming.id === guehi.id));
 });
+
+test("regression: live bank £0.8 + pending Tarkowski owned drops O'Nien→Tarkowski and Palmer→B.Fernandes", () => {
+  // Live my-team for 261593 after Maguire/Barnes → Tarkowski/Tavernier: Tarkowski already owned,
+  // ITB £0.8. Stale cache still had Maguire+Barnes and £2.1, so Actionable ranked impossible rows.
+  const initial = squad();
+  const onien = makePlayer({
+    id: 539, name: "O'Nien", teamId: 20, teamName: "Sunderland", teamShort: "SUN",
+    positionId: 2, position: "Defender", positionShort: "DEF", price: 3.9, epNext: 1,
+  });
+  const tarkowski = makePlayer({
+    id: 229, name: "Tarkowski", teamId: 9, teamName: "Everton", teamShort: "EVE",
+    positionId: 2, position: "Defender", positionShort: "DEF",
+    price: 6.1, epNext: 8, form: 8, pointsPerGame: 6, priorExpectedGoals: 8, priorExpectedAssists: 5,
+  });
+  const thomas = makePlayer({
+    id: 173, name: "Thomas", teamId: 7, teamName: "Coventry", teamShort: "COV",
+    positionId: 2, position: "Defender", positionShort: "DEF", price: 4.0, epNext: 2,
+  });
+  const defIdx = initial.map((p, i) => (p.positionShort === "DEF" ? i : -1)).filter((i) => i >= 0);
+  initial[defIdx[0]] = onien;
+  initial[defIdx[1]] = tarkowski; // pending live squad already owns Tarkowski
+  initial[defIdx[2]] = thomas;
+
+  const palmer = makePlayer({
+    id: 154, name: "Palmer", teamId: 8, teamName: "Chelsea", teamShort: "CHE",
+    positionId: 3, position: "Midfielder", positionShort: "MID",
+    price: 9.7, epNext: 6, form: 6, pointsPerGame: 5,
+  });
+  const midIdx = initial.findIndex((p) => p.positionShort === "MID");
+  initial[midIdx] = palmer;
+
+  const fernandes = makePlayer({
+    id: 426, name: "B.Fernandes", teamId: 16, teamName: "Man Utd", teamShort: "MUN",
+    positionId: 3, position: "Midfielder", positionShort: "MID",
+    price: 12.0, epNext: 10, form: 9, pointsPerGame: 8, priorExpectedGoals: 12, priorExpectedAssists: 15,
+  });
+  // Extra Tarkowski target for the owned-gate (same id already in squad — candidates come from data.players)
+  const data = dataFor([...initial, fernandes]);
+
+  const liveBank = 0.8;
+  const selling = new Map(initial.map((player) => [player.id, player.price] as [number, number]));
+  selling.set(onien.id, 3.9);
+  selling.set(palmer.id, 9.7);
+
+  assert.equal(
+    isPlaceableTransfer(data, initial, onien, tarkowski, liveBank, selling).placeable,
+    false,
+    "O'Nien→Tarkowski must be owned-rejected when Tarkowski is already in the live squad",
+  );
+  const fernandesGate = isPlaceableTransfer(data, initial, palmer, fernandes, liveBank, selling);
+  assert.equal(fernandesGate.placeable, false, "Palmer→B.Fernandes must be budget-rejected at £0.8 ITB");
+  if (!fernandesGate.placeable) assert.equal(fernandesGate.reason, "budget");
+
+  const manager = {
+    bank: liveBank,
+    bankSource: "live-my-team" as const,
+    picks: initial.map((player, index) => ({
+      elementId: player.id,
+      position: index + 1,
+      multiplier: index < 11 ? 1 : 0,
+      isCaptain: index === 0,
+      isViceCaptain: index === 1,
+      sellingPrice: selling.get(player.id) ?? player.price,
+    })),
+  };
+  const finance = deriveSandboxFinancialContext(initial, data.rules.budget, manager as never);
+  assert.equal(finance.baselineBank, 0.8);
+  const rows = bestTransfers(data, initial, finance.baselineBank, 1, 80, finance.baselineSellingPrices);
+  assert.ok(
+    !rows.some((row) => row.out.id === onien.id && row.incoming.id === tarkowski.id),
+    "O'Nien→Tarkowski must be absent from ranked Actionable with live pending squad",
+  );
+  assert.ok(
+    !rows.some((row) => row.out.id === palmer.id && row.incoming.id === fernandes.id),
+    "Palmer→B.Fernandes must be absent from ranked Actionable at live bank £0.8",
+  );
+});
