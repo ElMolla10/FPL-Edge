@@ -8,16 +8,15 @@
  */
 
 import type { MyTeamResponse } from "./client";
+import { createRotatingTokenProvider, fetchMyTeam } from "./client";
+import { personalFplEntryId, type PersonalTransferEnv } from "./config";
+import { FplOidcError } from "./oidc";
 import {
-  createRotatingTokenProvider,
-  fetchMyTeam,
-} from "./client";
-import {
-  isPersonalTransferExecEnabled,
-  personalFplEntryId,
-  type PersonalTransferEnv,
-} from "./config";
-import { loadPersonalRefreshToken, persistPersonalRefreshToken } from "./store";
+  casPersistPersonalAuthSession,
+  loadPersonalAuthSession,
+  reloadPersonalAuthSessionFromDb,
+  tryAdoptEnvSeedRefreshToken,
+} from "./store";
 
 export type LiveTeamFinance = {
   bankMillions: number;
@@ -38,6 +37,20 @@ export type LiveTeamFinance = {
   }>;
   source: "live-my-team";
 };
+
+/** Metric-safe reasons — never include token material. */
+export type LiveOverlayError =
+  | "missing-entry-config"
+  | "missing-refresh-token"
+  | "token-expired"
+  | "oidc-failed"
+  | "my-team-failed"
+  | "invalid-my-team"
+  | "unknown";
+
+export type LiveTeamFinanceAttempt =
+  | { ok: true; finance: LiveTeamFinance }
+  | { ok: false; error: LiveOverlayError | null };
 
 /** Pure merge: prefer live my-team bank/picks when present. */
 export function liveTeamFinanceFromMyTeam(myTeam: MyTeamResponse): LiveTeamFinance | null {
@@ -65,7 +78,8 @@ export function liveTeamFinanceFromMyTeam(myTeam: MyTeamResponse): LiveTeamFinan
   });
 
   if (mapped.some((pick) => !Number.isFinite(pick.elementId) || pick.elementId <= 0)) return null;
-  if (sellingMillionsById.size !== 15) return null;
+  // Prefer full official selling map; still overlay bank/ids when a few prices are missing
+  // (public path derives the rest). Previously requiring size===15 dropped valid live banks.
 
   const valueTenths = Number(myTeam.transfers?.value);
   const made = Number(myTeam.transfers?.made);
@@ -86,26 +100,66 @@ export function liveTeamFinanceFromMyTeam(myTeam: MyTeamResponse): LiveTeamFinan
   };
 }
 
+function classifyOverlayError(error: unknown): LiveOverlayError {
+  if (error instanceof FplOidcError) {
+    if (error.isInvalidGrant) return "token-expired";
+    return "oidc-failed";
+  }
+  if (error instanceof Error) {
+    const message = error.message;
+    if (/invalid_grant|expired|revoked/i.test(message)) return "token-expired";
+    if (/OIDC|oidc|token/i.test(message)) return "oidc-failed";
+    if (/my-team failed:\s*(401|403)/i.test(message)) return "token-expired";
+    if (/my-team failed/i.test(message)) return "my-team-failed";
+  }
+  return "unknown";
+}
+
 /**
- * When the requested entry is the personal allowlisted team and a refresh token
- * is configured, fetch my-team. Returns null on any failure (public path still works).
+ * When the requested entry is the personal team and a refresh token is
+ * configured, fetch my-team. Read overlay does not require the transfer
+ * kill-switch (EXEC) — that gate stays on place/execute only.
+ *
+ * Returns `{ ok:false, error:null }` when this entry is not the personal team
+ * (public path; no error to surface).
  */
 export async function tryFetchLiveTeamFinance(
   entryId: string,
   env: PersonalTransferEnv,
-): Promise<LiveTeamFinance | null> {
-  if (!isPersonalTransferExecEnabled(env)) return null;
+): Promise<LiveTeamFinanceAttempt> {
   const personalEntry = personalFplEntryId(env);
-  if (!personalEntry || personalEntry !== entryId) return null;
+  if (!personalEntry) {
+    // Only surface missing config when the caller asked for a plausible personal id
+    // and secrets are partially set — otherwise stay quiet for arbitrary public entries.
+    return { ok: false, error: null };
+  }
+  if (personalEntry !== entryId) {
+    return { ok: false, error: null };
+  }
 
   try {
-    const refreshToken = await loadPersonalRefreshToken(env);
-    if (!refreshToken) return null;
-    const tokens = await createRotatingTokenProvider(refreshToken, persistPersonalRefreshToken);
+    const session = await loadPersonalAuthSession(env);
+    if (!session) {
+      console.warn("[fpl-live-overlay] missing-refresh-token");
+      return { ok: false, error: "missing-refresh-token" };
+    }
+
+    const tokens = await createRotatingTokenProvider(session, {
+      persistSession: casPersistPersonalAuthSession,
+      reloadSession: reloadPersonalAuthSessionFromDb,
+      adoptEnvSeed: (failed) => tryAdoptEnvSeedRefreshToken(env, failed),
+    });
     const myTeam = await fetchMyTeam(personalEntry, tokens);
-    return liveTeamFinanceFromMyTeam(myTeam);
-  } catch {
-    return null;
+    const finance = liveTeamFinanceFromMyTeam(myTeam);
+    if (!finance) {
+      console.warn("[fpl-live-overlay] invalid-my-team");
+      return { ok: false, error: "invalid-my-team" };
+    }
+    return { ok: true, finance };
+  } catch (error) {
+    const reason = classifyOverlayError(error);
+    console.warn(`[fpl-live-overlay] ${reason}`);
+    return { ok: false, error: reason };
   }
 }
 

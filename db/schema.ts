@@ -94,5 +94,8 @@ export const seasonPasses = sqliteTable("season_passes", {
 export const personalFplAuth = sqliteTable("personal_fpl_auth", {
   id: text("id").primaryKey(), // always "default"
   refreshToken: text("refresh_token").notNull(),
+  // Cached PingOne access token — avoids rotating the refresh token on every my-team read.
+  accessToken: text("access_token"),
+  accessExpiresAt: text("access_expires_at"), // epoch ms as string
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
