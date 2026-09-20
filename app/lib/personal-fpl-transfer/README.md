@@ -38,3 +38,10 @@ How Mohamed grabs a refresh token in the browser (he does this himself):
 ## Gate
 
 `enabled` only when: flag=`1` AND signed-in email on allowlist AND entry id configured AND a refresh token is available (env seed or D1). Everyone else gets the same public read-only behaviour.
+
+## Live bank / pending squad overlay
+
+`/api/fpl/team` calls `tryFetchLiveTeamFinance` when the requested entry matches
+`FPL_EDGE_PERSONAL_FPL_ENTRY_ID` and personal exec is enabled. It prefers
+`my-team.transfers.bank` (and live picks / selling prices) over public
+`entry_history.bank`, which goes stale after pending next-GW transfers.

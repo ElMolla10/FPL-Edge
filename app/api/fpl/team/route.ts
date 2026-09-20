@@ -2,6 +2,11 @@ import {
   deriveSellingPricesMillions,
   type FplTransferLeg,
 } from "../../../lib/fpl-selling-price";
+import {
+  resolveTransferBankMillions,
+  tryFetchLiveTeamFinance,
+} from "../../../lib/personal-fpl-transfer";
+import { readRuntimeEnv } from "../../../lib/runtime-env";
 
 const FPL = "https://fantasy.premierleague.com/api";
 
@@ -10,10 +15,11 @@ export async function GET(request: Request) {
   if (!entry || !/^\d+$/.test(entry)) return Response.json({ error: "Enter a valid numeric FPL Team ID." }, { status: 400 });
   try {
     const headers = { Accept: "application/json", "User-Agent": "FPL-Edge/1.0" };
-    const [managerResponse, bootstrapResponse, transfersResponse] = await Promise.all([
+    const [managerResponse, bootstrapResponse, transfersResponse, env] = await Promise.all([
       fetch(`${FPL}/entry/${entry}/`, { headers, next: { revalidate: 300 } }),
       fetch(`${FPL}/bootstrap-static/`, { headers, next: { revalidate: 300 } }),
       fetch(`${FPL}/entry/${entry}/transfers/`, { headers, next: { revalidate: 300 } }),
+      readRuntimeEnv(),
     ]);
     if (!managerResponse.ok || !bootstrapResponse.ok) throw new Error("That FPL Team ID was not found.");
     const [manager, bootstrap] = await Promise.all([managerResponse.json(), bootstrapResponse.json()]);
@@ -35,6 +41,7 @@ export async function GET(request: Request) {
 
     // Prefer entry_history.bank (per-event) over last_deadline_bank on the entry summary — they
     // usually match after the deadline, but history is what the GW picks payload already exposes.
+    // When personal my-team is available for this entry, live transfers.bank wins (see below).
     const entryBankTenths = Number(manager.last_deadline_bank);
 
     const candidateEvents = bootstrap.events
@@ -43,6 +50,10 @@ export async function GET(request: Request) {
           event.finished || event.is_current || (event.is_next && Date.parse(event.deadline_time) <= Date.now()),
       )
       .sort((a: { id: number }, b: { id: number }) => b.id - a.id);
+
+    // Live my-team (pending next-GW transfers) — only for the personal entry when secrets exist.
+    // Must not block the public path on failure.
+    const liveFinance = await tryFetchLiveTeamFinance(entry, env);
 
     for (const event of candidateEvents) {
       const picksResponse = await fetch(`${FPL}/entry/${entry}/event/${event.id}/picks/`, {
@@ -55,7 +66,7 @@ export async function GET(request: Request) {
       const captain = picks.picks.find((pick: { is_captain: boolean }) => pick.is_captain);
       const viceCaptain = picks.picks.find((pick: { is_vice_captain: boolean }) => pick.is_vice_captain);
 
-      const ownedIds: number[] = picks.picks.map((pick: { element: number }) => Number(pick.element));
+      const publicOwnedIds: number[] = picks.picks.map((pick: { element: number }) => Number(pick.element));
       const officialFromPicks = new Map<number, number>();
       for (const pick of picks.picks) {
         // Public event picks omit selling_price; authenticated my-team includes it. Coerce only when present.
@@ -63,6 +74,15 @@ export async function GET(request: Request) {
           officialFromPicks.set(Number(pick.element), Number(pick.selling_price) / 10);
         }
       }
+
+      // Live my-team selling prices are authoritative when present (and match live player ids).
+      if (liveFinance) {
+        for (const [id, price] of liveFinance.sellingMillionsById) {
+          officialFromPicks.set(id, price);
+        }
+      }
+
+      const ownedIds = liveFinance?.playerIds ?? publicOwnedIds;
 
       const derivedSelling = deriveSellingPricesMillions({
         ownedElementIds: ownedIds,
@@ -76,7 +96,46 @@ export async function GET(request: Request) {
       const bankFromHistory = Number.isFinite(historyBank) ? historyBank / 10 : null;
       const bankFromEntry = Number.isFinite(entryBankTenths) ? entryBankTenths / 10 : null;
       // Prefer the event picks history bank; fall back to entry last_deadline_bank when history is missing.
-      const bank = bankFromHistory ?? bankFromEntry;
+      const historyResolved = bankFromHistory ?? bankFromEntry;
+      const bankResolved = resolveTransferBankMillions({
+        historyBankMillions: historyResolved,
+        liveBankMillions: liveFinance?.bankMillions,
+      });
+
+      const responsePicks = liveFinance
+        ? liveFinance.picks.map((pick) => ({
+            elementId: pick.elementId,
+            position: pick.position,
+            multiplier: pick.multiplier,
+            isCaptain: pick.isCaptain,
+            isViceCaptain: pick.isViceCaptain,
+            sellingPrice: pick.sellingPrice,
+          }))
+        : picks.picks.map((pick: Record<string, unknown>) => {
+            const elementId = Number(pick.element);
+            const fromOfficial = Number.isFinite(Number(pick.selling_price))
+              ? Number(pick.selling_price) / 10
+              : null;
+            const derived = derivedSelling.get(elementId);
+            const sellingPrice =
+              fromOfficial !== null
+                ? fromOfficial
+                : typeof derived === "number" && Number.isFinite(derived)
+                  ? derived
+                  : null;
+            return {
+              elementId,
+              position: Number(pick.position),
+              multiplier: Number(pick.multiplier),
+              isCaptain: Boolean(pick.is_captain),
+              isViceCaptain: Boolean(pick.is_vice_captain),
+              sellingPrice,
+            };
+          });
+
+      // Captain/vice: prefer live my-team armbands when overlaying pending squad.
+      const liveCaptain = liveFinance?.picks.find((pick) => pick.isCaptain)?.elementId ?? null;
+      const liveVice = liveFinance?.picks.find((pick) => pick.isViceCaptain)?.elementId ?? null;
 
       return Response.json(
         {
@@ -88,40 +147,26 @@ export async function GET(request: Request) {
             overallRank: Number(manager.summary_overall_rank) || 0,
             gameweekPoints: Number(history.points) || 0,
             gameweekRank: Number(history.rank) || 0,
-            squadValue: Number(history.value) ? Number(history.value) / 10 : null,
-            bank,
-            transfersMade: Number(history.event_transfers) || 0,
-            transferCost: Number(history.event_transfers_cost) || 0,
-            captainId: captain?.element || null,
-            viceCaptainId: viceCaptain?.element || null,
+            squadValue: liveFinance
+              ? liveFinance.squadValueMillions
+              : Number(history.value)
+                ? Number(history.value) / 10
+                : null,
+            bank: bankResolved.bank,
+            bankSource: bankResolved.source,
+            transfersMade: liveFinance ? liveFinance.transfersMade : Number(history.event_transfers) || 0,
+            transferCost: liveFinance ? liveFinance.transferCost : Number(history.event_transfers_cost) || 0,
+            captainId: liveCaptain ?? captain?.element ?? null,
+            viceCaptainId: liveVice ?? viceCaptain?.element ?? null,
             chip: picks.active_chip || null,
             event: event.id,
-            picks: picks.picks.map((pick: Record<string, unknown>) => {
-              const elementId = Number(pick.element);
-              const fromOfficial = Number.isFinite(Number(pick.selling_price))
-                ? Number(pick.selling_price) / 10
-                : null;
-              const derived = derivedSelling.get(elementId);
-              const sellingPrice =
-                fromOfficial !== null
-                  ? fromOfficial
-                  : typeof derived === "number" && Number.isFinite(derived)
-                    ? derived
-                    : null;
-              return {
-                elementId,
-                position: Number(pick.position),
-                multiplier: Number(pick.multiplier),
-                isCaptain: Boolean(pick.is_captain),
-                isViceCaptain: Boolean(pick.is_vice_captain),
-                sellingPrice,
-              };
-            }),
+            picks: responsePicks,
           },
           event: event.id,
-          playerIds: picks.picks.map((pick: { element: number }) => pick.element),
+          playerIds: ownedIds,
+          liveOverlay: liveFinance ? true : false,
         },
-        { headers: { "Cache-Control": "private, max-age=300" } },
+        { headers: { "Cache-Control": "private, max-age=60" } },
       );
     }
     return Response.json(

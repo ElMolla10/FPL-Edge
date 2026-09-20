@@ -14,7 +14,7 @@ export type MyTeamPick = Readonly<{
 
 export type MyTeamResponse = Readonly<{
   picks: MyTeamPick[];
-  transfers: Readonly<{ bank: number; limit: number | null; made: number; value: number }>;
+  transfers: Readonly<{ bank: number; limit: number | null; made: number; value: number; cost?: number; status?: string }>;
 }>;
 
 export type TransferLeg = Readonly<{
