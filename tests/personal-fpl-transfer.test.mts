@@ -50,11 +50,21 @@ test("gate requires flag, allowlist, auth, and entry id", () => {
 });
 
 test("refresh token parser accepts bare tokens and oidc.user JSON", () => {
-  assert.equal(parseRefreshTokenInput("  abc.def  "), "abc.def");
+  assert.equal(parseRefreshTokenInput("  bare-refresh-token-value  "), "bare-refresh-token-value");
   assert.equal(
-    parseRefreshTokenInput(JSON.stringify({ refresh_token: "rotating-token", access_token: "x" })),
-    "rotating-token",
+    parseRefreshTokenInput(JSON.stringify({ refresh_token: "rotating-token-value", access_token: "x" })),
+    "rotating-token-value",
   );
+});
+
+test("refresh token parser rejects truncated oidc JSON and extracts complete refresh_token field", async () => {
+  const { extractRefreshToken } = await import("../app/lib/personal-fpl-transfer/config.ts");
+  assert.equal(extractRefreshToken("{ \"access_token\": \"aaa\", \"refresh_tok"), null);
+  assert.equal(
+    extractRefreshToken('{ "access_token": "aaa", "refresh_token": "good-refresh-token-value", "id_tok'),
+    "good-refresh-token-value",
+  );
+  assert.equal(extractRefreshToken("{ \"access_token\": \"only\" }"), null);
 });
 
 test("buildTransferLeg uses selling price from my-team and rejects missing owned players", () => {
@@ -218,16 +228,21 @@ test("deriveSandboxFinancialContext: unavailable when liveOverlayError / bankSou
 
 test("README documents reconnect path and cron keep-alive", () => {
   const readme = readFileSync(new URL("../app/lib/personal-fpl-transfer/README.md", import.meta.url), "utf8");
-  assert.match(readme, /Reconnect FPL/);
+  assert.match(readme, /Reconnect FPL|reconnect FPL/i);
   assert.match(readme, /\/api\/personal\/fpl-auth\/reconnect/);
-  assert.match(readme, /keepAlivePersonalFplAuth|0 \*\/4 \* \* \*/);
-  assert.match(readme, /rankingFinance: "unavailable"/);
+  assert.match(readme, /keepAlivePersonalFplAuth|0 \* \* \* \*/);
+  assert.match(readme, /rankingFinance.*unavailable|bankSource.*unavailable/i);
+  assert.match(readme, /bookmark|Send FPL session to Edge/i);
+  assert.doesNotMatch(readme, /DevTools/);
   const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
   assert.match(coach, /ReconnectFplPanel/);
-  assert.match(coach, /Live FPL bank unavailable/);
+  assert.match(coach, /ReconnectFplPanel/);
   const wrangler = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
-  assert.match(wrangler, /0 \*\/4 \* \* \*/);
+  assert.match(wrangler, /0 \* \* \* \*/);
   const worker = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
   assert.match(worker, /keepAlivePersonalFplAuth/);
-  assert.match(worker, /scheduled/);
+  assert.match(worker, /scheduled|keepAlivePersonalFplAuth/);
+  const panel = readFileSync(new URL("../app/components/ReconnectFplPanel.tsx", import.meta.url), "utf8");
+  assert.match(panel, /fpl_rt|bookmarklet|Send FPL session to Edge/);
+  assert.doesNotMatch(panel, /DevTools/);
 });

@@ -44,6 +44,15 @@ export type TokenProviderHooks = {
   reloadSession: () => Promise<PersonalAuthSession | null>;
   /** After invalid_grant and unchanged D1: try Worker secret seed if different. */
   adoptEnvSeed?: (failedRefreshToken: string) => Promise<PersonalAuthSession | null>;
+  /**
+   * Cross-isolate single-flight before calling PingOne. Concurrent refresh_token
+   * reuse triggers PingOne family revocation (invalid_grant for everyone).
+   */
+  claimRefreshLease?: (expectedRefreshToken: string) => Promise<boolean>;
+  /** Clear lease after a failed exchange that did not rotate. */
+  clearRefreshLease?: (expectedRefreshToken: string) => Promise<void>;
+  /** Last-resort upsert when CAS fails but D1 still holds the token we just spent. */
+  forcePersistSession?: (session: PersonalAuthSession) => Promise<void>;
 };
 
 export async function createRotatingTokenProvider(
@@ -70,7 +79,38 @@ export async function createRotatingTokenProvider(
       ? { refreshToken: initial, accessToken: null, accessExpiresAtMs: null }
       : { ...initial };
 
-  const refresh = async (fromToken: string): Promise<string> => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  const refresh = async (fromToken: string, depth = 0): Promise<string> => {
+    if (depth > 6) {
+      throw new FplOidcError(400, "invalid_grant", "refresh single-flight exhausted");
+    }
+
+    // Prefer a session another isolate already persisted.
+    const latest = await hooks.reloadSession();
+    if (latest) {
+      if (
+        latest.accessToken &&
+        latest.accessExpiresAtMs !== null &&
+        Date.now() < latest.accessExpiresAtMs
+      ) {
+        session = latest;
+        return latest.accessToken;
+      }
+      if (latest.refreshToken !== fromToken) {
+        session = latest;
+        return refresh(latest.refreshToken, depth + 1);
+      }
+    }
+
+    if (hooks.claimRefreshLease) {
+      const claimed = await hooks.claimRefreshLease(fromToken);
+      if (!claimed) {
+        await sleep(150 + depth * 100);
+        return refresh(fromToken, depth + 1);
+      }
+    }
+
     try {
       const next = await exchangeRefreshToken(fromToken, fetchImpl);
       const nextSession: PersonalAuthSession = {
@@ -87,26 +127,40 @@ export async function createRotatingTokenProvider(
         }
         if (raced?.refreshToken && raced.refreshToken !== fromToken) {
           session = raced;
-          return refresh(raced.refreshToken);
+          return refresh(raced.refreshToken, depth + 1);
+        }
+        // CAS false-negative or lost write after PingOne already rotated — must not leave
+        // D1 on the spent refresh token (next request would invalid_grant the family).
+        if (hooks.forcePersistSession && (!raced || raced.refreshToken === fromToken)) {
+          await hooks.forcePersistSession(nextSession);
         }
       }
       session = nextSession;
       return next.accessToken;
     } catch (error) {
+      if (hooks.clearRefreshLease) {
+        try {
+          await hooks.clearRefreshLease(fromToken);
+        } catch {
+          // ignore lease clear failures
+        }
+      }
       if (error instanceof FplOidcError && error.isInvalidGrant) {
+        // Brief wait — winner may still be writing the rotated token.
+        await sleep(100);
         const raced = await hooks.reloadSession();
         if (raced?.refreshToken && raced.refreshToken !== fromToken) {
           session = raced;
           if (raced.accessToken && raced.accessExpiresAtMs && Date.now() < raced.accessExpiresAtMs) {
             return raced.accessToken;
           }
-          return refresh(raced.refreshToken);
+          return refresh(raced.refreshToken, depth + 1);
         }
         if (hooks.adoptEnvSeed) {
           const seeded = await hooks.adoptEnvSeed(fromToken);
           if (seeded?.refreshToken) {
             session = seeded;
-            return refresh(seeded.refreshToken);
+            return refresh(seeded.refreshToken, depth + 1);
           }
         }
       }

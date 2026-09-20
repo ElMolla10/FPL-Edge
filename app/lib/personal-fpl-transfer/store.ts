@@ -1,9 +1,14 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { personalFplAuth } from "../../../db/schema";
-import { PERSONAL_FPL_REFRESH_TOKEN_ENV, parseRefreshTokenInput, type PersonalTransferEnv } from "./config";
+import {
+  extractRefreshToken,
+  PERSONAL_FPL_REFRESH_TOKEN_ENV,
+  type PersonalTransferEnv,
+} from "./config";
 
 const ROW_ID = "default";
+const DEFAULT_LEASE_MS = 20_000;
 
 export type PersonalAuthSession = {
   refreshToken: string;
@@ -16,6 +21,8 @@ export type PersonalAuthSession = {
 // issues a new one on every exchange and Workers secrets cannot be rewritten
 // from the worker. Access tokens are cached here so concurrent /api/fpl/team
 // reads do not race-rotate the refresh token into invalid_grant.
+// refresh_lease_until provides cross-isolate single-flight before hitting PingOne:
+// concurrent refresh_token reuse triggers family revocation (invalid_grant).
 
 function rowToSession(row: {
   refreshToken: string;
@@ -38,7 +45,8 @@ export async function loadPersonalAuthSession(env: PersonalTransferEnv): Promise
 
   const seeded = env[PERSONAL_FPL_REFRESH_TOKEN_ENV];
   if (!seeded?.trim()) return null;
-  const token = parseRefreshTokenInput(seeded);
+  // extractRefreshToken rejects truncated oidc.user JSON (Worker secret 5 KB cap).
+  const token = extractRefreshToken(seeded);
   if (!token) return null;
   await persistPersonalAuthSession({ refreshToken: token, accessToken: null, accessExpiresAtMs: null });
   return { refreshToken: token, accessToken: null, accessExpiresAtMs: null };
@@ -74,6 +82,7 @@ export async function persistPersonalAuthSession(session: PersonalAuthSession): 
         refreshToken: session.refreshToken,
         accessToken: session.accessToken,
         accessExpiresAt,
+        refreshLeaseUntil: null,
         updatedAt: now,
       })
       .where(eq(personalFplAuth.id, ROW_ID));
@@ -84,6 +93,7 @@ export async function persistPersonalAuthSession(session: PersonalAuthSession): 
     refreshToken: session.refreshToken,
     accessToken: session.accessToken,
     accessExpiresAt,
+    refreshLeaseUntil: null,
     updatedAt: now,
   });
 }
@@ -91,6 +101,7 @@ export async function persistPersonalAuthSession(session: PersonalAuthSession): 
 /**
  * Compare-and-swap refresh token update. Returns false when another isolate
  * already rotated away from `expectedRefreshToken` — caller should reload.
+ * Clears refresh lease on success.
  */
 export async function casPersistPersonalAuthSession(
   expectedRefreshToken: string,
@@ -108,6 +119,7 @@ export async function casPersistPersonalAuthSession(
       refreshToken: session.refreshToken,
       accessToken: session.accessToken,
       accessExpiresAt,
+      refreshLeaseUntil: null,
       updatedAt: now,
     })
     .where(and(eq(personalFplAuth.id, ROW_ID), eq(personalFplAuth.refreshToken, expectedRefreshToken)))
@@ -127,8 +139,64 @@ export async function reloadPersonalAuthSessionFromDb(): Promise<PersonalAuthSes
 }
 
 /**
+ * Claim a short refresh lease so only one isolate calls PingOne for this token.
+ * Returns false when another isolate holds a non-expired lease or the token rotated.
+ */
+export async function claimRefreshLease(
+  expectedRefreshToken: string,
+  leaseMs: number = DEFAULT_LEASE_MS,
+): Promise<boolean> {
+  const db = await getDb();
+  const nowMs = Date.now();
+  const leaseUntil = String(nowMs + leaseMs);
+  const nowIso = new Date().toISOString();
+  const nowMsStr = String(nowMs);
+
+  // Lease is free when null/empty or expired. Compare as text epoch-ms (zero-padded not required —
+  // numeric strings compare correctly while lengths match; expired leases are always older/shorter-lived).
+  const updated = await db
+    .update(personalFplAuth)
+    .set({
+      refreshLeaseUntil: leaseUntil,
+      updatedAt: nowIso,
+    })
+    .where(
+      and(
+        eq(personalFplAuth.id, ROW_ID),
+        eq(personalFplAuth.refreshToken, expectedRefreshToken),
+        or(
+          isNull(personalFplAuth.refreshLeaseUntil),
+          eq(personalFplAuth.refreshLeaseUntil, ""),
+          sql`CAST(${personalFplAuth.refreshLeaseUntil} AS INTEGER) < ${nowMs}`,
+        ),
+      ),
+    )
+    .returning({ id: personalFplAuth.id });
+
+  if (Array.isArray(updated) && updated.length > 0) return true;
+
+  // Driver may omit returning — verify lease belongs to us.
+  const [row] = await db.select().from(personalFplAuth).where(eq(personalFplAuth.id, ROW_ID)).limit(1);
+  return Boolean(
+    row &&
+      row.refreshToken === expectedRefreshToken &&
+      row.refreshLeaseUntil === leaseUntil,
+  );
+}
+
+/** Clear lease without changing tokens (e.g. exchange failed before persist). */
+export async function clearRefreshLease(expectedRefreshToken: string): Promise<void> {
+  const db = await getDb();
+  await db
+    .update(personalFplAuth)
+    .set({ refreshLeaseUntil: null, updatedAt: new Date().toISOString() })
+    .where(and(eq(personalFplAuth.id, ROW_ID), eq(personalFplAuth.refreshToken, expectedRefreshToken)));
+}
+
+/**
  * When D1's refresh token is dead (invalid_grant) but the Worker secret was
- * re-seeded with a newer oidc.user blob, adopt the seed if it differs.
+ * re-seeded with a newer bare refresh_token, adopt the seed if it differs.
+ * Never adopts truncated oidc.user JSON (Worker secret 5 KB cap).
  */
 export async function tryAdoptEnvSeedRefreshToken(
   env: PersonalTransferEnv,
@@ -136,7 +204,7 @@ export async function tryAdoptEnvSeedRefreshToken(
 ): Promise<PersonalAuthSession | null> {
   const seeded = env[PERSONAL_FPL_REFRESH_TOKEN_ENV];
   if (!seeded?.trim()) return null;
-  const token = parseRefreshTokenInput(seeded);
+  const token = extractRefreshToken(seeded);
   if (!token || token === failedRefreshToken) return null;
   const session: PersonalAuthSession = { refreshToken: token, accessToken: null, accessExpiresAtMs: null };
   await persistPersonalAuthSession(session);

@@ -13,7 +13,10 @@ import { personalFplEntryId, type PersonalTransferEnv } from "./config";
 import { FplOidcError } from "./oidc";
 import {
   casPersistPersonalAuthSession,
+  claimRefreshLease,
+  clearRefreshLease,
   loadPersonalAuthSession,
+  persistPersonalAuthSession,
   reloadPersonalAuthSessionFromDb,
   tryAdoptEnvSeedRefreshToken,
 } from "./store";
@@ -148,6 +151,9 @@ export async function tryFetchLiveTeamFinance(
       persistSession: casPersistPersonalAuthSession,
       reloadSession: reloadPersonalAuthSessionFromDb,
       adoptEnvSeed: (failed) => tryAdoptEnvSeedRefreshToken(env, failed),
+      claimRefreshLease: (expected) => claimRefreshLease(expected),
+      clearRefreshLease: (expected) => clearRefreshLease(expected),
+      forcePersistSession: (next) => persistPersonalAuthSession(next),
     });
     const myTeam = await fetchMyTeam(personalEntry, tokens);
     const finance = liveTeamFinanceFromMyTeam(myTeam);
