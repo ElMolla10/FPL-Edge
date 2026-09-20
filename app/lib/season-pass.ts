@@ -224,6 +224,13 @@ export type SeasonGrantRepo = {
   findCoveringPass(userId: string, now: Date): Promise<SeasonPassRecord | null>;
   markCheckoutPaid(checkoutId: string, paidAt: string): Promise<void>;
   savePass(pass: SeasonPassRecord & { id: string; amountPiasters: number; currency: string; source: "paymob"; paymobTransactionId: string }): Promise<void>;
+  // Removes the active pass for this user/season if one exists (a void/refund callback for a
+  // transaction that was already granted). Returns whether a pass actually existed to revoke,
+  // so a void/refund on a checkout that was never granted still reports "void_or_refund", not
+  // a false "revoked". Correlates by userId + seasonKey + endsAt (the same checkout identity
+  // the grant path already trusts via order.id), not by transaction id -- a refund event may
+  // carry its own transaction id distinct from the original charge's.
+  revokeCoveringPass(userId: string, now: Date, seasonKey: string, endsAt: string): Promise<boolean>;
 };
 
 export type SeasonGrantResult = { granted: boolean; reason: string };
@@ -242,7 +249,21 @@ export async function grantSeasonAccessFromCallback(
   if (transaction.success !== true) return { granted: false, reason: "not_successful" };
   if (transaction.pending === true) return { granted: false, reason: "pending" };
   if (transaction.error_occured === true) return { granted: false, reason: "error" };
-  if (transaction.is_voided === true || transaction.is_refunded === true) return { granted: false, reason: "void_or_refund" };
+  if (transaction.is_voided === true || transaction.is_refunded === true) {
+    // A void/refund can arrive for a transaction that was already granted a pass -- this must
+    // actually remove that access, not just refuse to grant a *second* one. Correlate by
+    // order.id (HMAC-covered, already the trusted key throughout this file) back to the
+    // checkout's userId/seasonKey/endsAt, then revoke whatever pass currently covers that.
+    const voidedOrderId = transaction.order?.id;
+    if (voidedOrderId !== undefined && voidedOrderId !== null && String(voidedOrderId) !== "") {
+      const voidedCheckout = await repo.findCheckoutByPaymobOrderId(String(voidedOrderId));
+      if (voidedCheckout) {
+        const revoked = await repo.revokeCoveringPass(voidedCheckout.userId, input.now, voidedCheckout.seasonKey, voidedCheckout.endsAt);
+        if (revoked) return { granted: false, reason: "revoked" };
+      }
+    }
+    return { granted: false, reason: "void_or_refund" };
+  }
   if (String(transaction.currency ?? "").toUpperCase() !== "EGP") return { granted: false, reason: "currency" };
   if (Number(transaction.amount_cents) !== SEASON_PASS_PRICE_PIASTERS) return { granted: false, reason: "amount" };
 

@@ -157,28 +157,49 @@ function sampleCharge(overrides: Partial<PaymobTransaction> = {}): PaymobTransac
   };
 }
 
-function makeRepo(checkout: CheckoutRecord | null): SeasonGrantRepo & { saves: number; paid: number } {
-  const state = { saves: 0, paid: 0, checkout };
+function makeRepo(checkout: CheckoutRecord | null): SeasonGrantRepo & { saves: number; paid: number; revokes: number } {
+  const state = {
+    saves: 0,
+    paid: 0,
+    revokes: 0,
+    checkout,
+    passes: [] as (SeasonPassRecord & { paymobTransactionId: string })[],
+  };
   return {
     saves: 0,
     paid: 0,
+    revokes: 0,
     async findCheckoutByPaymobOrderId(orderId) {
       return state.checkout && state.checkout.paymobOrderId === orderId ? { ...state.checkout } : null;
     },
-    async findPassByTransactionId() {
-      return null;
+    async findPassByTransactionId(transactionId) {
+      const found = state.passes.find((pass) => pass.paymobTransactionId === transactionId);
+      return found ? { id: found.paymobTransactionId } : null;
     },
-    async findCoveringPass() {
-      return null;
+    async findCoveringPass(userId, now) {
+      return state.passes.find((pass) => pass.userId === userId && isSeasonPassActive(pass, now)) ?? null;
     },
     async markCheckoutPaid() {
       state.paid++;
       this.paid = state.paid;
       if (state.checkout) state.checkout = { ...state.checkout, status: "paid" };
     },
-    async savePass() {
+    async savePass(pass) {
       state.saves++;
       this.saves = state.saves;
+      state.passes.push(pass);
+    },
+    async revokeCoveringPass(userId, now, seasonKey, endsAt) {
+      const before = state.passes.length;
+      state.passes = state.passes.filter(
+        (pass) => !(pass.userId === userId && pass.seasonKey === seasonKey && pass.endsAt === endsAt && isSeasonPassActive(pass, now)),
+      );
+      const didRevoke = state.passes.length < before;
+      if (didRevoke) {
+        state.revokes++;
+        this.revokes = state.revokes;
+      }
+      return didRevoke;
     },
   };
 }
@@ -284,6 +305,67 @@ test("Paymob HMAC message depends on the runtime sort, not the literal's declare
   const hmacFromShuffledMessage = await hmac(secret, fromShuffledOrder);
   const verifies = await verifyPaymobProcessedHmac(secret, hmacFromShuffledMessage, PAYMOB_SAMPLE);
   assert.equal(verifies, true, "a signature computed from the shuffled-then-sorted message must still verify against the real transaction");
+});
+
+test("a refund/void callback for an already-granted transaction revokes that pass, not just blocks a new one", async () => {
+  const secret = "sandbox-hmac-not-live";
+  const checkout = {
+    id: "checkout-1",
+    userId: "user-1",
+    seasonKey: "2026/27",
+    endsAt: "2027-05-31T20:59:59.999Z",
+    amountPiasters: SEASON_PASS_PRICE_PIASTERS,
+    currency: "EGP",
+    status: "pending" as const,
+    paymobOrderId: "555",
+  };
+  const now = new Date("2026-09-18T12:05:00.000Z");
+  const repo = makeRepo(checkout);
+
+  const charge = sampleCharge({ id: 9001 });
+  const chargeSigned = await hmac(secret, paymobProcessedCallbackMessage(charge));
+  const granted = await grantSeasonAccessFromCallback(repo, { hmacSecret: secret, receivedHmac: chargeSigned, transaction: charge, now });
+  assert.equal(granted.granted, true);
+  assert.equal(granted.reason, "granted");
+  assert.equal(repo.saves, 1);
+
+  // Paymob's refund event for the same order can carry its own transaction id, distinct from
+  // the original charge's -- revocation correlates by order.id, so it must not depend on the
+  // refund event reusing the original transaction's id.
+  const refund = sampleCharge({ id: 9002, is_refunded: true });
+  const refundSigned = await hmac(secret, paymobProcessedCallbackMessage(refund));
+  const revoked = await grantSeasonAccessFromCallback(repo, { hmacSecret: secret, receivedHmac: refundSigned, transaction: refund, now });
+  assert.equal(revoked.granted, false);
+  assert.equal(revoked.reason, "revoked");
+  assert.equal(repo.revokes, 1);
+  assert.equal(repo.saves, 1, "no second pass should be granted by the refund event");
+
+  const stillCovering = await repo.findCoveringPass(checkout.userId, now);
+  assert.equal(stillCovering, null, "the previously-granted pass must no longer be found as covering after revocation");
+});
+
+test("a void/refund for a checkout that was never granted a pass still reports void_or_refund, not a false revoked", async () => {
+  const secret = "sandbox-hmac-not-live";
+  const checkout = {
+    id: "checkout-1",
+    userId: "user-1",
+    seasonKey: "2026/27",
+    endsAt: "2027-05-31T20:59:59.999Z",
+    amountPiasters: SEASON_PASS_PRICE_PIASTERS,
+    currency: "EGP",
+    status: "pending" as const,
+    paymobOrderId: "555",
+  };
+  const now = new Date("2026-09-18T12:05:00.000Z");
+  const repo = makeRepo(checkout);
+
+  const voided = sampleCharge({ is_voided: true });
+  const signed = await hmac(secret, paymobProcessedCallbackMessage(voided));
+  const result = await grantSeasonAccessFromCallback(repo, { hmacSecret: secret, receivedHmac: signed, transaction: voided, now });
+  assert.equal(result.granted, false);
+  assert.equal(result.reason, "void_or_refund");
+  assert.equal(repo.revokes, 0);
+  assert.equal(repo.saves, 0);
 });
 
 test("ui gates the full desk from the server session and does not offer a free unlock", () => {

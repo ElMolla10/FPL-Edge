@@ -97,5 +97,13 @@ export function makeD1SeasonGrantRepo(): SeasonGrantRepo {
     async savePass(pass) {
       await insertSeasonPass(pass);
     },
+    async revokeCoveringPass(userId, now, seasonKey, endsAt) {
+      const db = await getDb();
+      const rows = await db.select().from(seasonPasses).where(eq(seasonPasses.userId, userId));
+      const target = rows.find((row) => row.seasonKey === seasonKey && row.endsAt === endsAt && isSeasonPassActive(toPass(row), now));
+      if (!target) return false;
+      await db.delete(seasonPasses).where(eq(seasonPasses.id, target.id));
+      return true;
+    },
   };
 }
