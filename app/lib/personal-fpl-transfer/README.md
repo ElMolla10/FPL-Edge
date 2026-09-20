@@ -29,18 +29,18 @@ Current flow (official site + community clients such as mgphp/fpl-mcp):
 | `FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN` | Seed refresh token (or whole `oidc.user` JSON). Rotations are persisted in D1 `personal_fpl_auth` |
 
 
-1. In Edge, open the reconnect panel (shown when live bank is unavailable)
-2. Drag **Send FPL session to Edge** to the bookmarks bar (one-time)
-3. Sign in at https://fantasy.premierleague.com
-4. Click the bookmark — it returns to Edge with `refresh_token` only and auto-saves to D1
-5. Advanced fallback: paste the bare `refresh_token` field only (never whole `oidc.user` JSON — Worker secrets truncate near 5 KB)
-
-
 ## Gate
 
 `enabled` only when: flag=`1` AND signed-in email on allowlist AND entry id configured AND a refresh token is available (env seed or D1). Everyone else gets the same public read-only behaviour.
 
 ## Reconnect FPL
+
+1. In Edge, open the reconnect panel (shown when live bank is unavailable)
+2. Prefer **Copy bookmarklet**, then Edit bookmark → paste the full `javascript:…` URL (Chrome Bookmark manager / Safari Edit Bookmarks). Dragging often strips `javascript:`.
+3. Sign in at https://fantasy.premierleague.com
+4. Click the bookmark — it returns to Edge with `refresh_token` only and auto-saves to D1
+5. If the click on FPL does nothing, the bookmark is not a `javascript:` bookmark — copy/paste again. Mobile Safari may block bookmarklets; use advanced paste on desktop.
+6. Advanced fallback: paste the bare `refresh_token` field only (never whole `oidc.user` JSON — Worker secrets truncate near 5 KB)
 
 ## Live bank / pending squad overlay
 
