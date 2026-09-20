@@ -52,8 +52,10 @@ export async function GET(request: Request) {
       .sort((a: { id: number }, b: { id: number }) => b.id - a.id);
 
     // Live my-team (pending next-GW transfers) — only for the personal entry when secrets exist.
-    // Must not block the public path on failure.
-    const liveFinance = await tryFetchLiveTeamFinance(entry, env);
+    // Must not block the public path on failure; surface liveOverlayError when it does.
+    const liveAttempt = await tryFetchLiveTeamFinance(entry, env);
+    const liveFinance = liveAttempt.ok ? liveAttempt.finance : null;
+    const liveOverlayError = liveAttempt.ok ? null : liveAttempt.error;
 
     for (const event of candidateEvents) {
       const picksResponse = await fetch(`${FPL}/entry/${entry}/event/${event.id}/picks/`, {
@@ -154,6 +156,7 @@ export async function GET(request: Request) {
                 : null,
             bank: bankResolved.bank,
             bankSource: bankResolved.source,
+            liveOverlayError: liveOverlayError ?? null,
             transfersMade: liveFinance ? liveFinance.transfersMade : Number(history.event_transfers) || 0,
             transferCost: liveFinance ? liveFinance.transferCost : Number(history.event_transfers_cost) || 0,
             captainId: liveCaptain ?? captain?.element ?? null,
@@ -164,7 +167,8 @@ export async function GET(request: Request) {
           },
           event: event.id,
           playerIds: ownedIds,
-          liveOverlay: liveFinance ? true : false,
+          liveOverlay: Boolean(liveFinance),
+          liveOverlayError: liveOverlayError ?? null,
         },
         { headers: { "Cache-Control": "private, max-age=60" } },
       );

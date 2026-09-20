@@ -11,6 +11,21 @@ export type OidcTokenResult = Readonly<{
   expiresInSeconds: number;
 }>;
 
+export class FplOidcError extends Error {
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string, detail?: string) {
+    super(`FPL OIDC refresh failed (${status}): ${code}${detail ? ` — ${detail}` : ""}`);
+    this.name = "FplOidcError";
+    this.status = status;
+    this.code = code;
+  }
+
+  get isInvalidGrant(): boolean {
+    return this.code === "invalid_grant" || (this.status === 400 && /invalid.?grant|expired|revoked/i.test(this.message));
+  }
+}
+
 export async function exchangeRefreshToken(
   refreshToken: string,
   fetchImpl: typeof fetch = fetch,
@@ -37,8 +52,10 @@ export async function exchangeRefreshToken(
     error_description?: string;
   };
   if (!response.ok || !payload.access_token) {
-    throw new Error(
-      `FPL OIDC refresh failed (${response.status}): ${payload.error ?? "unknown"}${payload.error_description ? ` — ${payload.error_description}` : ""}`,
+    throw new FplOidcError(
+      response.status,
+      payload.error ?? "unknown",
+      payload.error_description,
     );
   }
   return {

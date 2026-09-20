@@ -24,6 +24,7 @@ export type TeamApiResponse = {
   playerIds?: number[];
   manager?: TeamApiManagerSnapshot;
   liveOverlay?: boolean;
+  liveOverlayError?: string | null;
   error?: string;
 };
 
@@ -164,14 +165,18 @@ export async function refreshConnectedTeamFromApi(
   }
 
   // Always update the desk cache — Transfers ranks from these keys, auth or not.
-  writeLocalTeamCache({ squadIds: ids, entry, manager: json.manager });
+  const managerForCache = {
+    ...json.manager,
+    liveOverlayError: json.liveOverlayError ?? json.manager.liveOverlayError ?? null,
+  };
+  writeLocalTeamCache({ squadIds: ids, entry, manager: managerForCache });
 
   if (isSignedIn()) {
     // Best-effort account sync; local cache already holds live overlay.
     await writeAccountTeam({
       squadIds: ids,
       entry,
-      manager: json.manager,
+      manager: managerForCache,
     });
   }
 

@@ -11,7 +11,7 @@ export {
   type PersonalTransferEnv,
   type PersonalTransferGate,
 } from "./config";
-export { exchangeRefreshToken, FPL_OIDC_CLIENT_ID, FPL_OIDC_TOKEN_URL } from "./oidc";
+export { exchangeRefreshToken, FplOidcError, FPL_OIDC_CLIENT_ID, FPL_OIDC_TOKEN_URL } from "./oidc";
 export {
   buildTransferLeg,
   createRotatingTokenProvider,
@@ -21,10 +21,21 @@ export {
   type TransferLeg,
   type TransferRequestBody,
 } from "./client";
-export { loadPersonalRefreshToken, persistPersonalRefreshToken } from "./store";
+export {
+  loadPersonalAuthSession,
+  loadPersonalRefreshToken,
+  persistPersonalAuthSession,
+  persistPersonalRefreshToken,
+  reloadPersonalAuthSessionFromDb,
+  tryAdoptEnvSeedRefreshToken,
+  casPersistPersonalAuthSession,
+  type PersonalAuthSession,
+} from "./store";
 export {
   liveTeamFinanceFromMyTeam,
   resolveTransferBankMillions,
   tryFetchLiveTeamFinance,
+  type LiveOverlayError,
   type LiveTeamFinance,
+  type LiveTeamFinanceAttempt,
 } from "./live-team";

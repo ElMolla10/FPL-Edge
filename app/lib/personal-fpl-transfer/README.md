@@ -42,9 +42,37 @@ How Mohamed grabs a refresh token in the browser (he does this himself):
 ## Live bank / pending squad overlay
 
 `/api/fpl/team` calls `tryFetchLiveTeamFinance` when the requested entry matches
-`FPL_EDGE_PERSONAL_FPL_ENTRY_ID` and personal exec is enabled. It prefers
-`my-team.transfers.bank` (and live picks / selling prices) over public
-`entry_history.bank`, which goes stale after pending next-GW transfers.
+`FPL_EDGE_PERSONAL_FPL_ENTRY_ID` and a refresh token is available (D1 or seed
+secret). The transfer **EXEC** kill switch is *not* required for this read-only
+overlay — it only gates Place/execute. The overlay prefers `my-team.transfers.bank`
+(and live picks / selling prices) over public `entry_history.bank`, which goes
+stale after pending next-GW transfers.
+
+Access tokens are cached in D1 (`access_token` / `access_expires_at`) so concurrent
+team refreshes do not race-rotate PingOne refresh tokens into `invalid_grant`.
+On `invalid_grant` the worker reloads D1 (in case another isolate already rotated)
+and, if still dead, adopts a newer `FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN` seed when
+it differs from the failed token.
+
+When overlay fails for the personal entry, the JSON includes a metric-safe
+`liveOverlayError` (also mirrored on `manager`), e.g. `token-expired`,
+`missing-refresh-token`, `oidc-failed`, `my-team-failed`, `invalid-my-team`.
+The UI shows **live bank unavailable** instead of quietly treating £2.1 public
+history as live.
+
+### If live overlay stays on `token-expired`
+
+Mohamed must re-seed the Worker secret (do not paste the token into chat):
+
+1. Sign in at https://fantasy.premierleague.com
+2. DevTools → Application → Local Storage → `https://fantasy.premierleague.com`
+3. Copy the `oidc.user:…` JSON (or its `refresh_token`)
+4. Update Cloudflare Worker secret `FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN`
+5. Optionally clear the D1 row so the seed is adopted immediately:
+   `DELETE FROM personal_fpl_auth WHERE id = 'default';`
+   (next request re-seeds from the secret)
+
+Confirm `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` is still `261593`.
 
 The CoachApp client must not keep ranking from a stale `fpl-edge-manager` /
 `fpl-edge-squad` snapshot. `refreshConnectedTeamFromApi` **always** writes live

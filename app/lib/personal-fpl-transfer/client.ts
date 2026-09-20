@@ -1,4 +1,5 @@
-import { exchangeRefreshToken } from "./oidc";
+import { exchangeRefreshToken, FplOidcError } from "./oidc";
+import type { PersonalAuthSession } from "./store";
 
 const FPL_API = "https://fantasy.premierleague.com/api";
 
@@ -33,33 +34,97 @@ export type TransferRequestBody = Readonly<{
 }>;
 
 export type TokenProvider = {
-  getAccessToken(): Promise<string>;
+  getAccessToken(options?: { forceRefresh?: boolean }): Promise<string>;
+};
+
+export type TokenProviderHooks = {
+  /** Persist after a successful PingOne exchange (CAS preferred). */
+  persistSession: (expectedRefreshToken: string, session: PersonalAuthSession) => Promise<boolean>;
+  /** After invalid_grant: reload D1 session (another isolate may have rotated). */
+  reloadSession: () => Promise<PersonalAuthSession | null>;
+  /** After invalid_grant and unchanged D1: try Worker secret seed if different. */
+  adoptEnvSeed?: (failedRefreshToken: string) => Promise<PersonalAuthSession | null>;
 };
 
 export async function createRotatingTokenProvider(
-  initialRefreshToken: string,
-  persistRefreshToken: (token: string) => Promise<void>,
+  initial: PersonalAuthSession | string,
+  persistOrHooks:
+    | ((token: string) => Promise<void>)
+    | TokenProviderHooks,
   fetchImpl: typeof fetch = fetch,
 ): Promise<TokenProvider> {
-  let refreshToken = initialRefreshToken;
-  let accessToken: string | null = null;
-  let expiresAt = 0;
+  // Back-compat: execute path still passes (refreshTokenString, persistRefreshToken).
+  const hooks: TokenProviderHooks =
+    typeof persistOrHooks === "function"
+      ? {
+          persistSession: async (_expected, session) => {
+            await persistOrHooks(session.refreshToken);
+            return true;
+          },
+          reloadSession: async () => null,
+        }
+      : persistOrHooks;
 
-  const refresh = async () => {
-    const next = await exchangeRefreshToken(refreshToken, fetchImpl);
-    accessToken = next.accessToken;
-    expiresAt = Date.now() + next.expiresInSeconds * 1000 - 15_000;
-    if (next.refreshToken !== refreshToken) {
-      refreshToken = next.refreshToken;
-      await persistRefreshToken(refreshToken);
+  let session: PersonalAuthSession =
+    typeof initial === "string"
+      ? { refreshToken: initial, accessToken: null, accessExpiresAtMs: null }
+      : { ...initial };
+
+  const refresh = async (fromToken: string): Promise<string> => {
+    try {
+      const next = await exchangeRefreshToken(fromToken, fetchImpl);
+      const nextSession: PersonalAuthSession = {
+        refreshToken: next.refreshToken,
+        accessToken: next.accessToken,
+        accessExpiresAtMs: Date.now() + next.expiresInSeconds * 1000 - 15_000,
+      };
+      const saved = await hooks.persistSession(fromToken, nextSession);
+      if (!saved) {
+        const raced = await hooks.reloadSession();
+        if (raced?.accessToken && raced.accessExpiresAtMs && Date.now() < raced.accessExpiresAtMs) {
+          session = raced;
+          return raced.accessToken;
+        }
+        if (raced?.refreshToken && raced.refreshToken !== fromToken) {
+          session = raced;
+          return refresh(raced.refreshToken);
+        }
+      }
+      session = nextSession;
+      return next.accessToken;
+    } catch (error) {
+      if (error instanceof FplOidcError && error.isInvalidGrant) {
+        const raced = await hooks.reloadSession();
+        if (raced?.refreshToken && raced.refreshToken !== fromToken) {
+          session = raced;
+          if (raced.accessToken && raced.accessExpiresAtMs && Date.now() < raced.accessExpiresAtMs) {
+            return raced.accessToken;
+          }
+          return refresh(raced.refreshToken);
+        }
+        if (hooks.adoptEnvSeed) {
+          const seeded = await hooks.adoptEnvSeed(fromToken);
+          if (seeded?.refreshToken) {
+            session = seeded;
+            return refresh(seeded.refreshToken);
+          }
+        }
+      }
+      throw error;
     }
-    return accessToken;
   };
 
   return {
-    async getAccessToken() {
-      if (accessToken && Date.now() < expiresAt) return accessToken;
-      return refresh();
+    async getAccessToken(options) {
+      if (
+        !options?.forceRefresh &&
+        session.accessToken &&
+        session.accessExpiresAtMs !== null &&
+        Date.now() < session.accessExpiresAtMs
+      ) {
+        return session.accessToken;
+      }
+      return refresh(session.refreshToken);
     },
   };
 }
@@ -70,19 +135,19 @@ async function authedFetch(
   init: RequestInit,
   fetchImpl: typeof fetch,
 ): Promise<Response> {
-  const once = async () =>
+  const once = async (forceRefresh = false) =>
     fetchImpl(`${FPL_API}${path}`, {
       ...init,
       headers: {
         ...(init.headers ?? {}),
-        "X-API-Authorization": `Bearer ${await tokens.getAccessToken()}`,
+        "X-API-Authorization": `Bearer ${await tokens.getAccessToken({ forceRefresh })}`,
         Accept: "application/json",
         "User-Agent": "fpl-edge-personal/0.1",
       },
     });
-  let response = await once();
+  let response = await once(false);
   if (response.status === 401 || response.status === 403) {
-    response = await once();
+    response = await once(true);
   }
   return response;
 }

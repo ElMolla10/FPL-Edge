@@ -129,3 +129,30 @@ test("liveTeamFinanceFromMyTeam: maps tenths bank/selling and requires 15 picks"
   assert.equal(live!.sellingMillionsById.get(1), 4.0);
   assert.equal(liveTeamFinanceFromMyTeam({ picks: picks.slice(0, 14), transfers: { bank: 8, limit: 1, made: 0, value: 1000 } }), null);
 });
+
+test("liveTeamFinanceFromMyTeam: still overlays when some selling prices missing", () => {
+  const picks = Array.from({ length: 15 }, (_, index) => ({
+    element: index + 1,
+    position: index + 1,
+    selling_price: index === 3 ? Number.NaN : 40 + index,
+    purchase_price: 40 + index,
+    is_captain: index === 0,
+    is_vice_captain: index === 1,
+    multiplier: index < 11 ? 1 : 0,
+  }));
+  const live = liveTeamFinanceFromMyTeam({
+    picks,
+    transfers: { bank: 8, limit: 1, made: 1, value: 1000 },
+  });
+  assert.ok(live);
+  assert.equal(live!.bankMillions, 0.8);
+  assert.equal(live!.playerIds.length, 15);
+  assert.ok(live!.sellingMillionsById.size < 15);
+});
+
+test("FplOidcError marks invalid_grant as expired", async () => {
+  const { FplOidcError } = await import("../app/lib/personal-fpl-transfer/oidc.ts");
+  const err = new FplOidcError(400, "invalid_grant", "refresh token expired or revoked");
+  assert.equal(err.isInvalidGrant, true);
+  assert.match(err.message, /invalid_grant/);
+});
