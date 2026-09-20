@@ -5,6 +5,10 @@
  * Transfers still ranked from `fpl-edge-manager` / `fpl-edge-squad` written at last
  * Connect. Sign-in only hydrates the *account* snapshot via `/api/squad`, which stays
  * stale until someone reconnects. Automatic refresh closes that wire break.
+ *
+ * Auth must never block the local write: users who linked an entry before sign-in
+ * (or whose `/api/squad` re-hydrates a stale £2.1 snapshot) still need live overlay
+ * bank/picks in localStorage so Transfers ranks from the real pending squad.
  */
 
 import { isSignedIn, writeAccountTeam } from "./persistence";
@@ -47,6 +51,17 @@ function pickKey(pick: { elementId: number; sellingPrice?: number | null }): str
   return `${pick.elementId}:${price}`;
 }
 
+/** Write live squad/manager/entry into localStorage without requiring sign-in. */
+export function writeLocalTeamCache(options: {
+  squadIds: number[];
+  entry: string;
+  manager: TeamApiManagerSnapshot;
+}) {
+  localStorage.setItem("fpl-edge-squad", JSON.stringify(options.squadIds));
+  localStorage.setItem("fpl-edge-entry", options.entry);
+  localStorage.setItem("fpl-edge-manager", JSON.stringify(options.manager));
+}
+
 /** True when cached squad/manager diverge from a fresh `/api/fpl/team` payload. */
 export function cachedTeamDiffersFromApi(playerIds: number[], manager: TeamApiManagerSnapshot): boolean {
   const cachedIds = safeParse<number[]>(localStorage.getItem("fpl-edge-squad"), []);
@@ -84,6 +99,16 @@ export function shouldReplaceCachedTeam(options: {
   return true;
 }
 
+/** Force-refresh when Transfers mounts if cache is not already on live-my-team bank. */
+export function shouldForceTeamRefreshOnTransfers(): boolean {
+  const entry = localStorage.getItem("fpl-edge-entry")?.trim() ?? "";
+  if (!entry || !/^\d+$/.test(entry)) return false;
+  const cached = safeParse<TeamApiManagerSnapshot | null>(localStorage.getItem("fpl-edge-manager"), null);
+  if (!cached) return true;
+  if (cached.bankSource !== "live-my-team") return true;
+  return false;
+}
+
 let lastRefreshAt = 0;
 let lastRefreshEntry = "";
 const REFRESH_COOLDOWN_MS = 45_000;
@@ -93,14 +118,15 @@ export type RefreshConnectedTeamResult =
   | { updated: false; skipped: string };
 
 /**
- * When signed in with a linked entry, re-fetch `/api/fpl/team` and replace
- * localStorage + account squad/manager if the live (or public) snapshot differs.
+ * When an entry id is present, re-fetch `/api/fpl/team` and replace localStorage.
+ * Sign-in is *not* required for the local write — only for the optional account PUT.
+ * After `/api/squad` hydrate, callers should pass `{ force: true }` so a stale
+ * account snapshot cannot leave Transfers ranking on £2.1 / old XI.
  */
 export async function refreshConnectedTeamFromApi(
   data: { players: ReadonlyArray<{ id: number }> },
   options: { force?: boolean; fetchImpl?: typeof fetch } = {},
 ): Promise<RefreshConnectedTeamResult> {
-  if (!isSignedIn()) return { updated: false, skipped: "signed-out" };
   const entry = localStorage.getItem("fpl-edge-entry")?.trim() ?? "";
   if (!entry || !/^\d+$/.test(entry)) return { updated: false, skipped: "no-entry" };
 
@@ -137,12 +163,17 @@ export async function refreshConnectedTeamFromApi(
     return { updated: false, skipped: "unchanged" };
   }
 
-  const saved = await writeAccountTeam({
-    squadIds: ids,
-    entry,
-    manager: json.manager,
-  });
-  if (!saved.ok) return { updated: false, skipped: saved.error };
+  // Always update the desk cache — Transfers ranks from these keys, auth or not.
+  writeLocalTeamCache({ squadIds: ids, entry, manager: json.manager });
+
+  if (isSignedIn()) {
+    // Best-effort account sync; local cache already holds live overlay.
+    await writeAccountTeam({
+      squadIds: ids,
+      entry,
+      manager: json.manager,
+    });
+  }
 
   return { updated: true };
 }

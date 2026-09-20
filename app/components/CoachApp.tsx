@@ -134,9 +134,12 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   const dataRef=useRef(data);dataRef.current=data;
   const runSync=()=>{syncWithServer().then(async changed=>{if(changed)setRevision(x=>x+1);const current=dataRef.current;if(!current)return;const live=await refreshConnectedTeamFromApi(current,{force:true});if(live.updated)setRevision(x=>x+1)})};
   useEffect(()=>{runSync()},[]);
-  // After sign-in hydrate, pull live `/api/fpl/team` so Transfers cannot keep ranking on a stale
-  // localStorage/account manager (PR #40 overlay is useless if the client never replaces the cache).
-  useEffect(()=>{if(!data||(desk!=="free"&&desk!=="season"))return;let cancelled=false;refreshConnectedTeamFromApi(data).then(live=>{if(!cancelled&&live.updated)setRevision(x=>x+1)});return()=>{cancelled=true}},[data,desk]);
+  // Always refresh live `/api/fpl/team` into localStorage when an entry is present — do not gate on
+  // desk/sign-in. After `/api/squad` hydrate, runSync already force-refreshes; this covers late data
+  // load and signed-out entry caches so Transfers never first-paints the stale £2.1 XI.
+  useEffect(()=>{if(!data)return;let cancelled=false;refreshConnectedTeamFromApi(data,{force:true}).then(live=>{if(!cancelled&&live.updated)setRevision(x=>x+1)});return()=>{cancelled=true}},[data]);
+  // After sign-in desk flips, force-refresh again so account hydrate cannot leave stale bank/squad.
+  useEffect(()=>{if(!data||(desk!=="free"&&desk!=="season"))return;let cancelled=false;refreshConnectedTeamFromApi(data,{force:true}).then(live=>{if(!cancelled&&live.updated)setRevision(x=>x+1)});return()=>{cancelled=true}},[data,desk]);
   const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(null);window.scrollTo({top:0,behavior:"smooth"})};
   const fresh=data?freshness(data.updatedAt):null;
   const mySquadGroup=navGroups.find(g=>g.label==="My Squad")!;
@@ -811,6 +814,17 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
   const[routeHorizon,setRouteHorizon]=useState<3|5|8>(5);const[maxWeeklyHit,setMaxWeeklyHit]=useState<0|4|8>(4);
   const[watchIds,setWatchIds]=useState<number[]>([]);useEffect(()=>setWatchIds(readIds("fpl-edge-watchlist")),[]);
   const[expanded,setExpanded]=useState<Set<string>>(new Set());
+  // Force live team refresh on Transfers mount, then bump revision so Actionable cannot first-paint
+  // from stale £2.1 / old XI (cooldown must not win the race against first rank).
+  useEffect(()=>{
+    let cancelled=false;
+    refreshConnectedTeamFromApi(data,{force:true}).then(live=>{
+      if(cancelled||!live.updated)return;
+      try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}
+      onTeamChange();
+    });
+    return()=>{cancelled=true};
+  },[data]);
   const a=analysis(data,squad);
   const optimizer=useMemo(()=>createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"),[data]);
   // Keep bank + selling prices as one consistent finance snapshot. Mixing an official bank with
@@ -856,6 +870,7 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
   return <div className="coach-page">
     {fullDesk&&<section className="transfer-tabs"><button className={tab==="routes"?"active":""} onClick={()=>setTab("routes")}>Route planner</button><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Single moves</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select></label></section>}
     {transferTab==="routes"?<TransferRoutePlanner routes={routes} horizon={routeHorizon} setHorizon={setRouteHorizon} maxWeeklyHit={maxWeeklyHit} setMaxWeeklyHit={setMaxWeeklyHit}/>:transferTab==="moves"?<>
+      <section className="transfer-bank-strip" aria-label="Transfer bank used for rankings"><span>IN THE BANK</span><b>£{bank.toFixed(1)}m</b><small>{meta?.bankSource==="live-my-team"?"live FPL transfer bank":meta?"official public data":"builder estimate"}</small></section>
       <section className="recommended-move">
         <div className="call-label"><span>RECOMMENDED MOVE</span><b>{roll?"SAVE":"QUALITY-GATED EDGE"}</b></div>
         <h2>{roll?"ROLL":`${best.out.name} → ${best.incoming.name}`}</h2>

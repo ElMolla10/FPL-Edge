@@ -47,6 +47,8 @@ How Mohamed grabs a refresh token in the browser (he does this himself):
 `entry_history.bank`, which goes stale after pending next-GW transfers.
 
 The CoachApp client must not keep ranking from a stale `fpl-edge-manager` /
-`fpl-edge-squad` snapshot: after sign-in hydrate it calls
-`refreshConnectedTeamFromApi` so live overlay bank/picks replace localStorage
-and the account squad automatically (no manual TeamBar reconnect).
+`fpl-edge-squad` snapshot. `refreshConnectedTeamFromApi` **always** writes live
+overlay bank/picks into localStorage whenever an entry id is present — sign-in
+is not required for that local write (account `writeAccountTeam` still runs when
+signed in). CoachApp force-refreshes on load, after `/api/squad` hydrate, and on
+Transfers mount so Actionable cannot first-paint the stale £2.1 / old XI list.
