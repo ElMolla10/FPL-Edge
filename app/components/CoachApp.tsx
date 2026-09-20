@@ -22,6 +22,7 @@ import { HorizonMode, RiskMode, SquadPhilosophy, createFiveWeekEvaluator, create
 import { FiveGwGainBand } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
 import { markSignedIn, persist, readFreeTransfers, syncWithServer, writeAccountTeam } from "../lib/persistence";
+import { refreshConnectedTeamFromApi } from "../lib/team-live-refresh";
 import { TEAM_SIGN_IN_HREF, TeamLinkAuthProvider, useTeamLinkAuth } from "./team-link-auth";
 import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
 import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } from "../lib/bench-order";
@@ -130,8 +131,12 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   const currentEvent=data?.events.find(e=>e.current);
   const isLiveWindow=!!currentEvent&&!currentEvent.finished&&Date.parse(currentEvent.deadline)<=Date.now();
   useEffect(()=>{const id=window.setInterval(load,isLiveWindow?LIVE_GAMEWEEK_REFRESH_MS:300000);return()=>window.clearInterval(id)},[isLiveWindow]);
-  const runSync=()=>{syncWithServer().then(changed=>{if(changed)setRevision(x=>x+1)})};
+  const dataRef=useRef(data);dataRef.current=data;
+  const runSync=()=>{syncWithServer().then(async changed=>{if(changed)setRevision(x=>x+1);const current=dataRef.current;if(!current)return;const live=await refreshConnectedTeamFromApi(current,{force:true});if(live.updated)setRevision(x=>x+1)})};
   useEffect(()=>{runSync()},[]);
+  // After sign-in hydrate, pull live `/api/fpl/team` so Transfers cannot keep ranking on a stale
+  // localStorage/account manager (PR #40 overlay is useless if the client never replaces the cache).
+  useEffect(()=>{if(!data||(desk!=="free"&&desk!=="season"))return;let cancelled=false;refreshConnectedTeamFromApi(data).then(live=>{if(!cancelled&&live.updated)setRevision(x=>x+1)});return()=>{cancelled=true}},[data,desk]);
   const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(null);window.scrollTo({top:0,behavior:"smooth"})};
   const fresh=data?freshness(data.updatedAt):null;
   const mySquadGroup=navGroups.find(g=>g.label==="My Squad")!;

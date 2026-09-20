@@ -45,3 +45,8 @@ How Mohamed grabs a refresh token in the browser (he does this himself):
 `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` and personal exec is enabled. It prefers
 `my-team.transfers.bank` (and live picks / selling prices) over public
 `entry_history.bank`, which goes stale after pending next-GW transfers.
+
+The CoachApp client must not keep ranking from a stale `fpl-edge-manager` /
+`fpl-edge-squad` snapshot: after sign-in hydrate it calls
+`refreshConnectedTeamFromApi` so live overlay bank/picks replace localStorage
+and the account squad automatically (no manual TeamBar reconnect).
