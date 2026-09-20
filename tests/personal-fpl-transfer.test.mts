@@ -6,7 +6,9 @@ import {
   evaluatePersonalTransferGate,
   isEmailAllowlisted,
   isPersonalTransferExecEnabled,
+  liveTeamFinanceFromMyTeam,
   parseRefreshTokenInput,
+  resolveTransferBankMillions,
 } from "../app/lib/personal-fpl-transfer/index.ts";
 
 test("personal transfer kill switch defaults off", () => {
@@ -85,4 +87,45 @@ test("marketing trust copy stays read-only and personal module is isolated", () 
   const draft = readFileSync(new URL("../app/components/LiveDraftBuilder.tsx", import.meta.url), "utf8");
   assert.match(draft, /PersonalTransferPlace/);
   assert.match(draft, /latestSandboxTransfer/);
+});
+
+test("resolveTransferBankMillions: live my-team bank beats stale entry_history bank", () => {
+  const resolved = resolveTransferBankMillions({
+    historyBankMillions: 2.1,
+    liveBankMillions: 0.8,
+  });
+  assert.equal(resolved.bank, 0.8);
+  assert.equal(resolved.source, "live-my-team");
+});
+
+test("resolveTransferBankMillions: falls back to history when live missing", () => {
+  const resolved = resolveTransferBankMillions({
+    historyBankMillions: 2.1,
+    liveBankMillions: null,
+  });
+  assert.equal(resolved.bank, 2.1);
+  assert.equal(resolved.source, "entry-history");
+});
+
+test("liveTeamFinanceFromMyTeam: maps tenths bank/selling and requires 15 picks", () => {
+  const picks = Array.from({ length: 15 }, (_, index) => ({
+    element: index + 1,
+    position: index + 1,
+    selling_price: 40 + index,
+    purchase_price: 40 + index,
+    is_captain: index === 0,
+    is_vice_captain: index === 1,
+    multiplier: index < 11 ? 1 : 0,
+  }));
+  const live = liveTeamFinanceFromMyTeam({
+    picks,
+    transfers: { bank: 8, limit: 1, made: 2, value: 990, cost: 4, status: "cost" },
+  });
+  assert.ok(live);
+  assert.equal(live!.bankMillions, 0.8);
+  assert.equal(live!.squadValueMillions, 99.0);
+  assert.equal(live!.transfersMade, 2);
+  assert.equal(live!.playerIds.length, 15);
+  assert.equal(live!.sellingMillionsById.get(1), 4.0);
+  assert.equal(liveTeamFinanceFromMyTeam({ picks: picks.slice(0, 14), transfers: { bank: 8, limit: 1, made: 0, value: 1000 } }), null);
 });

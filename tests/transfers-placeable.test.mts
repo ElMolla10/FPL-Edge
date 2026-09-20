@@ -282,3 +282,78 @@ test("regression: empty selling map still rejects risen seller via conservative 
   assert.equal(gate.placeable, false);
   if (!gate.placeable) assert.equal(gate.reason, "budget");
 });
+
+test("regression: live bank £0.8 rejects Thomas/Maguire→Tarkowski and O'Nien→Guéhi that stale £2.1 would allow", () => {
+  // Mohamed 261593: public entry_history.bank=2.1 but live my-team transfers.bank=0.8 after
+  // pending Maguire/Barnes → Tarkowski/Tavernier. Ranking must use the live bank.
+  const initial = squad();
+  const thomas = makePlayer({
+    id: 173, name: "Thomas", teamId: 7, teamName: "Coventry", teamShort: "COV",
+    positionId: 2, position: "Defender", positionShort: "DEF", price: 4.0, epNext: 2,
+  });
+  const maguire = makePlayer({
+    id: 418, name: "Maguire", teamId: 16, teamName: "Man Utd", teamShort: "MUN",
+    positionId: 2, position: "Defender", positionShort: "DEF", price: 4.9, epNext: 2,
+  });
+  const onien = makePlayer({
+    id: 539, name: "O'Nien", teamId: 20, teamName: "Sunderland", teamShort: "SUN",
+    positionId: 2, position: "Defender", positionShort: "DEF", price: 3.9, epNext: 1,
+  });
+  // Replace three DEF slots
+  const defIdx = initial.map((p, i) => (p.positionShort === "DEF" ? i : -1)).filter((i) => i >= 0);
+  initial[defIdx[0]] = thomas;
+  initial[defIdx[1]] = maguire;
+  initial[defIdx[2]] = onien;
+
+  const tarkowski = makePlayer({
+    id: 229, name: "Tarkowski", teamId: 9, teamName: "Everton", teamShort: "EVE",
+    positionId: 2, position: "Defender", positionShort: "DEF",
+    price: 6.1, epNext: 8, form: 8, pointsPerGame: 6, priorExpectedGoals: 8, priorExpectedAssists: 5,
+  });
+  const guehi = makePlayer({
+    id: 388, name: "Guéhi", teamId: 15, teamName: "Man City", teamShort: "MCI",
+    positionId: 2, position: "Defender", positionShort: "DEF",
+    price: 6.0, epNext: 7, form: 7, pointsPerGame: 5, priorExpectedGoals: 5, priorExpectedAssists: 4,
+  });
+  const data = dataFor([...initial, tarkowski, guehi]);
+
+  const staleBank = 2.1;
+  const liveBank = 0.8;
+  const selling = new Map([
+    [thomas.id, 4.0],
+    [maguire.id, 4.9],
+    [onien.id, 3.9],
+  ]);
+
+  // Sanity: stale bank would falsely afford Thomas→Tarkowski (4.0+2.1=6.1)
+  assert.equal(isPlaceableTransfer(data, initial, thomas, tarkowski, staleBank, selling).placeable, true);
+  // Live bank must reject all three Mohamed-flagged routes
+  for (const [out, incoming, label] of [
+    [thomas, tarkowski, "Thomas→Tarkowski"],
+    [maguire, tarkowski, "Maguire→Tarkowski"],
+    [onien, guehi, "O'Nien→Guéhi"],
+  ] as const) {
+    const gate = isPlaceableTransfer(data, initial, out, incoming, liveBank, selling);
+    assert.equal(gate.placeable, false, `${label} must be rejected at live bank £0.8`);
+    if (!gate.placeable) assert.equal(gate.reason, "budget");
+  }
+
+  const manager = {
+    bank: liveBank,
+    bankSource: "live-my-team" as const,
+    picks: initial.map((player, index) => ({
+      elementId: player.id,
+      position: index + 1,
+      multiplier: index < 11 ? 1 : 0,
+      isCaptain: index === 0,
+      isViceCaptain: index === 1,
+      sellingPrice: selling.get(player.id) ?? player.price,
+    })),
+  };
+  const finance = deriveSandboxFinancialContext(initial, data.rules.budget, manager as never);
+  assert.equal(finance.baselineBank, 0.8);
+  const rows = bestTransfers(data, initial, finance.baselineBank, 1, 80, finance.baselineSellingPrices);
+  assert.ok(!rows.some((row) => row.out.id === thomas.id && row.incoming.id === tarkowski.id));
+  assert.ok(!rows.some((row) => row.out.id === maguire.id && row.incoming.id === tarkowski.id));
+  assert.ok(!rows.some((row) => row.out.id === onien.id && row.incoming.id === guehi.id));
+});

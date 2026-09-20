@@ -7,6 +7,7 @@ export {
   isPersonalTransferExecEnabled,
   isEmailAllowlisted,
   parseRefreshTokenInput,
+  personalFplEntryId,
   type PersonalTransferEnv,
   type PersonalTransferGate,
 } from "./config";
@@ -16,7 +17,14 @@ export {
   createRotatingTokenProvider,
   fetchMyTeam,
   postTransfers,
+  type MyTeamResponse,
   type TransferLeg,
   type TransferRequestBody,
 } from "./client";
 export { loadPersonalRefreshToken, persistPersonalRefreshToken } from "./store";
+export {
+  liveTeamFinanceFromMyTeam,
+  resolveTransferBankMillions,
+  tryFetchLiveTeamFinance,
+  type LiveTeamFinance,
+} from "./live-team";
