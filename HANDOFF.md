@@ -1,9 +1,17 @@
 # FPL Edge — Session Handoff (Updated)
 
-**Repo:** github.com/ElMolla10/FPL-Edge · **Stack:** Next.js/React on Cloudflare Workers, TypeScript, Drizzle/D1
-**Deployed:** Cloudflare Workers at `fpl-edge.elmolla10.workers.dev`, via the GitHub Actions pipeline in `.github/workflows/deploy.yml` (auto-deploys on every push to `main`, added `2e174ba`) — `main` is currently at `1d212f4`, which is everything through Step 5 (`.coach-footer` closing out the shell chrome). Five separate pushes this session, each its own reviewed commit, each confirmed green on its own Actions run before the next was pushed: `48d654f` (`--ink→--text`, run `34755829559`), `15310e0` (Step 3, run `34756107267`), `b2e5efd` (hydration fix, run `34756661198`), `1f8d5ac` (`HANDOFF.md` itself, run `34756854544`), `1d212f4` (Step 5, run `34758192937`) — all `status:completed`/`conclusion:success`. Nothing from this session is pending on `main` right now. (A separate, independently-managed OpenAI Sites deployment at `fpl-edge.moehab.chatgpt.site` also exists per `README.md`/`README.SITES.md`; commit `742e89e` confirms it uses its own `.openai/hosting.json`-driven build path and never touches `wrangler.jsonc` or this repo's CI, so it isn't necessarily in sync with `main` and isn't what this handoff's push/deploy status tracks.)
+**Repo:** github.com/ElMolla10/FPL-Edge · **Stack:** Next.js/React (Vinext) on Cloudflare Workers, TypeScript, Drizzle/D1
 
-This supersedes the earlier handoff (which predated the Decision Confidence Engine's full integration, Mini-League Stage 1, the Season Simulator, and Features #4–#5) **and** that handoff's own successor (which predated the fpl.page visual-identity redesign entirely). Read **Process Rules** first regardless of which tool continues this.
+### Current production
+
+| | |
+|---|---|
+| **Live** | https://fpl-edge.elmolla10.workers.dev — Cloudflare Workers via `.github/workflows/deploy.yml` (auto-deploy on every push to `main`) |
+| **Tip as of this handoff write** | `f715390` — Merge PR #35 (`personal/any-transfer-place`). App mode: `/?app=1` |
+| **iOS shell** | **Separate** repo **FPL-Edge-iOS** (Capacitor). Rodri owns it. Not built or deployed from this web repo. Shell applies WebView bottom safe-area inset and window background `#14181A` (canvas); web PRs 27–34 handle `viewport-fit`, header/tab floors, Switch team flush, and html/body canvas overscroll. Capacitor often reports `env(safe-area-inset-*)` as `0` inside the WebView — do not rely on CSS env alone. |
+| **Sites (secondary)** | Independently managed OpenAI Sites host may still exist (`README.md` / `README.SITES.md`); it is **not** what this handoff’s push/deploy status tracks. |
+
+This supersedes earlier handoffs that stopped at Decision Confidence / Mini-League / Season Simulator, or at fpl.page redesign Step 5 (`1d212f4`). Process Rules (§1) and the older architecture/process lessons below remain in force. Read **Process Rules** first.
 
 ---
 
@@ -27,6 +35,31 @@ This supersedes the earlier handoff (which predated the Decision Confidence Engi
 16. **`git add -p`'s hunk granularity is not a hard guarantee when new, reviewed code sits on a line contiguous with an old, unrelated pending change.** Diff hunks are contiguous line ranges; a one-line unrelated edit with no unchanged buffer line next to a new addition can get offered as a single unsplittable hunk, forcing a manual line-level split or genuinely separate work sessions to keep the two changes separable at all. This is exactly what happened twice to the `--ink→--text` fix before it was finally committed as `957bae6` — see §4.
 17. **In a repo that auto-deploys on push to `main` (`.github/workflows/deploy.yml`), "commit" and "push" are a bigger gap than Rule #2 implies on its own — a push to `main` is a live production deploy, not a remote backup of a commit.** Default to holding a reviewed-but-unapproved change on a feature branch until the user explicitly signs off, even mid-session, even under a "keep going" instruction that doesn't name the push specifically.
 18. **A design checkpoint — getting palette/primitives/exceptions explicitly ratified before writing the CSS that uses them — pays off for visual-identity work the same way Rule #3 says it does for algorithmic work.** The fpl.page redesign's token names, its bespoke-fixed-dark-surface exception list, and its deliberate non-merge of `--line`/`--hairline` were all decided before implementation, not discovered by trial-and-error in the CSS itself. Do the same before steps 4–5.
+
+
+---
+
+## What shipped 2026-09-17 → 2026-09-19
+
+Ordered product/web work that landed on `main` after the Step 5 shell chrome era. Tip at write time: **`f715390` / PR #35 merged**.
+
+1. **Season pass (399 EGP through 31 May 2027)** — Paymob checkout at `/pay`, HMAC-verified `POST /api/season-pass/callback`, D1 migration `drizzle/0005_season_pass.sql`. Entitlement is tied to the **signed-in email account**, not FPL team id. Free plan = current GW horizon only. `PRO_VIEWS` locks Draft lab, Strategy board, Chips, News, History behind season pass (`CoachApp.tsx`).
+
+2. **Design stack → main** — One header; one Sign in; season pass as text link; signed-out empty states; Players table; PRO dropdown under Research with carets; outline manual buttons. Landed after Mini-League nav test fix.
+
+3. **Theme switch** — Real toggle control (not a text button). Dark-by-default theme init in `layout.tsx` remains.
+
+4. **Phone layout package** — One-row header; More / PRO sheets; named Transfers; fixtures title; empty pitch; Coach; Players Filter.
+
+5. **Marketing homepage rebuild** — Decision-card landing (paper), then dark default + “Check your FPL team”, solid lime captain badge (PRs ~17–19).
+
+6. **Pitch / nav** — Shirt size fix; stroke SVG nav icons; Apply TC bar removed from pitch cards (PRs 21–24); Triple Captain under Bench Boost in the squad planner (PR 23).
+
+7. **Approved wordmark** — Lime **FPL** + heavier white **EDGE**, square favicon (PR 25). Rejected: lime-bar E, cut corner, armband variants. Component: `app/components/Wordmark.tsx`.
+
+8. **Personal FPL transfer execution** — PR 26: PingOne rotating `refresh_token` → access token; FPL calls use `X-API-Authorization: Bearer …`. Kill switch `FPL_EDGE_PERSONAL_TRANSFER_EXEC=1`, allowlist, entry id, D1 `drizzle/0006_personal_fpl_auth.sql` for token rotation. Module boundary: `app/lib/personal-fpl-transfer/` + `app/api/personal/fpl-transfer/**` (see that folder’s **README.md**). UI: `PersonalTransferPlace`. **PR 35** (merged): Place any chosen transfer — expand a Transfers ranked route, or Draft Lab pitch sandbox latest swap — not only the top recommendation. Preview `confirmed:false` then Place `confirmed:true`. Easy to remove: flip kill switch or delete the module + routes.
+
+9. **iOS safe-area + mobile chrome (PRs 27–34)** — `viewport-fit=cover` (vinext drops `viewportFit` from the export — pin meta in `layout.tsx`); header safe-area floors (~47px top); tab bar as solid buttons / lime active pill; dial bottom padding after Rodri’s shell inset; Switch team flush on the tab bar (no floating gap from an oversized `bottom`); html/body/`theme-color` painted with canvas (`#14181A` / `var(--canvas)`) so overscroll is not pure black. **Lesson:** Capacitor WKWebView often reports `env(safe-area-inset-*) === 0`; pair CSS floors with the sibling iOS shell’s WebView inset + `#14181A` window background.
 
 ---
 
@@ -61,7 +94,7 @@ This supersedes the earlier handoff (which predated the Decision Confidence Engi
 
 ---
 
-## 3. What shipped, in order
+## 3. Earlier ship log (Decision Confidence → redesign Step 5)
 
 1. **Decision Confidence Engine — core** (already-written, uncommitted code discovered mid-session; given a full retroactive review). Found and fixed: a real RNG independence bug (two "independent" factor keys secretly related by an exact modular-linear formula, proved algebraically), a memoization bug (cache key needed `scenarioCount`, not just `factorKey`), two test names that oversold what they verified. Committed `008867b`.
 2. **Feature #1 integration** (Transfers/Draft Lab/captaincy wiring), done externally (ChatGPT-directed), landed as 4 commits already live on `origin/main` before review. Retroactive review found `confidenceMultiplier` was **not** removed despite its own comment saying it should be — resolved by **fixing the misleading comment**, not removing the multiplier (removal would reopen the Hull-City-style regression it prevents; the engine is too expensive to run across the full ~200-candidate sweep). RNG fix (`d2b8c8f`) confirmed sound. Comment fix `728a9ed`.
@@ -95,41 +128,31 @@ This supersedes the earlier handoff (which predated the Decision Confidence Engi
 - **`--ink`/`--lime`/`--wline` are real, load-bearing tokens outside marketing** — confirmed the hard way in step 2 after step 1 assumed otherwise. Don't repeat that assumption for any token not explicitly documented as marketing-only.
 - **Bespoke fixed-dark surface is now a named, reusable category**: `hero-product`, `brand-mark`, `confidence-ring` (step 2), `coach-sidebar`, `coach-mobile-nav`/`mobile-more` (step 3) all stay `--canvas-dark`/`--canvas-light` regardless of app theme — a permanent nav column or a literal/identity element shouldn't flip with theme. Use this category for the next such surface instead of re-litigating the exception from scratch.
 - **The `--ink`→`--text` fix has an unusual history, now resolved — recording it precisely rather than dropping it, since the path here is a real lesson.** The change is to `.hero h1 em`, `.section h2 em`, and `footer h2 em` in `app/globals.css`: `--ink` has no dark-mode override (defined exactly once in the whole file) while the actual background (`--paper`) is theme-reactive, so in dark mode the stroke was near-invisible against it. It originated *before* the UI overhaul, survived two absorption near-misses during steps 1–2 (a `git add -p` hunk-granularity close call, then a deliberate revert-then-restore around step 2's commit, both documented in those commits' own messages) — and then, critically, **the uncommitted diff itself did not survive a session boundary**: the session that carried it forward never committed it, and once that session's container was gone, so was the diff, with no trace in git (confirmed: empty `git diff`/`git stash list`, clean `git reflog`). It was only recovered because a **separate, parallel conversation** against this same repo had independently diagnosed and approved the identical fix that same day and still had the literal diff text in its own history — recovered from there, re-verified independently in this session (grepped the actual token values fresh, didn't take the parallel session's diagnosis on trust), confirmed real by fetching `origin/main` and finding the bug still live there. **Fixed and committed here as `957bae6`**, screenshot-verified both modes, held out of the push same as everything else. The lesson: an uncommitted fix is not "pending," it's unsaved — the moment a session ends without a commit, it can be gone for good regardless of how many times it was correctly diagnosed.
-- **The Cloudflare deploy pipeline (`.github/workflows/deploy.yml`, added mid-session as `2e174ba`) makes push-to-`main` a real, live production deploy.** Step 3 is intentionally sitting on a feature branch pending explicit approval — see Rule #17. Don't push to `main` on behalf of a "keep going" instruction that doesn't name the push specifically.
+- **The Cloudflare deploy pipeline (`.github/workflows/deploy.yml`) makes push-to-`main` a real, live production deploy.** See Rule #17. Don't push to `main` on behalf of a "keep going" instruction that doesn't name the push specifically. Prefer feature branch → PR → merge (as used for PRs 21–35).
 
 ---
 
 ## 5. Open items
 
-**Resolved this session, found via post-deploy verification of `main`@`15310e0`:**
-- **React hydration-mismatch console warning on `<html data-theme="...">`** — found firing on every page load after Step 3 shipped (pre-existing since the theme mechanism was first built, previously minority-case-only). **Fixed**: added `suppressHydrationWarning` to `<html>` in `app/layout.tsx` (commit `e040619`, pushed to `main` as `b2e5efd`, deploy run `34756661198` confirmed green). Verified via a real browser console, not just reasoning: zero hydration-related messages before vs. after, on both the marketing page and inside `CoachApp`. Nothing left open here.
-- **This sandbox cannot reach the live production URL at all** — confirmed via both Playwright and `curl`: `CONNECT tunnel failed, 403` on `fpl-edge.elmolla10.workers.dev:443`, and the same rejection hit `www.google.com` in the same batch, so it's a general organization egress policy, not domain-specific or fixable from here. Any future "check the live site" request has to go through the same substitute (verify local tree is byte-identical to `origin/main`, then check that locally) rather than direct navigation — don't claim to have browsed the live site without doing this check first.
+**Operator / secrets (not in git):**
+- Personal FPL transfer secrets remain **operator-set** (Chief/Mohamed): `FPL_EDGE_PERSONAL_TRANSFER_EXEC`, `FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST`, `FPL_EDGE_PERSONAL_FPL_ENTRY_ID`, `FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN` (or seed from browser `oidc.user:…` JSON). Never paste tokens into chat. Details: `app/lib/personal-fpl-transfer/README.md`.
+- Paymob live keys (`PAYMOB_*`) likewise operator-set; season pass will not activate without HMAC callback + `0005` migration applied.
 
-
-**Deferred with an explicit reason (don't quietly build without revisiting the reasoning):**
-- Mini-League Stage 2 (rival squads, EO, captaincy exposure, template/differential radar) — real, substantial, un-built.
-- Feature #3 item 3 (mini-league finishing probabilities) — blocked on Stage 2.
-- Feature #4: projected final rank (needs a live-partial-total adaptation of `rank-estimate-core`), rival movement (needs a Mini-League client polling increment — backend TTL already supports it), what-if scenarios for remaining players (needs a genuine finished/live fixture split in the projection engine — Draft Lab currently excludes live gameweeks entirely).
-- `/api/fpl` cache TTL tightening — flagged, not built, app-wide.
-- Feature #5's real numeric trend-history table — needs its own D1 schema/design checkpoint (comparable to Phase 1's population cache). Its causal-explanation half is **permanently** out of scope, not deferred.
+**Sibling project:**
+- **FPL-Edge-iOS** (Capacitor) — Rodri. Safe-area WebView inset + canvas `#14181A` window background live there; this repo only ships the web CSS/meta side (PRs 27–34).
 
 **fpl.page redesign:**
-- Steps 1, 2, 3, 5 and the `--ink→--text` fix — **all fully done**: committed, pushed to `main`, deployed, every deploy run confirmed green (§3 items 9–15). Nothing left open on any of them.
-- **Step 4 (core pages by traffic) — not started, and genuinely open, not just "not gotten to yet."** No design checkpoint has happened (do one first, per Rule #18). An investigation (see §3 item 12) already produced real numbers on current token usage — legacy `--text`/`--surface-card`/etc. is dominant and already dark-capable (422 uses), the new `--canvas`/`--hairline`/`--pitch` system has zero adoption outside marketing/shell (85 uses), and ~687 raw hex literals remain across feature pages — but the actual question (migrate onto the new token names, or close hardcoded-hex gaps with the already-proven legacy system first) was deliberately left for the human to decide, not resolved unilaterally. Page ordering itself ("by traffic") also has no real signal in this codebase — no analytics exist here; the only ordering on record is Overview → Transfers → Draft Lab → Gameweek/Live → Season Simulator/Mini-League/Coach, unconfirmed as still current.
-- **This is a separate, overlapping-but-distinct initiative from the original "Dark Mode Phase 1" conversion** (see below) — don't assume dark mode is "done" because the redesign reached the shell. Most non-shell pages still run on the legacy token system only.
+- Steps 1–3, 5 and the `--ink→--text` fix — done on `main` historically (see §3 below).
+- **Step 4 (core pages by traffic) — still open.** Needs a design checkpoint (Rule #18) before implementation. Legacy vs new token migration direction and page ordering are unresolved.
 
-**Remaining roadmap (original 10-item brief), not started:**
-- #6 Multi-Plan Strategy Board
-- #7 Season-Long Chip Portfolio Optimizer
-- #8 Transfer Timing and Price-Risk Engine — flagged early: the "latest safe time to wait" framing has the same sourcing problem #5 had (predicting an exact price-move hour isn't a real signal here); the rest of #8 (real team-value benefit, whether a rise blocks a planned route) is legitimately buildable.
-- #9 Template/Ownership/Differential Radar
-- #10 Interactive FPL Coach — correctly last, since its value depends on every other calculation already being correct and well-labeled.
+**Product / modeling (unchanged deferrals):**
+- Mini-League Stage 2; Feature #3 finishing probs; Feature #4 projected final rank / rival movement / live what-ifs; `/api/fpl` cache TTL tightening; Feature #5 numeric trend-history D1 design (causal half permanently dropped).
+- Roadmap #6–#10 and older 23-item leftovers — see previous handoffs; multi-plan board / chip portfolio have partial UI but treat full “done” claims carefully.
 
-**Older, still-open items from the original 23-item feature list:** #5 (transfer break-even horizon — cheap, `weeklyGains` already exists), #7 (player archetypes), #11 (sensitivity conditions), #17/18/20/21 (score-label/benchmark polish), #23 (a real acceptance test against a live squad). Two items (#12 simulate-position-scenarios, #19 percentile-benchmarking-against-fake-samples) were **declined**, not deferred — both would have required fabricating numbers.
+**Process:** Prefer committing `HANDOFF.md` with docs PRs so it survives session boundaries (this file is now in-repo).
 
-**Dark Mode (legacy, pre-redesign effort):** only Phase 1 (shell/nav/Overview/Transfers, on the legacy token system) was ever converted. Every other page still has largely-hardcoded colors. New UI work should use existing tokens from the start (gotten wrong and corrected twice already — Mini-League and Feature #4's first CSS passes both needed a fix).
+**Resolved earlier (keep for context):** hydration `suppressHydrationWarning` on `<html>`; sandbox egress cannot always reach the live Workers URL — verify via `origin/main` + local when needed.
 
-**Process:** `HANDOFF.md` itself has never been committed to this repo, across its entire git history — confirmed via `git log --all` returning nothing for it. It exists only as text exchanged directly with whoever's driving a given session, which is exactly the session-boundary loss Rule #11 warns about, and this exact gap cost several messages of back-and-forth before this rewrite could even start. Worth deciding, next time this file is touched, whether to actually commit it so it survives session boundaries — not done in this pass since it wasn't asked for and would need its own approval.
 
 ---
 
@@ -142,4 +165,4 @@ This supersedes the earlier handoff (which predated the Decision Confidence Engi
 - Check `tests/` for the established pattern before adding logic — every pure function gets a direct `node:test` with synthetic fixtures, often including at least one adversarial/mutation-tested case for anything with real stakes.
 - Before treating any already-shipped code as correct because it's already there: this project has found real bugs in code that had already passed its own tests multiple times, including code written within the same session. Verify against real data when the stakes justify it.
 - If a request implies data this app doesn't have (predicted formations, rival squads without Stage 2, causal news attribution, price-move timing), investigate for a real, honest alternative before assuming it needs fabrication or must be declined outright — the population-percentile rank estimate is the best example of finding a genuine third option.
-- Everything from this session is now live on `main` as `1d212f4` — the `--ink→--text` fix, Step 3, the `suppressHydrationWarning` fix, `HANDOFF.md` itself, and Step 5, all pushed as five separate, sequential, individually-verified commits. Still confirm `git log origin/main` yourself before trusting that statement on a future date — this handoff can go stale the moment the next session starts (it already has, at least once, mid-session — see the amended header/§3 numbers above versus what an earlier draft of this same file said).
+- **Current production tip** is documented in **Current production** above (`f715390` / PR 35 as of this write). Older §3 still describes the Decision Confidence + redesign-through-Step-5 era ending at `1d212f4`. Always re-check `git log origin/main` — this handoff goes stale the moment the next session lands.

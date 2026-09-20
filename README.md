@@ -1,51 +1,54 @@
 # FPL Edge
 
-Complete source snapshot of the current FPL Edge implementation.
+Fantasy Premier League decision tools: projections, transfers, Draft Lab, chips, and season pass — running as a **Cloudflare Worker**.
 
-## Snapshot identity
+## Live
 
-- Sites project: `fpl-edge`
-- Sites project ID: `appgprj_6a883fd49dbc81919b1dd1ccccf9e728`
-- Hosted version: `v15`
-- Source commit: `8fe6bbaa10f86d80c56b2933102eb946e4b0d419`
-- Commit: `Add saved captain and vice-captain controls`
-- Commit time: `2026-08-21T17:20:01+03:00`
-- Current hosted URL: `https://fpl-edge.moehab.chatgpt.site`
-
-The application source in this package is copied directly from that commit. The original Sites starter documentation is preserved unchanged as `README.SITES.md`; this file adds project-specific setup and architecture notes.
+- **Production (primary):** https://fpl-edge.elmolla10.workers.dev  
+  App shell: https://fpl-edge.elmolla10.workers.dev/?app=1  
+  Deploy: GitHub Actions `.github/workflows/deploy.yml` on every push to `main` (tests + D1 migrations + `wrangler deploy`).
+- **Tip documented in `HANDOFF.md`:** `f715390` (Merge PR #35) as of the Sept 2026 handoff refresh.
+- **iOS:** Capacitor wrapper lives in a **separate** repo (**FPL-Edge-iOS**, Rodri). This package is web-only.
+- **OpenAI Sites (secondary / legacy snapshot path):** project `fpl-edge`, historically hosted at `https://fpl-edge.moehab.chatgpt.site`. Sites identity and starter docs remain in `.openai/hosting.json` and `README.SITES.md`. Sites is **not** the Workers CI deploy tracked above and may lag `main`.
 
 ## What is included
 
 - Full Next.js/Vinext/React frontend and styling
-- Server-side FPL data, team-import, and history API routes
+- Server-side FPL data, team-import, history, population-percentile, and season-pass API routes
 - FPL projection and squad-optimization logic
-- Squad builder, football-pitch UI, captain and vice-captain controls
+- Squad builder, football-pitch UI, captain / vice / Triple Captain controls
 - Player explorer, fixtures, news, chips, points model, and history experiences
-- Drizzle/D1 data-access scaffolding and example schema
+- Season pass checkout (Paymob) and PRO feature gating
+- Optional personal-only FPL transfer execution module (kill-switched, allowlisted)
+- Drizzle/D1 schema and migrations (including season pass + personal FPL auth)
 - Cloudflare Worker entry point and image optimization
-- Sites/Vite/Cloudflare build configuration
-- Public images and SVG assets
-- Tests, scripts, exact dependency lockfile, and TypeScript configuration
-
-Generated dependencies and caches are intentionally not included: `node_modules`, `dist`, `.next`, `.sites-runtime`, `.wrangler`, and Git object history. They are reproducible from the committed lockfile and configuration.
+- Tests, scripts, lockfile, and TypeScript configuration
 
 ## Architecture
 
 | Area | Location | Purpose |
 |---|---|---|
-| Main UI | `app/components/CoachApp.tsx` | Application shell and product sections |
-| Live squad builder | `app/components/LiveDraftBuilder.tsx` | Squad creation, saving/import, optimizer, pitch, captaincy |
+| Main UI | `app/components/CoachApp.tsx` | Application shell, nav, `PRO_VIEWS` gating, product sections |
+| Wordmark | `app/components/Wordmark.tsx` | Approved lime FPL + white EDGE mark (headers, marketing, favicon sibling) |
+| Live squad builder | `app/components/LiveDraftBuilder.tsx` | Squad creation, sandbox swaps, optimizer, pitch, captaincy / TC |
+| Personal Place UI | `app/components/PersonalTransferPlace.tsx` | Allowlisted Preview/Place controls (self-hides when gate off) |
 | Intelligence UI | `app/components/LiveIntelligence.tsx` | Players, fixtures, news, chips, model, and history views |
+| Season pass UI | `app/components/SeasonPass.tsx`, `app/pay/page.tsx` | Checkout entry; `/pay` page |
 | Official FPL data API | `app/api/fpl/route.ts` | Current players, teams, prices, stats, rules, events, fixtures |
 | Team import API | `app/api/fpl/team/route.ts` | Imports a public squad by FPL Team ID |
 | Manager history API | `app/api/fpl/history/route.ts` | Completed-gameweek points, ranks, transfers, bench and captain history |
+| Season pass API | `app/api/season-pass/*` | Paymob intention, HMAC callback, status / entitlement |
+| Personal FPL transfer | `app/lib/personal-fpl-transfer/`, `app/api/personal/fpl-transfer/**` | Mohamed-only place path; see module README |
 | Projection model | `app/lib/fpl.ts` | Typed FPL data model, projections, best XI, and baseline optimization |
 | Optimizer | `app/lib/optimizer.ts` | Multi-gameweek squad optimizer, risk modes, evaluation, and explanations |
-| Transfer route solver | `app/lib/transfer-routes.ts` | Legal 3/5/8-GW roll, single and double-transfer route search with bank, selling values and hits |
-| Database | `db/`, `drizzle.config.ts` | Drizzle/D1: users, sessions, squad_data |
+| Transfer route solver | `app/lib/transfer-routes.ts` | Legal 3/5/8-GW roll, single and double-transfer route search |
+| Season pass lib | `app/lib/season-pass.ts` | Price copy (399 EGP), entitlement helpers |
+| Database | `db/`, `drizzle.config.ts`, `drizzle/*.sql` | Drizzle/D1: users, sessions, squad_data, season pass, personal_fpl_auth |
 | Auth | `app/lib/auth-core.ts`, `app/lib/auth.ts`, `app/api/auth/*` | Email/password + ChatGPT sign-in, unified by email identity |
 | Worker | `worker/index.ts` | Cloudflare Worker request and image-optimization entry point |
-| Hosting config | `.openai/hosting.json`, `vite.config.ts` | Sites identity and Cloudflare/Vinext bindings |
+| Hosting | `wrangler.jsonc`, `.github/workflows/deploy.yml` | Workers deploy; Sites config still in `.openai/hosting.json` |
+
+**PRO views** (`PRO_VIEWS` in `CoachApp.tsx`): `news`, `draft`, `board`, `chips`, `history` — season pass required. Free signed-in users keep current-GW tools; visitors get marketing + limited app entry.
 
 ## Data sources and persistence
 
@@ -79,6 +82,8 @@ find .wrangler/state/v3/d1/miniflare-D1DatabaseObject -name "*.sqlite" ! -name "
 
 (Re-run `npm run db:generate` first if the schema changed, and apply the newly generated file instead.)
 
+Production applies migrations via the Deploy workflow. Notable later files: `0005_season_pass.sql`, `0006_personal_fpl_auth.sql`.
+
 ## Requirements
 
 - Node.js `22.13.0` or newer
@@ -89,8 +94,8 @@ find .wrangler/state/v3/d1/miniflare-D1DatabaseObject -name "*.sqlite" ! -name "
 ## Local setup
 
 ```bash
-unzip FPL-Edge-complete-source-v15.zip
-cd FPL-Edge-complete-source-v15
+git clone https://github.com/ElMolla10/FPL-Edge.git
+cd FPL-Edge
 npm ci
 npm run dev
 ```
@@ -119,7 +124,7 @@ npm run dev
 
 ## Environment variables
 
-No application secrets or required `.env` values are needed for the current FPL feature set.
+Core FPL features run without application secrets. Checkout and personal transfer need operator-set secrets (never commit; never paste into chat).
 
 | Variable | Required | Default / use |
 |---|---:|---|
@@ -139,10 +144,34 @@ No application secrets or required `.env` values are needed for the current FPL 
 | `PAYMOB_INTEGRATION_ID` | For live checkout | Integer payment integration id. Use a card integration so `notification_url` is delivered. |
 | `PAYMOB_BASE_URL` | No | Defaults to `https://accept.paymob.com`. |
 | `FPL_EDGE_DEV_SEASON_GRANT` | No | Set to exactly `1` to allow `POST /api/season-pass/dev-grant`. Also requires `NODE_ENV` of `development` or `test`. Off by default. Ignored when `NODE_ENV` is `production` or unset. Not linked from the UI. |
+| `FPL_EDGE_PERSONAL_TRANSFER_EXEC` | Personal Place | Must be exactly `1` or the path is dead for everyone |
+| `FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST` | Personal Place | Comma-separated emails (e.g. Mohamed’s). Case-insensitive exact match |
+| `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` | Personal Place | Numeric FPL team / entry id for the allowlisted manager |
+| `FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN` | Personal Place | Seed refresh token (bare token or whole `oidc.user:…` JSON). Rotations persist in D1 `personal_fpl_auth` |
 
-Season pass checkout does not activate access when the user clicks pay. A pass is written only after `POST /api/season-pass/callback` verifies Paymob's HMAC (SHA-512 over the documented Transaction Processed fields). If the Paymob variables above are missing, the upgrade UI says checkout is not connected. Point Paymob's notification URL at `https://<host>/api/season-pass/callback` as well as the `notification_url` sent on each intention. Apply `drizzle/0005_season_pass.sql` (generated from `db/schema.ts`) before checkout will persist.
+### Personal transfer token (operator)
 
-The deployment environment supplies the `ASSETS` and `IMAGES` Cloudflare bindings. If D1 is enabled later, set the `d1` field in `.openai/hosting.json` to the binding name (the existing database helper expects `DB`) and provision that binding in the hosting environment.
+FPL uses PingOne / `account.premierleague.com`. Mohamed grabs a refresh token himself:
+
+1. Sign in at https://fantasy.premierleague.com  
+2. DevTools → Application → Local Storage → `https://fantasy.premierleague.com`  
+3. Copy the value of the key starting `oidc.user:` (whole JSON is fine)  
+4. Put it in the Cloudflare secret / env — **do not paste into chat**
+
+See `app/lib/personal-fpl-transfer/README.md`.
+
+### Season pass / Paymob
+
+Season pass checkout does not activate access when the user clicks pay. A pass is written only after `POST /api/season-pass/callback` verifies Paymob's HMAC (SHA-512 over the documented Transaction Processed fields). If the Paymob variables above are missing, the upgrade UI says checkout is not connected. Point Paymob's notification URL at `https://<host>/api/season-pass/callback` as well as the `notification_url` sent on each intention.
+
+**D1 migrations (apply via deploy workflow / wrangler):**
+
+- `drizzle/0005_season_pass.sql` — season pass entitlement columns  
+- `drizzle/0006_personal_fpl_auth.sql` — rotating personal FPL refresh token row  
+
+Earlier migrations `0000`–`0004` cover users/sessions/squad and related tables. For local Miniflare D1 after `npm run dev`, apply the needed SQL files once (see previous notes under Data sources).
+
+The deployment environment supplies the `ASSETS` and `IMAGES` Cloudflare bindings (and `DB` for D1).
 
 The optional ChatGPT request identity integration reads these HTTP headers when they are injected by the hosting dispatch layer; they are headers, not environment variables:
 
@@ -152,6 +181,8 @@ The optional ChatGPT request identity integration reads these HTTP headers when 
 
 ## Production build and deployment
 
+**Workers (primary):** push or merge to `main` → Actions run tests, apply D1 migrations, deploy the Worker. Live URL: https://fpl-edge.elmolla10.workers.dev
+
 Verify a production artifact locally:
 
 ```bash
@@ -160,9 +191,9 @@ npm run build
 npm run start
 ```
 
-The current production site is deployed through OpenAI Sites, not through a standalone deploy script in `package.json`. To continue that deployment, open this source in a Sites-enabled workspace, keep `.openai/hosting.json` intact so the existing project identity is preserved, run the normal Sites preview/checkpoint flow, and verify the checkpoint before promoting it. The portable production validation command is `npm run build`; platform credentials and injected Cloudflare bindings belong in the deployment environment and are intentionally not stored in this archive.
+**Sites (secondary):** To continue the OpenAI Sites path, keep `.openai/hosting.json` intact and use the Sites preview/checkpoint flow. Portable validation remains `npm run build`. Platform credentials and Cloudflare bindings belong in the deployment environment.
 
-If you move the app to another Cloudflare account or hosting system, provision equivalent `ASSETS` and `IMAGES` bindings and add `DB` only if you activate the optional D1 layer.
+If you move the app to another Cloudflare account, provision equivalent `ASSETS`, `IMAGES`, and `DB` bindings.
 
 ## Important implementation notes
 
@@ -173,6 +204,7 @@ If you move the app to another Cloudflare account or hosting system, provision e
 - Keep `package-lock.json` committed and use `npm ci` for deterministic dependency installation.
 - Do not commit local `.env*` files, Wrangler state, or runtime caches.
 
-## Source preservation
+## Source preservation / session handoff
 
-All files from the source commit are present. The only documentation addition is this project README; the commit's original `README.md` is included byte-for-byte as `README.SITES.md`.
+- Original Sites starter README is preserved as `README.SITES.md`.
+- Session continuity for agents and humans: **`HANDOFF.md`** (process rules, architecture lessons, Sept 2026 ship log).
