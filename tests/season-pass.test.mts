@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  PAYMOB_HMAC_FIELDS,
   SEASON_FALLBACK_END_ISO,
   SEASON_FALLBACK_KEY,
   SEASON_PASS_PRICE_EGP,
@@ -14,8 +15,10 @@ import {
   formatSeasonPassPrice,
   grantSeasonAccessFromCallback,
   isSeasonPassActive,
+  paymobHmacMessageFromFields,
   paymobProcessedCallbackMessage,
   resolveSeasonWindow,
+  verifyPaymobProcessedHmac,
 } from "../app/lib/season-pass.ts";
 
 const NOW = new Date("2026-09-18T00:00:00.000Z");
@@ -267,6 +270,20 @@ test("signed Paymob failure, void, and refund do not grant a pass", async () => 
     assert.equal(repo.saves, 0, item.label);
     assert.equal(repo.paid, 0, item.label);
   }
+});
+
+test("Paymob HMAC message depends on the runtime sort, not the literal's declared order", async () => {
+  const shuffled = [...PAYMOB_HMAC_FIELDS].reverse();
+  assert.notDeepStrictEqual(shuffled, PAYMOB_HMAC_FIELDS, "the shuffled order must actually differ from the declared order for this test to mean anything");
+
+  const fromDeclaredOrder = paymobProcessedCallbackMessage(PAYMOB_SAMPLE);
+  const fromShuffledOrder = paymobHmacMessageFromFields(PAYMOB_SAMPLE, shuffled);
+  assert.equal(fromShuffledOrder, fromDeclaredOrder, "sorting a shuffled field list must produce the exact same message as the declared order");
+
+  const secret = "shuffle-proof-secret";
+  const hmacFromShuffledMessage = await hmac(secret, fromShuffledOrder);
+  const verifies = await verifyPaymobProcessedHmac(secret, hmacFromShuffledMessage, PAYMOB_SAMPLE);
+  assert.equal(verifies, true, "a signature computed from the shuffled-then-sorted message must still verify against the real transaction");
 });
 
 test("ui gates the full desk from the server session and does not offer a free unlock", () => {

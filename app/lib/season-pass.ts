@@ -100,10 +100,13 @@ export function normalizeCheckoutPhone(input: string): string | null {
 
 // Transaction Processed callback HMAC, as documented by Paymob:
 // https://developers.paymob.com/paymob-docs/developers/webhook-callbacks-and-hmac
-// Concatenate these fields in this order with no separator, then HMAC-SHA512, lowercase hex.
-// The hmac query parameter is compared to that digest. Fields not in this list (including
-// merchant_order_id) are not authenticated — correlate orders by order.id, which is.
-const PAYMOB_HMAC_FIELDS = [
+// The real rule is these fields sorted lexicographically, not a fixed declared sequence --
+// paymobHmacMessageFromFields below sorts this literal at runtime so the order is enforced by
+// an actual algorithm, not by this array coincidentally already being alphabetical. Concatenate
+// the sorted fields with no separator, then HMAC-SHA512, lowercase hex. The hmac query parameter
+// is compared to that digest. Fields not in this list (including merchant_order_id) are not
+// authenticated — correlate orders by order.id, which is.
+export const PAYMOB_HMAC_FIELDS = [
   "amount_cents",
   "created_at",
   "currency",
@@ -168,8 +171,15 @@ function paymobField(transaction: PaymobTransaction, path: (typeof PAYMOB_HMAC_F
   }
 }
 
+// Sorts whatever field order it's given before building the message -- exported so a test can
+// feed in a deliberately shuffled copy of PAYMOB_HMAC_FIELDS and prove the sort step, not the
+// literal's declared order, is what determines the result.
+export function paymobHmacMessageFromFields(transaction: PaymobTransaction, fields: readonly (typeof PAYMOB_HMAC_FIELDS)[number][]): string {
+  return [...fields].sort().map((path) => hmacField(paymobField(transaction, path))).join("");
+}
+
 export function paymobProcessedCallbackMessage(transaction: PaymobTransaction): string {
-  return PAYMOB_HMAC_FIELDS.map((path) => hmacField(paymobField(transaction, path))).join("");
+  return paymobHmacMessageFromFields(transaction, PAYMOB_HMAC_FIELDS);
 }
 
 async function hmacSha512Hex(secret: string, message: string): Promise<string> {
