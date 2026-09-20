@@ -194,3 +194,91 @@ test("isPlaceableTransfer: non-finite bank is treated as 0 so NaN cannot pass ev
   assert.equal(gate.placeable, false);
   if (!gate.placeable) assert.equal(gate.reason, "budget");
 });
+
+test("regression: risen DEF sale uses floor(half rises) so now+bank affordability cannot mark ACTIONABLE", () => {
+  // Thomas-like exact boundary with a risen seller: market 4.2 + bank 1.9 = 6.1 would "fit"
+  // Tarkowski at 6.1, but purchase was 4.0 → selling 4.1 → 4.1+1.9=6.0 < 6.1 → reject.
+  const initial = squad();
+  const outIdx = initial.findIndex(p => p.positionShort === "DEF");
+  const risen = makePlayer({
+    id: 173,
+    name: "ThomasRisen",
+    teamId: 15,
+    teamName: "Coventry",
+    teamShort: "COV",
+    positionId: 2,
+    position: "Defender",
+    positionShort: "DEF",
+    price: 4.2,
+    priceChangeSinceStart: 0.2,
+    epNext: 2,
+  });
+  initial[outIdx] = risen;
+  const tarkowski = makePlayer({
+    id: 229,
+    name: "Tarkowski",
+    teamId: 9,
+    teamName: "Everton",
+    teamShort: "EVE",
+    positionId: 2,
+    position: "Defender",
+    positionShort: "DEF",
+    price: 6.1,
+    epNext: 8,
+    form: 8,
+    pointsPerGame: 6,
+    priorExpectedGoals: 8,
+    priorExpectedAssists: 5,
+  });
+  const data = dataFor([...initial, tarkowski]);
+  const bank = 1.9;
+  // Manager picks omit sellingPrice (public FPL shape) — finance must still derive conservatively.
+  const manager = {
+    bank,
+    picks: initial.map((player, index) => ({
+      elementId: player.id,
+      position: index + 1,
+      multiplier: index < 11 ? 1 : 0,
+      isCaptain: index === 0,
+      isViceCaptain: index === 1,
+      sellingPrice: null,
+    })),
+  };
+  const finance = deriveSandboxFinancialContext(initial, data.rules.budget, manager as never);
+  assert.equal(finance.baselineBank, 1.9);
+  assert.equal(finance.baselineSellingPrices.get(risen.id), 4.1, "selling must be purchase + floor(rises/2), not now_cost");
+  assert.ok(risen.price + bank + 0.001 >= tarkowski.price, "sanity: market+bank would falsely afford");
+  assert.ok(finance.baselineSellingPrices.get(risen.id)! + bank + 0.001 < tarkowski.price, "true selling+bank must not afford");
+  const gate = isPlaceableTransfer(data, initial, risen, tarkowski, finance.baselineBank, finance.baselineSellingPrices);
+  assert.equal(gate.placeable, false);
+  if (!gate.placeable) assert.equal(gate.reason, "budget");
+  const rows = bestTransfers(data, initial, finance.baselineBank, 1, 80, finance.baselineSellingPrices);
+  assert.ok(
+    !rows.some(row => row.out.id === risen.id && row.incoming.id === tarkowski.id),
+    "risen-player market fallacy must not appear as ACTIONABLE / ranked",
+  );
+});
+
+test("regression: empty selling map still rejects risen seller via conservative fallback", () => {
+  const initial = squad();
+  const out = initial.find(p => p.positionShort === "MID")!;
+  out.price = 6.2;
+  out.priceChangeSinceStart = 0.2; // purchase 6.0 → sell 6.1
+  const expensive = makePlayer({
+    id: 77,
+    name: "Expensive",
+    teamId: 77,
+    teamName: "X FC",
+    teamShort: "XFC",
+    positionId: 3,
+    position: "Midfielder",
+    positionShort: "MID",
+    price: 7.2,
+    epNext: 10,
+  });
+  const data = dataFor([...initial, expensive]);
+  const bank = 1.0; // market 6.2+1.0=7.2 fits; true sell 6.1+1.0=7.1 fails
+  const gate = isPlaceableTransfer(data, initial, out, expensive, bank, new Map());
+  assert.equal(gate.placeable, false);
+  if (!gate.placeable) assert.equal(gate.reason, "budget");
+});

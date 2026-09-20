@@ -2,6 +2,15 @@ import { FplData, FplPlayer, ProjectionMetrics, futureEvents, isCompleteSquad, p
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "./anomalies";
 import { TRANSFER_ACTION_THRESHOLD, TransferQualityReason, TransferQualityStatus, evaluateTransferQuality, transferHitCost } from "./transfer-quality";
 import { plannedChipFor, readPlannedChips } from "./chip-portfolio";
+import { conservativeSellingFromSeasonChange } from "./fpl-selling-price";
+
+// When the selling-price map omits an owned player, never fall back to raw now_cost for
+// risen players — that overstates ITB (FPL keeps only floor(rises/2)). Season-start
+// purchase + official formula is the conservative public-data bound.
+function salePriceFallback(player: FplPlayer): number {
+  const derived = conservativeSellingFromSeasonChange(player.price, player.priceChangeSinceStart ?? 0);
+  return Number.isFinite(derived) && derived >= 0 ? Math.round(derived * 10) / 10 : player.price;
+}
 
 // Moved from CoachApp.tsx (Phase 1 of the Draft Lab result-mode work) so LiveDraftBuilder.tsx's
 // "Best available transfer right now" can call the real, already-battle-tested single-transfer
@@ -162,7 +171,8 @@ export function evaluateTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer,in
 // the Transfers page / Place / preview) so illegal or unaffordable suggestions never enter the list.
 // Club limit is checked against the rest of the squad (outgoing player already removed) -- same
 // discipline as LiveDraftBuilder.validateSwap -- and budget uses selling price + bank, not market
-// price of the player being sold.
+// price of the player being sold. Missing map entries use conservative FPL selling
+// (season-start purchase + floor(rises/2)), never raw now_cost for risen players.
 export type PlaceableTransferReason="owned"|"unavailable"|"position"|"club-limit"|"budget"|"squad-shape";
 export function isPlaceableTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer,incoming:FplPlayer,bank:number,sellingPrices=new Map<number,number>()):{placeable:true}|{placeable:false;reason:PlaceableTransferReason}{
   if(incoming.positionId!==out.positionId)return{placeable:false,reason:"position"};
@@ -172,7 +182,7 @@ export function isPlaceableTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer
   if(rest.filter(player=>player.teamId===incoming.teamId).length>=data.rules.teamLimit)return{placeable:false,reason:"club-limit"};
   // Non-finite bank must not silently pass every swap (NaN comparisons are always false).
   const safeBank=Number.isFinite(bank)?bank:0;
-  const saleValue=sellingPrices.get(out.id)??out.price;
+  const saleValue=sellingPrices.has(out.id)?sellingPrices.get(out.id)!:salePriceFallback(out);
   if(incoming.price>saleValue+safeBank+.001)return{placeable:false,reason:"budget"};
   const next=squad.map(player=>player.id===out.id?incoming:player);
   if(!isCompleteSquad(next,data))return{placeable:false,reason:"squad-shape"};

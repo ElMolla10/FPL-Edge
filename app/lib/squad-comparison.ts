@@ -1,5 +1,6 @@
 import { FplPlayer } from "./fpl";
 import { SquadEvaluation, SquadScores } from "./optimizer";
+import { conservativeSellingFromSeasonChange } from "./fpl-selling-price";
 import { TRANSFER_ACTION_THRESHOLD, transferHitCost } from "./transfer-quality";
 import { Transfer } from "./transfers";
 
@@ -64,15 +65,37 @@ export function sellingPricesFor(meta: ManagerMeta | null): Map<number, number> 
   return new Map((meta?.picks ?? []).flatMap(pick => pick.sellingPrice !== null && pick.sellingPrice !== undefined ? [[pick.elementId, pick.sellingPrice] as [number, number]] : []));
 }
 
+export function sellingPriceForPlayer(player: FplPlayer, officialSelling?: number | null): number {
+  // Prefer authenticated / derived official selling when present.
+  if (typeof officialSelling === "number" && Number.isFinite(officialSelling) && officialSelling >= 0) {
+    return money(officialSelling);
+  }
+  // Public picks omit selling_price. Using now_cost here overstates ITB after sale whenever the
+  // player has risen (FPL keeps only floor(rises/2)). Derive from season-start purchase instead.
+  const derived = conservativeSellingFromSeasonChange(player.price, player.priceChangeSinceStart ?? 0);
+  if (Number.isFinite(derived) && derived >= 0) return money(derived);
+  // Last resort: still do not invent proceeds above market; market is an upper bound, not a claim
+  // that the full now_cost is receivable. Callers with risen players should have fed official or
+  // transfer-derived prices — this path is for incomplete test fixtures / manual drafts only.
+  return money(player.price);
+}
+
 export function deriveSandboxFinancialContext(baselineSquad: FplPlayer[], budget: number, manager: ManagerMeta | null): SandboxFinancialContext {
-  // Per-player current-price selling map -- used as the baseline, then overwritten by any official
-  // selling prices we do have. Never abandon a known official bank just because picks are incomplete:
-  // falling back to (budget - market value) while the UI still shows the real ITB was the PR #37
-  // hole that let O'Nien→Tarkowski appear as "ACTIONABLE" with a low real bank.
-  const currentPriceSelling = () => new Map(baselineSquad.map(player => [player.id, player.price]));
+  // Never abandon a known official bank just because picks are incomplete: falling back to
+  // (budget - market value) while the UI still shows the real ITB was the PR #37 hole that let
+  // O'Nien→Tarkowski appear as "ACTIONABLE" with a low real bank.
+  //
+  // Selling defaults must NOT be raw now_cost. Public event picks omit selling_price; treating
+  // market price as sale proceeds overstates affordability for any risen player (purchase +
+  // floor(rises/2)). Prefer official selling on picks, else the FPL formula from season-start /
+  // transfer-derived purchase (filled by /api/fpl/team when possible).
+  const conservativeSelling = () => new Map(baselineSquad.map(player => {
+    const official = manager?.picks?.find(pick => pick.elementId === player.id)?.sellingPrice;
+    return [player.id, sellingPriceForPlayer(player, official)] as [number, number];
+  }));
   const currentPriceAssumption = (): SandboxFinancialContext => ({
     baselineBank: money(Math.max(0, budget - baselineSquad.reduce((sum, player) => sum + player.price, 0))),
-    baselineSellingPrices: currentPriceSelling(),
+    baselineSellingPrices: conservativeSelling(),
     source: "current-price-assumption",
   });
   const hasOfficialBank = typeof manager?.bank === "number" && Number.isFinite(manager.bank) && manager.bank >= 0;
@@ -85,10 +108,8 @@ export function deriveSandboxFinancialContext(baselineSquad: FplPlayer[], budget
   const officialSelling = sellingPricesFor(manager);
   const completePrices = picks.length === 15 && picks.every(pick => typeof pick.sellingPrice === "number" && Number.isFinite(pick.sellingPrice) && pick.sellingPrice >= 0);
 
-  // Start from current-price selling so every owned id has a value, then overlay official selling
-  // prices where FPL gave them. Affordability then uses real ITB + best available sale value.
-  const selling = currentPriceSelling();
-  for (const [id, price] of officialSelling) selling.set(id, price);
+  const selling = conservativeSelling();
+  for (const [id, price] of officialSelling) selling.set(id, money(price));
 
   if (exactSquad && completePrices) {
     return { baselineBank: money(manager!.bank!), baselineSellingPrices: selling, source: "official" };
@@ -99,7 +120,7 @@ export function deriveSandboxFinancialContext(baselineSquad: FplPlayer[], budget
 export function calculateSandboxFinances(context: SandboxFinancialContext, baselineSquad: FplPlayer[], proposedSquad: FplPlayer[]): SandboxFinances {
   const baselineIds = new Set(baselineSquad.map(player => player.id));
   const proposedIds = new Set(proposedSquad.map(player => player.id));
-  const sellingValue = money(baselineSquad.filter(player => !proposedIds.has(player.id)).reduce((sum, player) => sum + (context.baselineSellingPrices.get(player.id) ?? player.price), 0));
+  const sellingValue = money(baselineSquad.filter(player => !proposedIds.has(player.id)).reduce((sum, player) => sum + (context.baselineSellingPrices.get(player.id) ?? sellingPriceForPlayer(player)), 0));
   const buyingValue = money(proposedSquad.filter(player => !baselineIds.has(player.id)).reduce((sum, player) => sum + player.price, 0));
   const finalBank = money(context.baselineBank + sellingValue - buyingValue);
   return { sellingValue, buyingValue, finalBank, affordable: finalBank >= -.001 };

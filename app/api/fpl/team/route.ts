@@ -1,3 +1,8 @@
+import {
+  deriveSellingPricesMillions,
+  type FplTransferLeg,
+} from "../../../lib/fpl-selling-price";
+
 const FPL = "https://fantasy.premierleague.com/api";
 
 export async function GET(request: Request) {
@@ -5,52 +10,131 @@ export async function GET(request: Request) {
   if (!entry || !/^\d+$/.test(entry)) return Response.json({ error: "Enter a valid numeric FPL Team ID." }, { status: 400 });
   try {
     const headers = { Accept: "application/json", "User-Agent": "FPL-Edge/1.0" };
-    const [managerResponse, bootstrapResponse] = await Promise.all([
+    const [managerResponse, bootstrapResponse, transfersResponse] = await Promise.all([
       fetch(`${FPL}/entry/${entry}/`, { headers, next: { revalidate: 300 } }),
       fetch(`${FPL}/bootstrap-static/`, { headers, next: { revalidate: 300 } }),
+      fetch(`${FPL}/entry/${entry}/transfers/`, { headers, next: { revalidate: 300 } }),
     ]);
     if (!managerResponse.ok || !bootstrapResponse.ok) throw new Error("That FPL Team ID was not found.");
     const [manager, bootstrap] = await Promise.all([managerResponse.json(), bootstrapResponse.json()]);
-    const candidateEvents = bootstrap.events.filter((event: any) => event.finished || event.is_current || (event.is_next && Date.parse(event.deadline_time) <= Date.now())).sort((a: any,b: any)=>b.id-a.id);
+    const transfersJson = transfersResponse.ok ? await transfersResponse.json() : [];
+    const transfers: FplTransferLeg[] = Array.isArray(transfersJson)
+      ? transfersJson.map((row: Record<string, unknown>) => ({
+          element_in: Number(row.element_in),
+          element_in_cost: Number(row.element_in_cost),
+          element_out: Number(row.element_out),
+          element_out_cost: Number(row.element_out_cost),
+          event: Number(row.event) || undefined,
+          time: typeof row.time === "string" ? row.time : undefined,
+        }))
+      : [];
+
+    const elements: { id: number; now_cost: number; cost_change_start: number }[] = bootstrap.elements ?? [];
+    const nowCostTenthsById = new Map(elements.map((el) => [el.id, Number(el.now_cost)]));
+    const costChangeStartTenthsById = new Map(elements.map((el) => [el.id, Number(el.cost_change_start)]));
+
+    // Prefer entry_history.bank (per-event) over last_deadline_bank on the entry summary — they
+    // usually match after the deadline, but history is what the GW picks payload already exposes.
+    const entryBankTenths = Number(manager.last_deadline_bank);
+
+    const candidateEvents = bootstrap.events
+      .filter(
+        (event: { finished: boolean; is_current: boolean; is_next: boolean; deadline_time: string }) =>
+          event.finished || event.is_current || (event.is_next && Date.parse(event.deadline_time) <= Date.now()),
+      )
+      .sort((a: { id: number }, b: { id: number }) => b.id - a.id);
+
     for (const event of candidateEvents) {
-      const picksResponse = await fetch(`${FPL}/entry/${entry}/event/${event.id}/picks/`, { headers, next: { revalidate: 300 } });
+      const picksResponse = await fetch(`${FPL}/entry/${entry}/event/${event.id}/picks/`, {
+        headers,
+        next: { revalidate: 300 },
+      });
       if (!picksResponse.ok) continue;
       const picks = await picksResponse.json();
       const history = picks.entry_history || {};
-      const captain = picks.picks.find((pick: any) => pick.is_captain);
-      const viceCaptain = picks.picks.find((pick: any) => pick.is_vice_captain);
-      return Response.json({
-        manager: {
-          id: Number(entry),
-          name: `${manager.player_first_name} ${manager.player_last_name}`.trim(),
-          teamName: manager.name,
-          overallPoints: Number(manager.summary_overall_points) || 0,
-          overallRank: Number(manager.summary_overall_rank) || 0,
-          gameweekPoints: Number(history.points) || 0,
-          gameweekRank: Number(history.rank) || 0,
-          squadValue: Number(history.value) ? Number(history.value) / 10 : null,
-          bank: Number.isFinite(Number(history.bank)) ? Number(history.bank) / 10 : null,
-          transfersMade: Number(history.event_transfers) || 0,
-          transferCost: Number(history.event_transfers_cost) || 0,
-          captainId: captain?.element || null,
-          viceCaptainId: viceCaptain?.element || null,
-          chip: picks.active_chip || null,
+      const captain = picks.picks.find((pick: { is_captain: boolean }) => pick.is_captain);
+      const viceCaptain = picks.picks.find((pick: { is_vice_captain: boolean }) => pick.is_vice_captain);
+
+      const ownedIds: number[] = picks.picks.map((pick: { element: number }) => Number(pick.element));
+      const officialFromPicks = new Map<number, number>();
+      for (const pick of picks.picks) {
+        // Public event picks omit selling_price; authenticated my-team includes it. Coerce only when present.
+        if (Number.isFinite(Number(pick.selling_price))) {
+          officialFromPicks.set(Number(pick.element), Number(pick.selling_price) / 10);
+        }
+      }
+
+      const derivedSelling = deriveSellingPricesMillions({
+        ownedElementIds: ownedIds,
+        nowCostTenthsById: nowCostTenthsById,
+        costChangeStartTenthsById: costChangeStartTenthsById,
+        transfers,
+        officialSellingMillionsById: officialFromPicks,
+      });
+
+      const historyBank = Number(history.bank);
+      const bankFromHistory = Number.isFinite(historyBank) ? historyBank / 10 : null;
+      const bankFromEntry = Number.isFinite(entryBankTenths) ? entryBankTenths / 10 : null;
+      // Prefer the event picks history bank; fall back to entry last_deadline_bank when history is missing.
+      const bank = bankFromHistory ?? bankFromEntry;
+
+      return Response.json(
+        {
+          manager: {
+            id: Number(entry),
+            name: `${manager.player_first_name} ${manager.player_last_name}`.trim(),
+            teamName: manager.name,
+            overallPoints: Number(manager.summary_overall_points) || 0,
+            overallRank: Number(manager.summary_overall_rank) || 0,
+            gameweekPoints: Number(history.points) || 0,
+            gameweekRank: Number(history.rank) || 0,
+            squadValue: Number(history.value) ? Number(history.value) / 10 : null,
+            bank,
+            transfersMade: Number(history.event_transfers) || 0,
+            transferCost: Number(history.event_transfers_cost) || 0,
+            captainId: captain?.element || null,
+            viceCaptainId: viceCaptain?.element || null,
+            chip: picks.active_chip || null,
+            event: event.id,
+            picks: picks.picks.map((pick: Record<string, unknown>) => {
+              const elementId = Number(pick.element);
+              const fromOfficial = Number.isFinite(Number(pick.selling_price))
+                ? Number(pick.selling_price) / 10
+                : null;
+              const derived = derivedSelling.get(elementId);
+              const sellingPrice =
+                fromOfficial !== null
+                  ? fromOfficial
+                  : typeof derived === "number" && Number.isFinite(derived)
+                    ? derived
+                    : null;
+              return {
+                elementId,
+                position: Number(pick.position),
+                multiplier: Number(pick.multiplier),
+                isCaptain: Boolean(pick.is_captain),
+                isViceCaptain: Boolean(pick.is_vice_captain),
+                sellingPrice,
+              };
+            }),
+          },
           event: event.id,
-          picks: picks.picks.map((pick: any) => ({
-            elementId: Number(pick.element),
-            position: Number(pick.position),
-            multiplier: Number(pick.multiplier),
-            isCaptain: Boolean(pick.is_captain),
-            isViceCaptain: Boolean(pick.is_vice_captain),
-            sellingPrice: Number.isFinite(Number(pick.selling_price)) ? Number(pick.selling_price) / 10 : null,
-          })),
+          playerIds: picks.picks.map((pick: { element: number }) => pick.element),
         },
-        event: event.id,
-        playerIds: picks.picks.map((pick: any) => pick.element),
-      }, { headers: { "Cache-Control": "private, max-age=300" } });
+        { headers: { "Cache-Control": "private, max-age=300" } },
+      );
     }
-    return Response.json({ error: "FPL only makes a manager's current squad public after the first deadline. Until then, build it manually and save it here." }, { status: 409 });
+    return Response.json(
+      {
+        error:
+          "FPL only makes a manager's current squad public after the first deadline. Until then, build it manually and save it here.",
+      },
+      { status: 409 },
+    );
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not import that FPL team." }, { status: 502, headers: { "Cache-Control": "no-store" } });
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Could not import that FPL team." },
+      { status: 502, headers: { "Cache-Control": "no-store" } },
+    );
   }
 }
