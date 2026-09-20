@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import CoachApp from "./components/CoachApp";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Wordmark } from "./components/Wordmark";
 import { formatSeasonPassPrice } from "./lib/season-pass";
 import { fetchFplData, futureEvents, playerProjection } from "./lib/fpl";
 import type { FplData, FplPlayer } from "./lib/fpl";
+
+// Lazy: CoachApp pulls in the entire connected-app tree (LiveDraftBuilder, LiveIntelligence, the
+// optimizer). A static import here bundled all of that into this marketing page's own chunk, so
+// every visitor downloaded it even if appMode never becomes true. Loaded only once someone
+// actually enters the app.
+const CoachApp = lazy(() => import("./components/CoachApp"));
 
 type ExampleDesk = {
   name: string;
@@ -99,7 +104,7 @@ export default function Home() {
     if (!data) return null;
     try { return exampleDesk(data); } catch { return null; }
   }, [data]);
-  if (appMode) return <CoachApp onBack={() => setAppMode(null)} startAuth={appMode === "signin"} />;
+  if (appMode) return <Suspense fallback={null}><CoachApp onBack={() => setAppMode(null)} startAuth={appMode === "signin"} /></Suspense>;
 
   const clock = desk ? countdown(desk.deadline, now) : "";
   const openDesk = () => setAppMode("demo");
