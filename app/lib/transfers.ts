@@ -158,6 +158,25 @@ export function evaluateTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer,in
   return buildTransferRow(data,squad,baseline,out,om,outByEvent,incoming);
 }
 
+// Official FPL placement rules for a single out→in swap. Shared by bestTransfers (ranking source for
+// the Transfers page / Place / preview) so illegal or unaffordable suggestions never enter the list.
+// Club limit is checked against the rest of the squad (outgoing player already removed) -- same
+// discipline as LiveDraftBuilder.validateSwap -- and budget uses selling price + bank, not market
+// price of the player being sold.
+export type PlaceableTransferReason="owned"|"unavailable"|"position"|"club-limit"|"budget"|"squad-shape";
+export function isPlaceableTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer,incoming:FplPlayer,bank:number,sellingPrices=new Map<number,number>()):{placeable:true}|{placeable:false;reason:PlaceableTransferReason}{
+  if(incoming.positionId!==out.positionId)return{placeable:false,reason:"position"};
+  if(squad.some(player=>player.id===incoming.id))return{placeable:false,reason:"owned"};
+  if(incoming.status==="u")return{placeable:false,reason:"unavailable"};
+  const rest=squad.filter(player=>player.id!==out.id);
+  if(rest.filter(player=>player.teamId===incoming.teamId).length>=data.rules.teamLimit)return{placeable:false,reason:"club-limit"};
+  const saleValue=sellingPrices.get(out.id)??out.price;
+  if(incoming.price>saleValue+bank+.001)return{placeable:false,reason:"budget"};
+  const next=squad.map(player=>player.id===out.id?incoming:player);
+  if(!isCompleteSquad(next,data))return{placeable:false,reason:"squad-shape"};
+  return{placeable:true};
+}
+
 export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTransfers=1,limit=12,sellingPrices=new Map<number,number>()):Transfer[]{
   // isCompleteSquad, not the stricter isValidSquad -- squad here is the caller's real/saved squad
   // (never a candidate this function is constructing), and a real manager's squad can legitimately
@@ -165,16 +184,12 @@ export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTra
   if(!isCompleteSquad(squad,data))return[];
   const baseline=buildTransferBaseline(data,squad,freeTransfers);
   if(!baseline)return[];
-  const owned=new Set(squad.map(p=>p.id));
-  const clubCount=new Map<number,number>();squad.forEach(p=>clubCount.set(p.teamId,(clubCount.get(p.teamId)||0)+1));
   const rows:Transfer[]=[];
   for(const out of squad){
     const om=projectionMetrics(out,baseline.first,data.fixtures,baseline.first);
     const outByEvent=baseline.events.map(e=>baseline.projected(out,e.id));
     for(const incoming of data.players){
-      const saleValue=sellingPrices.get(out.id)??out.price;
-      if(owned.has(incoming.id)||incoming.positionId!==out.positionId||incoming.status==="u"||incoming.price>saleValue+bank+.001)continue;
-      if(incoming.teamId!==out.teamId&&(clubCount.get(incoming.teamId)||0)>=3)continue;
+      if(!isPlaceableTransfer(data,squad,out,incoming,bank,sellingPrices).placeable)continue;
       rows.push(buildTransferRow(data,squad,baseline,out,om,outByEvent,incoming));
     }
   }
