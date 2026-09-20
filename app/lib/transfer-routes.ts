@@ -1,6 +1,15 @@
 import { FplData, FplPlayer, ROLE_SECURITY_FLOOR, bestXi, futureEvents, playerProjection, projectionMetrics } from "./fpl";
 import { transferHitCost } from "./transfer-quality";
 import { PlannedChip, plannedChipFor } from "./chip-portfolio";
+import { conservativeSellingFromSeasonChange } from "./fpl-selling-price";
+
+// When the selling-price map omits an owned player, never fall back to raw now_cost for
+// risen players — that overstates ITB (FPL keeps only floor(rises/2)). Season-start
+// purchase + official formula is the conservative public-data bound.
+function salePriceFallback(player: FplPlayer): number {
+  const derived = conservativeSellingFromSeasonChange(player.price, player.priceChangeSinceStart ?? 0);
+  return Number.isFinite(derived) && derived >= 0 ? Math.round(derived * 10) / 10 : player.price;
+}
 
 export type RouteTransfer={
   out:FplPlayer;
@@ -133,14 +142,14 @@ export function solveTransferRoutes(data:FplData,initialSquad:FplPlayer[],initia
     return[rule.id,players] as const;
   })));
 
-  const initialSelling=new Map(initialSquad.map(player=>[player.id,options.sellingPrices?.get(player.id)??player.price]));
+  const initialSelling=new Map(initialSquad.map(player=>[player.id,options.sellingPrices?.has(player.id)?options.sellingPrices.get(player.id)!:salePriceFallback(player)]));
   let beam:RouteState[]=[{squad:[...initialSquad],bank:money(initialBank),freeTransfers,sellingPrices:initialSelling,weeks:[],projectedPoints:0,hitCost:0,incomingEvidence:[]}];
 
   const apply=(state:RouteState,proposals:SwapProposal[],index:number):RouteState|null=>{
     const outIds=new Set(proposals.map(proposal=>proposal.out.id)),incomingIds=new Set(proposals.map(proposal=>proposal.incoming.id));
     if(outIds.size!==proposals.length||incomingIds.size!==proposals.length)return null;
     if(proposals.some(proposal=>state.squad.some(player=>player.id===proposal.incoming.id)))return null;
-    const selling=proposals.reduce((sum,proposal)=>sum+(state.sellingPrices.get(proposal.out.id)??proposal.out.price),0);
+    const selling=proposals.reduce((sum,proposal)=>sum+(state.sellingPrices.has(proposal.out.id)?state.sellingPrices.get(proposal.out.id)!:salePriceFallback(proposal.out)),0);
     const buying=proposals.reduce((sum,proposal)=>sum+proposal.incoming.price,0);
     const bankAfter=money(state.bank+selling-buying);
     if(bankAfter<-.001)return null;
@@ -154,7 +163,7 @@ export function solveTransferRoutes(data:FplData,initialSquad:FplPlayer[],initia
     const nextFreeTransfers=Math.min(5,Math.max(0,state.freeTransfers-transferCount)+1);
     const sellingPrices=new Map(state.sellingPrices);
     const transfers=proposals.map(proposal=>{
-      const sellingPrice=state.sellingPrices.get(proposal.out.id)??proposal.out.price;
+      const sellingPrice=state.sellingPrices.has(proposal.out.id)?state.sellingPrices.get(proposal.out.id)!:salePriceFallback(proposal.out);
       sellingPrices.delete(proposal.out.id);sellingPrices.set(proposal.incoming.id,proposal.incoming.price);
       return{out:proposal.out,incoming:proposal.incoming,sellingPrice,buyingPrice:proposal.incoming.price,bankChange:money(sellingPrice-proposal.incoming.price),horizonGain:proposal.horizonGain};
     });
@@ -178,7 +187,7 @@ export function solveTransferRoutes(data:FplData,initialSquad:FplPlayer[],initia
       const shortlist=proposals.slice(0,20);
       const actions:SwapProposal[][]=[[]];
       for(const proposal of shortlist){
-        const sale=state.sellingPrices.get(proposal.out.id)??proposal.out.price;
+        const sale=state.sellingPrices.has(proposal.out.id)?state.sellingPrices.get(proposal.out.id)!:salePriceFallback(proposal.out);
         if(proposal.incoming.price<=state.bank+sale+.001)actions.push([proposal]);
       }
       for(let left=0;left<shortlist.length;left++)for(let right=left+1;right<shortlist.length;right++){
