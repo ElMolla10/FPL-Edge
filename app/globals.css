@@ -998,6 +998,10 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   --phone-main-pad-bottom:calc(var(--phone-tab-h) + 120px); /* team-bar room + last cards */
 }
 @media(max-width:850px){
+  /* keep apply-TC chip hidden on phone (smoke + UX) — must live in last 850px block */
+  .builder-pitch-row article .apply-chip-button{display:none}
+  .builder-pitch-row article .remove-player{top:1px;right:1px;width:14px;height:14px;font-size:12px;line-height:14px}
+  .builder-pitch-row article .tc-mark{left:1px;top:1px;height:11px;min-width:14px;padding:0 2px;font-size:6px;line-height:11px}
   html{scroll-padding-bottom:var(--phone-tab-h)}
   .coach-main{
     padding-bottom:calc(var(--phone-main-pad-bottom) + max(0px,env(safe-area-inset-bottom,0px))) !important;
