@@ -857,3 +857,94 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .phone-squad-nav>button{border:0;background:transparent;min-height:40px;border-radius:8px;font-size:12px;font-weight:800;color:var(--text-muted)}
   .phone-squad-nav>button.active{background:var(--surface-inverse);color:var(--text-on-inverse)}
 }
+
+/* ─── Phase 3 density: fixtures · tables · Research disclosure · lime leftovers ─── */
+/* Fixtures rows denser (ticker + board + public list) */
+.fixture-ticker>header,.fixture-ticker>article{gap:4px;padding:5px 8px}
+.fixture-ticker>header{font-size:7px}
+.fixture-ticker>header button{padding:3px 5px;font-size:7px}
+.fixture-ticker article>div b{font-size:10px}
+.fixture-ticker article>div b small{font-size:7px}
+.fixture-ticker article>div span{font-size:7px}
+.fixture-ticker article>span{padding:5px 3px}
+.fixture-ticker article>span b{font-size:8px}
+.fixture-ticker article>span small{font-size:7px;margin-top:2px}
+.fixture-summary{padding:16px 18px}
+.fixture-summary h2{font-size:20px;margin:4px 0}
+.fixture-summary p{font-size:11px;margin:4px 0 0;line-height:1.45}
+.fixture-summary button,.news-tabs button{padding:7px 10px;font-size:9px}
+.schedule-ranks{gap:7px}
+.schedule-ranks>article{padding:12px}
+.schedule-ranks article p{margin:7px 0 0}
+.schedule-ranks i{width:18px;height:18px;font-size:8px}
+.schedule-ranks b{font-size:10px}
+.public-fixtures{gap:5px}
+.public-fixtures article{padding:8px 10px;border-radius:6px}
+.public-fixtures time{font-size:11px}
+.fixture-board>header>span{padding:8px 4px}
+.fixture-team-row{padding:0 8px}
+.fixture-team-row>b{padding:6px 4px;font-size:9px}
+.fixture-team-row>b small{font-size:6px}
+.fixture-team-row>strong{font-size:9px}
+.fixture-cell{padding:3px 1px;gap:2px}
+.fixture-cell>span{min-height:28px;padding:4px 2px;font-size:7px}
+.fixture-cell small{font-size:5px;margin-top:1px}
+.team-quality-grid article{padding:7px 12px;gap:8px}
+.team-quality-grid b{font-size:11px}
+.team-quality-grid p strong{font-size:12px}
+.team-quality-panel>header{padding:18px}
+.team-quality-panel>header h2{font-size:24px;margin:4px 0}
+.team-quality-panel>header p{font-size:11px;line-height:1.45}
+.event-block{padding:10px 0}
+.event-block>div article{padding:8px 10px}
+
+/* Players / research table denser */
+.research-intro{padding:16px 18px}
+.research-intro h2{font-size:22px;margin:4px 0}
+.research-intro p{font-size:11px;line-height:1.45}
+.research-intro>strong{font-size:28px}
+.research-filters{padding:8px;gap:5px}
+.research-filters input,.research-filters select,.research-filters>button{padding:7px 8px;font-size:10px}
+.research-filters label{padding:5px 7px;font-size:8px}
+.filter-toggle{min-height:32px;margin:0 0 8px;padding:0 12px;font-size:12px}
+.research-table>header,.research-table>article{padding:7px 10px;gap:6px}
+.research-table>header{font-size:10px;font-weight:800;letter-spacing:.02em}
+.research-table>article{font-size:11px}
+.research-table article>b{font-size:11px}
+.research-table article>b small{font-size:8px}
+.research-table article>div{gap:3px}
+.research-table article>div button{padding:4px 6px;font-size:8px}
+.research-table.sticky-head{max-height:min(74vh,760px)}
+.team-list header,.team-list>button{padding:8px 10px}
+.team-list>button{font-size:11px}
+.ranked-moves>header,.ranked-moves>article{padding:8px 10px}
+
+/* Research · PRO disclosure polish (desktop sidebar) */
+.sidebar-menus{gap:2px;margin-top:6px}
+.sidebar-menus>button{padding:8px 10px;font-size:12px;border-radius:7px}
+.sidebar-menus>button.open{background:#11261c;box-shadow:inset 0 0 0 1px rgba(185,244,59,.18)}
+.sidebar-menus>button.active{box-shadow:inset 3px 0 var(--lime)}
+.sidebar-drop{margin:1px 0 4px 8px;padding:2px;border-left:1px solid rgba(255,255,255,.1);gap:0}
+.sidebar-drop button{padding:6px 8px;font-size:12px;border-radius:5px;min-height:32px}
+.sidebar-drop button.active{background:#173026;color:#fff;box-shadow:inset 2px 0 var(--lime)}
+.sidebar-drop button.active>i{color:var(--lime)}
+.sidebar-pro{margin-top:10px}
+.sidebar-pro-btn{padding:8px 10px;font-size:12px;border-radius:7px;border-color:rgba(255,255,255,.22);background:#102119;color:var(--text-muted-on-inverse)}
+.sidebar-pro-btn.open,.sidebar-pro-btn.active{border-color:rgba(185,244,59,.35);color:#fff;background:#13261c}
+.sidebar-pro-btn.active{box-shadow:inset 3px 0 var(--lime)}
+.sidebar-pro-btn .nav-lock,.sidebar-pro-btn .nav-lock:before{border-color:rgba(255,255,255,.35)}
+.nav-caret{opacity:.7;transition:transform .15s ease}
+.sidebar-menus>button.open .nav-caret,.sidebar-pro-btn.open .nav-caret{opacity:1}
+
+/* Lime discipline leftovers (shell chrome): lime = primary decision + active nav + live/fresh dot */
+.deadline-chip{border-left-color:rgba(255,255,255,.28)}
+.deadline-chip b{color:var(--text-on-inverse)}
+.call-label span{color:var(--text-muted-on-inverse)}
+.team-quality-panel>header span{color:var(--text-muted-on-inverse)}
+.coach-data-note .fresh-dot.fresh,.fresh-dot.fresh{background:var(--lime);box-shadow:0 0 0 4px rgba(185,244,59,.14)}
+.mobile-more i{color:var(--text-muted-on-inverse)}
+.mobile-more-group>span{color:var(--text-muted-on-inverse)}
+.compare-drawer>header span,.compare-drawer>footer span{color:var(--text-muted-on-inverse)}
+.captain-compare>header span{color:var(--text-muted-on-inverse)}
+.captaincy-picker span{color:var(--text-muted)}
+.personal-transfer-place>span{color:var(--text-muted-on-inverse)}
