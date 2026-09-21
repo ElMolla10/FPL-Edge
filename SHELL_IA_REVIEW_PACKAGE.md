@@ -79,6 +79,14 @@ Draft PRs are for review + preview only. No prod deploy from this package.
 
 ## Links (draft)
 
-- Feasibility: `SHELL_IA_FEASIBILITY.md`  
-- #62–#69: see GitHub PR list on `ElMolla10/FPL-Edge`  
-- Tip branch with this doc: `density/signed-in-chrome`
+- Feasibility: `SHELL_IA_FEASIBILITY.md` (local / workspace; not required on tip)  
+- Tip branch with this doc: `density/signed-in-chrome`  
+- Draft PRs:
+  - https://github.com/ElMolla10/FPL-Edge/pull/62
+  - https://github.com/ElMolla10/FPL-Edge/pull/63
+  - https://github.com/ElMolla10/FPL-Edge/pull/64
+  - https://github.com/ElMolla10/FPL-Edge/pull/65
+  - https://github.com/ElMolla10/FPL-Edge/pull/66
+  - https://github.com/ElMolla10/FPL-Edge/pull/67
+  - https://github.com/ElMolla10/FPL-Edge/pull/68 — Phase 3 density
+  - https://github.com/ElMolla10/FPL-Edge/pull/69 — Phase 3 signed-in chrome + this doc
