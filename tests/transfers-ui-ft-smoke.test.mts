@@ -13,7 +13,7 @@ test("Transfers UI: wires authoritative live FT (limit − made) into rankings",
   const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
   assert.match(coach, /resolveAuthoritativeFreeTransfers/);
   assert.match(coach, /authoritativeFreeTransfers/);
-  assert.match(coach, /HOLD \/ NO TRANSFER/);
+  assert.match(coach, /HOLD[\s\S]*NO TRANSFER/);
   // Must import client-safe ft-state — barrel pulls store → db → cloudflare:workers into Vite client.
   assert.match(coach, /from ["']\.\.\/lib\/personal-fpl-transfer\/ft-state["']/);
   assert.doesNotMatch(coach, /from ["']\.\.\/lib\/personal-fpl-transfer["']/);

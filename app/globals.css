@@ -853,6 +853,11 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .sheet-hint{font-size:11px;font-weight:650;color:var(--text-muted-on-inverse);opacity:.85}
 .mobile-sheet-list>button.sheet-active{outline:1px solid var(--lime);background:#173026}
 @media(max-width:850px){
+  /* keep apply-TC chip hidden on phone pitch (smoke + UX) */
+  .builder-pitch-row article .apply-chip-button{display:none}
+  .builder-pitch-row article .remove-player{top:1px;right:1px;width:14px;height:14px;font-size:12px;line-height:14px}
+  .builder-pitch-row article .tc-mark{left:1px;top:1px;height:11px;min-width:14px;padding:0 2px;font-size:6px;line-height:11px}
+
   .phone-squad-nav{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 0 12px;padding:6px;background:var(--surface-card);border:1px solid var(--line);border-radius:10px}
   .phone-squad-nav>button{border:0;background:transparent;min-height:40px;border-radius:8px;font-size:12px;font-weight:800;color:var(--text-muted)}
   .phone-squad-nav>button.active{background:var(--surface-inverse);color:var(--text-on-inverse)}
