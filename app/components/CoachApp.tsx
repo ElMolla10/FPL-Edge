@@ -42,7 +42,8 @@ import { SeasonLocked } from "./SeasonPass";
 import { formatSeasonPassPrice } from "../lib/season-pass";
 
 // View name map (Kevin IA lock): Home=overview, My Squad=team, Final check=deadline,
-// Players=players, Coach=coach. Transfers stays desktop-primary; phone nest is a later PR.
+// Players=players, Coach=coach. Desktop primary includes Transfers + Final check; phone nests
+// Transfers under My Squad (see ia/phone-squad-transfers).
 type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures";
 type Desk="unknown"|"visitor"|"free"|"season";
 // Signed-in users without an active season pass see these views as the full desk, not the free move.
@@ -63,9 +64,10 @@ type NavGroup=Readonly<{label:string|null;items:readonly(readonly[View,string,st
 const navGroups:readonly NavGroup[]=[
   {label:null,items:[["overview","Overview","⌂"]]},
   {label:null,items:[["coach","Coach","♟"]]},
-  {label:"My Squad",items:[["team","My team","◫"],["deadline","Final check","✓"],["squad-fixtures","My Fixtures","▤"],["news","News","●"]]},
+  // Desktop primary owns deadline/Final check; My Fixtures lives under Research disclosure.
+  {label:"My Squad",items:[["team","My team","◫"],["news","News","●"]]},
   {label:"Plan",items:[["transfers","Transfers","⇄"],["draft","Draft lab","◇"],["board","Strategy board","⊞"],["chips","Chips","★"]]},
-  {label:"Research",items:[["players","Players","⌕"],["ownership","Ownership","◈"],["model","Points model","∑"],["fixtures","Fixtures","▦"]]},
+  {label:"Research",items:[["players","Players","⌕"],["squad-fixtures","My Fixtures","▤"],["ownership","Ownership","◈"],["model","Points model","∑"],["fixtures","Fixtures","▦"]]},
   {label:"League & History",items:[["league","Mini-League","◎"],["history","History","↗"]]},
 ];
 const fmt=(n:number|null|undefined)=>n?Math.round(n).toLocaleString():"—";
@@ -80,10 +82,13 @@ const certainty=(p:FplPlayer)=>p.status!=="a"?"CONFIRMED":projectionMetrics(p,0,
 
 export{opponent}from"../lib/fpl";
 
+// Desktop primary (Kevin IA): Overview · Squad · Transfers · Final check · Players · Coach.
+// Research · PRO remain disclosures only — no new PRO features.
 const PRIMARY_NAV = [
   ["overview","Overview","⌂"],
   ["team","Squad","◫"],
   ["transfers","Transfers","⇄"],
+  ["deadline","Final check","✓"],
   ["players","Players","⌕"],
   ["coach","Coach","♟"],
 ] as const;
@@ -147,22 +152,24 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   useEffect(()=>{if(!data||(desk!=="free"&&desk!=="season"))return;let cancelled=false;refreshConnectedTeamFromApi(data,{force:true}).then(live=>{if(!cancelled&&live.updated)setRevision(x=>x+1)});return()=>{cancelled=true}},[data,desk]);
   const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(null);window.scrollTo({top:0,behavior:"smooth"})};
   const fresh=data?freshness(data.updatedAt):null;
-  const mySquadGroup=navGroups.find(g=>g.label==="My Squad")!;
   const allNav=navGroups.flatMap(g=>[...g.items]);
   const proItems=(["draft","board","chips","news","history"] as const).map(key=>allNav.find(([id])=>id===key)!);
+  // Research disclosure: everything under Research/League except Players (already primary) and PRO locks.
   const researchRest=navGroups.filter(g=>g.label==="Research"||g.label==="League & History").flatMap(g=>[...g.items]).filter(([key])=>key!=="players"&&!PRO_VIEWS.has(key));
-  const squadRest=mySquadGroup.items.filter(([key])=>key!=="team"&&!PRO_VIEWS.has(key));
-  const sideNav=[...PRIMARY_NAV.slice(0,2),...squadRest,...PRIMARY_NAV.slice(2)];
+  // Desktop primary is exactly PRIMARY_NAV — no injected squadRest duplicates (Final check already primary).
+  const sideNav=PRIMARY_NAV;
   const toggleMobileOverlay=(label:string)=>setMobileOverlay(current=>current===label?null:label);
   const teamAuth=desk==="unknown"?"loading":desk==="visitor"?"out":"in";
   // Phone 5-tab destinations are partitioned (no overlap) so content-based active states
   // never light two sheet tabs for the same view. Intentional dual-active: when a sheet is
   // open, that sheet's tab stays active AND the underlying content tab may also stay active
   // (sheet affordance + current page). Wrong dual-active (e.g. News lighting My Squad+PRO)
-  // is avoided by this partition. Deep Transfers-under-Squad segments = Phase 2.
+  // is avoided by this partition. Final check stays in More (not a 6th tab). My Fixtures stays
+  // under My Squad on phone even though desktop Research owns the disclosure entry.
   const phoneSquadViews=new Set<View>(["team","transfers","squad-fixtures"]);
   const phoneProViews=new Set<View>(proItems.map(([key])=>key));
-  const phoneMoreViews=new Set<View>(["deadline","players",...researchRest.map(([key])=>key)]);
+  const phoneMoreResearch=researchRest.filter(([key])=>key!=="squad-fixtures");
+  const phoneMoreViews=new Set<View>(["deadline","players",...phoneMoreResearch.map(([key])=>key)]);
   const phoneSquadActive=mobileOverlay==="My Squad"||phoneSquadViews.has(view);
   const phoneProActive=mobileOverlay==="PRO"||phoneProViews.has(view);
   const phoneMoreActive=mobileOverlay==="More"||phoneMoreViews.has(view);
@@ -178,7 +185,7 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
     {mobileOverlay&&<MobileSheet title={mobileOverlay} onClose={()=>setMobileOverlay(null)}>
       {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}
       {mobileOverlay==="PRO"&&proItems.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}
-      {mobileOverlay==="More"&&<><button type="button" onClick={()=>go("deadline")}><span>Final check</span></button><button type="button" onClick={()=>go("players")}><span>Players</span></button>{researchRest.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}{(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
+      {mobileOverlay==="More"&&<><button type="button" onClick={()=>go("deadline")}><span>Final check</span></button><button type="button" onClick={()=>go("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}{(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
     </MobileSheet>}
   </main></TeamLinkAuthProvider>
 }
