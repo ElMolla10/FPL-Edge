@@ -834,3 +834,14 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .risk-drivers>p,.future-paths li{font-size:11px;line-height:1.45;margin:4px 0;color:var(--text-muted)}
 .future-paths ol{margin:0;padding-left:18px}
 .ranked-moves em.quality-badge.engine-badge.hold{background:var(--surface-sunken);color:var(--text-muted)}
+
+
+/* Phase 2 phone: Transfers nested under My Squad (not a 6th tab). Hidden on desktop. */
+.phone-squad-nav{display:none}
+.sheet-hint{font-size:11px;font-weight:650;color:var(--text-muted-on-inverse);opacity:.85}
+.mobile-sheet-list>button.sheet-active{outline:1px solid var(--lime);background:#173026}
+@media(max-width:850px){
+  .phone-squad-nav{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 0 12px;padding:6px;background:var(--surface-card);border:1px solid var(--line);border-radius:10px}
+  .phone-squad-nav>button{border:0;background:transparent;min-height:40px;border-radius:8px;font-size:12px;font-weight:800;color:var(--text-muted)}
+  .phone-squad-nav>button.active{background:var(--surface-inverse);color:var(--text-on-inverse)}
+}
