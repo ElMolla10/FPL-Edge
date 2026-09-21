@@ -121,6 +121,11 @@ function NavIcon({id}:{id:string}){
 function MobileSheet({title,onClose,children}:{title:string;onClose:()=>void;children:ReactNode}){
   return <div className="mobile-sheet" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button type="button" onClick={onClose} aria-label="Close">×</button></header><div className="mobile-sheet-list">{children}</div></div>;
 }
+// Phone-only My Squad context: Transfers is nested here (not a 6th tab). Deep-links go("transfers")
+// land on the Transfers segment host; Final check stays in More (#62).
+function PhoneSquadNav({active,go}:{active:"team"|"transfers"|"squad-fixtures";go:(v:View)=>void}){
+  return <nav className="phone-squad-nav" aria-label="My Squad"><button type="button" className={active==="team"?"active":""} onClick={()=>go("team")}>My team</button><button type="button" className={active==="transfers"?"active":""} onClick={()=>go("transfers")}>Transfers</button><button type="button" className={active==="squad-fixtures"?"active":""} onClick={()=>go("squad-fixtures")}>My Fixtures</button></nav>;
+}
 
 function freshness(updatedAt:string){const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(updatedAt))/60000));return{minutes,label:minutes<2?"just now":`${minutes}m ago`,tone:minutes<=10?"fresh":minutes<=30?"aging":"stale"}}
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
@@ -164,8 +169,9 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   // never light two sheet tabs for the same view. Intentional dual-active: when a sheet is
   // open, that sheet's tab stays active AND the underlying content tab may also stay active
   // (sheet affordance + current page). Wrong dual-active (e.g. News lighting My Squad+PRO)
-  // is avoided by this partition. Final check stays in More (not a 6th tab). My Fixtures stays
-  // under My Squad on phone even though desktop Research owns the disclosure entry.
+  // is avoided by this partition. Final check stays in More (not a 6th tab) — verified.
+  // Transfers under My Squad: phoneSquadViews includes transfers so go("transfers") keeps My Squad active.
+  // My Fixtures stays under My Squad on phone even though desktop Research owns the disclosure entry.
   const phoneSquadViews=new Set<View>(["team","transfers","squad-fixtures"]);
   const phoneProViews=new Set<View>(proItems.map(([key])=>key));
   const phoneMoreResearch=researchRest.filter(([key])=>key!=="squad-fixtures");
@@ -183,7 +189,7 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
     {(desk==="free"||desk==="season")&&<footer className="coach-footer"><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>}
     <nav className="coach-mobile-nav" aria-label="Phone primary"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={phoneSquadActive?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i><NavIcon id="team"/></i>My Squad</button><button className={phoneProActive?"active":""} onClick={()=>toggleMobileOverlay("PRO")}><i><NavIcon id="pro"/></i>PRO</button><button className={view==="coach"?"active":""} onClick={()=>go("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={phoneMoreActive?"active":""} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
     {mobileOverlay&&<MobileSheet title={mobileOverlay} onClose={()=>setMobileOverlay(null)}>
-      {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}
+      {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)}><span>{label}</span>{key==="transfers"?<small className="sheet-hint">Single · Route · Watch</small>:null}</button>)}
       {mobileOverlay==="PRO"&&proItems.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}
       {mobileOverlay==="More"&&<><button type="button" onClick={()=>go("deadline")}><span>Final check</span></button><button type="button" onClick={()=>go("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}{(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
     </MobileSheet>}
@@ -679,12 +685,13 @@ function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplData;g
   const currentBench=currentResolution?.bench??[];
   const currentCaptaincy=useCaptaincy(currentXi,currentAnchor?.id??0,currentResolution?.modelCaptain,currentResolution?.modelVice);
 
-  if(!a&&teamAuth!=="in")return <PitchOutline onBuild={()=>go("draft")}/>;if(!a)return <><ConnectTeam data={data} onConnected={m=>{setManager(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></>;
+  if(!a&&teamAuth!=="in")return <div className="coach-page"><PhoneSquadNav active="team" go={go}/><PitchOutline onBuild={()=>go("draft")}/></div>;if(!a)return <div className="coach-page"><PhoneSquadNav active="team" go={go}/><ConnectTeam data={data} onConnected={m=>{setManager(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></div>;
 
   const goBack=()=>setNavEventId(id=>Math.max(backwardBoundId,id-1));
   const goForward=()=>setNavEventId(id=>Math.min(forwardBoundId,id+1));
 
   return <div className="coach-page">
+    <PhoneSquadNav active="team" go={go}/>
     <GameweekNav event={event} branch={branch} onBack={goBack} onForward={goForward} canBack={event.id>backwardBoundId} canForward={event.id<forwardBoundId}/>
     {entry&&teamAuth==="in"&&<button onClick={refreshFromOfficial} disabled={refreshBusy}>{refreshBusy?"Refreshing…":"Refresh from official"}</button>}
     {refreshMsg&&<small>{refreshMsg}</small>}
@@ -933,8 +940,8 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
       populationPercentiles,
     });
   },[populationPercentiles,meta,primaryMain,best]);
-  if(!a)return <div className="coach-page"><h1 className="screen-title">Transfers</h1><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></div>;
-  if(rankingBlocked)return <div className="coach-page"><h1 className="screen-title">Transfers</h1><ReconnectFplPanel errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{const live=await refreshConnectedTeamFromApi(data,{force:true});try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}if(live.updated)onTeamChange()}}/></div>;
+  if(!a)return <div className="coach-page"><PhoneSquadNav active="transfers" go={go}/><h1 className="screen-title">Transfers</h1><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></div>;
+  if(rankingBlocked)return <div className="coach-page"><PhoneSquadNav active="transfers" go={go}/><h1 className="screen-title">Transfers</h1><ReconnectFplPanel errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{const live=await refreshConnectedTeamFromApi(data,{force:true});try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}if(live.updated)onTeamChange()}}/></div>;
   const holdRows=rows.filter(row=>row.isHold||row.classification==="HOLD");
   const makeRows=rows.filter(row=>row.classification==="MAKE");
   const leanRows=rows.filter(row=>row.classification==="LEAN");
@@ -947,10 +954,14 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
   const holdNote=transferHoldNote(nearestInHorizon(detectFixtureAnomalies(data).doubles,futureEvents(data,5).map(e=>e.id)),roll);
   const setWatch=(id:number)=>{const next=watchIds.includes(id)?watchIds.filter(x=>x!==id):[...watchIds,id];setWatchIds(next);persist("fpl-edge-watchlist",JSON.stringify(next))};
   const toggleExpand=(key:string)=>setExpanded(x=>{const next=new Set(x);next.has(key)?next.delete(key):next.add(key);return next});
-  const transferTab=fullDesk?tab:"moves";
+  // Phone nest (Mohamed A): opening Transfers / go("transfers") always lands on segment host.
+  // Single moves default + leftmost. Free desk can open tabs but Route planner / Watchlist stay locked.
+  const transferTab=tab;
+  const selectTransferTab=(next:"routes"|"moves"|"watchlist")=>setTab(next);
   return <div className="coach-page">
-    {fullDesk&&<section className="transfer-tabs"><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Single moves</button><button className={tab==="routes"?"active":""} onClick={()=>setTab("routes")}>Route planner</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select>{liveFtKnown&&<small className="ft-live-hint"> live FPL · {meta?.transfersMade??0} made this GW</small>}</label></section>}
-    {transferTab==="routes"?<TransferRoutePlanner routes={routes} horizon={routeHorizon} setHorizon={setRouteHorizon} maxWeeklyHit={maxWeeklyHit} setMaxWeeklyHit={setMaxWeeklyHit}/>:transferTab==="moves"?<>
+    <PhoneSquadNav active="transfers" go={go}/>
+    <section className="transfer-tabs" aria-label="Transfer segments"><button type="button" className={tab==="moves"?"active":""} onClick={()=>selectTransferTab("moves")}>Single moves</button><button type="button" className={tab==="routes"?"active":""} onClick={()=>selectTransferTab("routes")}>Route planner</button><button type="button" className={tab==="watchlist"?"active":""} onClick={()=>selectTransferTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button>{fullDesk&&<label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select>{liveFtKnown&&<small className="ft-live-hint"> live FPL · {meta?.transfersMade??0} made this GW</small>}</label>}</section>
+    {transferTab==="routes"?(fullDesk?<TransferRoutePlanner routes={routes} horizon={routeHorizon} setHorizon={setRouteHorizon} maxWeeklyHit={maxWeeklyHit} setMaxWeeklyHit={setMaxWeeklyHit}/>:<SeasonLocked feature="Multi-week route planner is part of the season pass." onUpgrade={onUpgrade}/>):transferTab==="moves"?<>
       <section className="transfer-bank-strip" aria-label="Transfer bank used for rankings"><span>IN THE BANK</span><b>£{bank.toFixed(1)}m</b><small>{meta?.bankSource==="live-my-team"?"live FPL transfer bank":meta?.liveOverlayError?"live bank unavailable":meta?"official public data":"builder estimate"}</small><span>FREE TRANSFERS</span><b>{fts}</b><small>{liveFtKnown?`live · ${meta?.transfersMade??0} already made`:"manual / stored"}</small></section>
       {/* SHELL Phase 1 (transfers-presentation): one badge + metrics once + denser why chrome.
           Presentation only — do not change transfer-engine ranking / classification / NET math.
@@ -994,7 +1005,7 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
       {fullDesk&&<PriceIntel rows={rows}/>}
       {fullDesk&&process.env.NODE_ENV!=="production"&&<TransferDebugTable rows={rows.slice(0,10)}/>}
       {!fullDesk&&<SeasonLocked feature="Safe and aggressive alternatives, and multi-week routes, are part of the season pass." onUpgrade={onUpgrade}/>}
-    </>:transferTab==="watchlist"?<Watchlist data={data} squad={squad} ids={watchIds} remove={setWatch} bank={bank}/>:null}
+    </>:transferTab==="watchlist"?(fullDesk?<Watchlist data={data} squad={squad} ids={watchIds} remove={setWatch} bank={bank}/>:<SeasonLocked feature="Transfer watchlist and alternatives are part of the season pass." onUpgrade={onUpgrade}/>):null}
   </div>;
 }
 
@@ -1511,10 +1522,10 @@ function MyFixtures({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>v
   const[horizon,setHorizon]=useState(8);
   const[sort,setSort]=useState<"attack"|"defence">("attack");
   const events=futureEvents(data,horizon);
-  if(!squad.length&&teamAuth!=="in")return <PublicGameweekFixtures data={data}/>;if(!squad.length)return <div className="coach-page"><ConnectTeam data={data} onConnected={()=>onTeamChange()}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually first -- this view shows real fixture difficulty for the clubs your own squad's players belong to.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></div>;
+  if(!squad.length&&teamAuth!=="in")return <div className="coach-page"><PhoneSquadNav active="squad-fixtures" go={go}/><PublicGameweekFixtures data={data}/></div>;if(!squad.length)return <div className="coach-page"><PhoneSquadNav active="squad-fixtures" go={go}/><ConnectTeam data={data} onConnected={()=>onTeamChange()}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually first -- this view shows real fixture difficulty for the clubs your own squad's players belong to.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></div>;
   const ownedTeamIds=new Set(squad.map(p=>p.teamId));
   const rows=[...computeClubFixtureRows(data,horizon)].filter(row=>ownedTeamIds.has(row.team.id)).sort((a,b)=>sort==="attack"?a.attack-b.attack:a.defence-b.defence);
-  return <div className="team-quality-fixtures"><section className="fixture-summary"><div><span>MY SQUAD'S FIXTURES</span><h2>Real fixture difficulty for the clubs you actually own players at.</h2><p>The same club-level difficulty model as the full Fixtures page, narrowed to your own squad -- every player at a club shares that club's real fixture list, so this is per club, not per player.</p></div><div>{[3,5,8].map(value=><button className={horizon===value?"active":""} onClick={()=>setHorizon(value)} key={value}>{value} GW</button>)}</div></section><section className="fixture-ticker"><header><div><span>TEAM</span><button className={sort==="attack"?"active":""} onClick={()=>setSort("attack")}>ATTACK</button><button className={sort==="defence"?"active":""} onClick={()=>setSort("defence")}>DEFENCE</button></div>{events.map(event=><span key={event.id}>{event.name.replace("Gameweek ","GW")}</span>)}</header>{rows.map(row=><FixtureTickerRow row={row} events={events} sort={sort} key={row.team.id}/>)}</section></div>;
+  return <div className="coach-page"><PhoneSquadNav active="squad-fixtures" go={go}/><div className="team-quality-fixtures"><section className="fixture-summary"><div><span>MY SQUAD'S FIXTURES</span><h2>Real fixture difficulty for the clubs you actually own players at.</h2><p>The same club-level difficulty model as the full Fixtures page, narrowed to your own squad -- every player at a club shares that club's real fixture list, so this is per club, not per player.</p></div><div>{[3,5,8].map(value=><button className={horizon===value?"active":""} onClick={()=>setHorizon(value)} key={value}>{value} GW</button>)}</div></section><section className="fixture-ticker"><header><div><span>TEAM</span><button className={sort==="attack"?"active":""} onClick={()=>setSort("attack")}>ATTACK</button><button className={sort==="defence"?"active":""} onClick={()=>setSort("defence")}>DEFENCE</button></div>{events.map(event=><span key={event.id}>{event.name.replace("Gameweek ","GW")}</span>)}</header>{rows.map(row=><FixtureTickerRow row={row} events={events} sort={sort} key={row.team.id}/>)}</section></div></div>;
 }
 
 function Rank({title,rows,keyName,bad}:{title:string;rows:any[];keyName:string;bad?:boolean}){return <article className={bad?"avoid":""}><span>{title.toUpperCase()}</span>{rows.map((r,i)=><p key={r.team.id}><i>{i+1}</i><b>{r.team.name}</b><strong>{keyName==="swing"?`BUY LATER +${r.swing.toFixed(1)}`:Number(r[keyName]).toFixed(2)}</strong></p>)}</article>}
