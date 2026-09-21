@@ -150,3 +150,31 @@ test("rawDifferentialsByPosition: no eventIds (e.g. season already over) -- xPts
   const mid = result.find(g => g.position.id === 3)!;
   assert.equal(mid.players[0].xPts5, 0);
 });
+
+test("rawDifferentialsByPosition: excludes non-starters (bench / third-choice) before ranking", () => {
+  // Starter: strong prior starts + minutes → clears ROLE_SECURITY_FLOOR.
+  // Backup: almost no prior starts → fails the starter gate even at 0% ownership.
+  const starter = makePlayer({
+    id: 1, positionId: 1, positionShort: "GKP", position: "Goalkeeper",
+    selectedBy: 2, epNext: 4, priorMinutes: 3000, priorStarts: 35, priorSaves: 100,
+    minutes: 450, starts: 5, saves: 18,
+  });
+  const backup = makePlayer({
+    id: 2, positionId: 1, positionShort: "GKP", position: "Goalkeeper",
+    selectedBy: 0, epNext: 0.1, priorMinutes: 0, priorStarts: 0, priorSaves: 0,
+    minutes: 0, starts: 0, saves: 0,
+  });
+  const result = rawDifferentialsByPosition([starter, backup], positions, fixtures, [1]);
+  const gkp = result.find(g => g.position.id === 1)!;
+  assert.deepEqual(gkp.players.map(p => p.player.id), [1], "backup GK must not appear in Raw Differentials");
+});
+
+test("rawDifferentialsByPosition: unavailable status is excluded even with strong priors", () => {
+  const unavailable = makePlayer({
+    id: 9, positionId: 3, selectedBy: 1, epNext: 8, status: "u",
+    priorMinutes: 3000, priorStarts: 35, minutes: 450, starts: 5,
+  });
+  const result = rawDifferentialsByPosition([unavailable], positions, fixtures, [1]);
+  const mid = result.find(g => g.position.id === 3)!;
+  assert.equal(mid.players.length, 0);
+});
