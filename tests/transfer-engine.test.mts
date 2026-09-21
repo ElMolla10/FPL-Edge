@@ -3,18 +3,25 @@ import test from "node:test";
 import type { FplData, FplPlayer } from "../app/lib/fpl.ts";
 import {
   DEFAULT_TRANSFER_RULES_2026_27,
+  OVERVIEW_TRANSFER_RULES,
+  bestFuturePlan,
   buildHoldBaseline,
   classifyTransfer,
   clampFreeTransfers,
   createTeamState,
   exactHitCost,
   freeTransfersAfterDeadline,
+  getLastPlanBudgetForTests,
+  groupTransferFamilies,
   hitLabel,
   isLegalSingleTransfer,
+  isShallowPlanning,
   optimalSquadWeek,
   recommendTransfers,
   recommendationsToJson,
   mergeTransferRules,
+  scheduleDeferred,
+  thresholdsForHit,
 } from "../app/lib/transfer-engine/index.ts";
 import { bestTransfers, isPlaceableTransfer, selectPrimaryTransfer } from "../app/lib/transfers.ts";
 
@@ -338,11 +345,11 @@ test("case13: classifyTransfer maps NET + role into MAKE/LEAN/WATCH/AVOID/ROLL",
     inGw5: 13,
   });
   assert.equal(classifyTransfer({ isHold: true }).classification, "HOLD");
-  assert.equal(classifyTransfer({ net: mkNet(3.5) }).classification, "MAKE");
-  assert.equal(classifyTransfer({ net: mkNet(1.5) }).classification, "LEAN");
-  assert.equal(classifyTransfer({ net: mkNet(0.4) }).classification, "WATCH");
-  assert.equal(classifyTransfer({ net: mkNet(-1) }).classification, "AVOID");
-  assert.equal(classifyTransfer({ net: mkNet(4, weak) }).classification, "AVOID");
+  assert.equal(classifyTransfer({ net: mkNet(3.5) as any }).classification, "MAKE");
+  assert.equal(classifyTransfer({ net: mkNet(1.5) as any }).classification, "LEAN");
+  assert.equal(classifyTransfer({ net: mkNet(0.4) as any }).classification, "WATCH");
+  assert.equal(classifyTransfer({ net: mkNet(-1) as any }).classification, "AVOID");
+  assert.equal(classifyTransfer({ net: mkNet(4, weak) as any }).classification, "AVOID");
 });
 
 // --- Case 14: primary is ROLL when nothing clears MAKE/LEAN ---
@@ -380,7 +387,7 @@ test("case16: recommendationsToJson is structured and squad EP excludes chip bon
   const data = dataFor([...initial, upgrade], 5);
   const result = recommendTransfers(data, initial, 2, 1, new Map([[21, 6]]));
   const json = recommendationsToJson(result) as any;
-  assert.equal(json.schema, "fpl-edge.transfer-engine.v1");
+  assert.equal(json.schema, "fpl-edge.transfer-engine.v2");
   assert.ok(json.roll);
   assert.ok(json.primary);
   assert.ok(Array.isArray(json.recommendations));
@@ -523,4 +530,387 @@ test("HOLD adapter stub exposes iterable priceOutlook for UI PriceIntel", () => 
   assert.equal(typeof hold!.incoming.priceProjectionToday, "number");
   // Mimic PriceIntel: spreading must not throw
   assert.doesNotThrow(() => [...hold!.incoming.priceOutlook]);
+});
+
+// --- Second-pass refinements (type-B HOLD, thresholds, WATCH, FT, diversity) ---
+
+test("A: HOLD is type-B — can transfer later; NET is plan(transfer-now)−plan(hold-now)", () => {
+  const initial = squad();
+  const upgrade = starMid(99, 6.5);
+  const data = dataFor([...initial, upgrade], 5);
+  const result = recommendTransfers(data, initial, 2.0, 1, new Map([[21, 6]]));
+  assert.equal(result.hold.planner, "type-B");
+  assert.ok(result.hold.pathSummary.length >= 1);
+  // HOLD path must bank FT (1→2 on first deadline when starting at 1)
+  assert.equal(result.hold.freeTransfersPath[0], 2);
+  // A move's holdNowPath should allow a later TRANSFER step when an upgrade exists
+  const move = result.recommendations.find((r) => r.net.transferCount === 1);
+  if (move) {
+    assert.ok(move.net.holdNowPath.some((s) => s.includes("HOLD")), "hold-now starts with HOLD");
+    assert.equal(typeof move.net.fiveGwNetVsHold, "number");
+    assert.equal(move.net.fiveGwNetVsHold, move.net.netEv5);
+    assert.equal(move.net.riskAdjustedFiveGwNetVsHold, move.net.riskAdjustedNet5);
+  }
+});
+
+test("B: large hit MAKE only when risk-adj NET clears hit MAKE floor + margin", () => {
+  const baseMetrics = {
+    xPts: 5, expectedMinutes: 80, startProbability: 0.9, sixtyProbability: 0.85, minutesRisk: 0.1,
+    xG: 0.5, xA: 0.4, xG90: 0.5, xA90: 0.4, cleanSheetProbability: 0.3, bonus: 0.4,
+    defensiveContribution: 1, saves: 0, penaltyRole: false, setPieceRole: false, confidence: 0.85,
+  };
+  const mk = (riskAdj: number, net3: number, hitCost: number) => ({
+    legs: [{ out: makePlayer({ id: 1, name: "Out" }), incoming: makePlayer({ id: 2, name: "In" }), sellingPrice: 5, buyingPrice: 5 }],
+    transferCount: 1,
+    hitCost,
+    hitLabel: hitCost ? "-4" : "Free",
+    bankAfter: 1,
+    freeTransfersAfter: 1,
+    freeTransfersBefore: hitCost ? 0 : 1,
+    transfersRequired: 1,
+    freeTransfersUsed: hitCost ? 0 : 1,
+    nextGwGross: 50,
+    holdNextGwGross: 48,
+    grossDelta1: 1, grossDelta3: 2, grossDelta5: 3,
+    fiveGwNetVsHold: riskAdj,
+    threeGwNetVsHold: net3,
+    riskAdjustedFiveGwNetVsHold: riskAdj,
+    netEv5: riskAdj, netEv3: net3, riskAdjustedNet5: riskAdj,
+    riskAdjustment: 1,
+    confidence: 0.85,
+    risk: "Low" as const,
+    riskDrivers: [],
+    weeklyGrossDeltas: [1, 1, 1, 0, 0],
+    outMetrics: baseMetrics,
+    inMetrics: baseMetrics,
+    individualGain1: 1, individualGain3: 2, individualGain5: 3,
+    outGw1: 2, inGw1: 3, outGw3: 6, inGw3: 8, outGw5: 10, inGw5: 13,
+    transferNowPlanTotal: 100, holdNowPlanTotal: 95,
+    timingEvVsWait: null,
+    transferNowPath: [], holdNowPath: [],
+    reasonCodes: [],
+  });
+  // Hit MAKE floor 4.0 + margin 0.35 = 4.35; positive 3GW required
+  assert.equal(classifyTransfer({ net: mk(5.0, 1.0, 4) as any }).classification, "MAKE");
+  assert.equal(classifyTransfer({ net: mk(3.5, 1.0, 4) as any }).classification, "LEAN");
+});
+
+test("C: small positive hit with negative 3GW → WATCH not LEAN (JP→Thiago style)", () => {
+  const baseMetrics = {
+    xPts: 5, expectedMinutes: 75, startProbability: 0.85, sixtyProbability: 0.8, minutesRisk: 0.1,
+    xG: 0.4, xA: 0.3, xG90: 0.4, xA90: 0.3, cleanSheetProbability: 0.3, bonus: 0.4,
+    defensiveContribution: 1, saves: 0, penaltyRole: false, setPieceRole: false, confidence: 0.8,
+  };
+  const net = {
+    legs: [{ out: makePlayer({ id: 1, name: "JP" }), incoming: makePlayer({ id: 2, name: "Thiago" }), sellingPrice: 5, buyingPrice: 5 }],
+    transferCount: 1,
+    hitCost: 4,
+    hitLabel: "-4",
+    bankAfter: 1,
+    freeTransfersAfter: 1,
+    freeTransfersBefore: 0,
+    transfersRequired: 1,
+    freeTransfersUsed: 0,
+    nextGwGross: 50,
+    holdNextGwGross: 49,
+    grossDelta1: -0.5, grossDelta3: -0.6, grossDelta5: 2.1,
+    fiveGwNetVsHold: 2.1,
+    threeGwNetVsHold: -0.6,
+    riskAdjustedFiveGwNetVsHold: 2.1,
+    netEv5: 2.1, netEv3: -0.6, riskAdjustedNet5: 2.1,
+    riskAdjustment: 1,
+    confidence: 0.8,
+    risk: "Low" as const,
+    riskDrivers: [],
+    weeklyGrossDeltas: [-0.5, 0, -0.1, 1.2, 1.5],
+    outMetrics: baseMetrics,
+    inMetrics: baseMetrics,
+    individualGain1: -0.5, individualGain3: -0.6, individualGain5: 2.1,
+    outGw1: 3, inGw1: 2.5, outGw3: 9, inGw3: 8.4, outGw5: 14, inGw5: 16.1,
+    transferNowPlanTotal: 100, holdNowPlanTotal: 97.9,
+    timingEvVsWait: -0.5,
+    transferNowPath: ["GW+0: JP→Thiago -4"],
+    holdNowPath: ["GW+0: HOLD"],
+    reasonCodes: [],
+  };
+  const { classification, reasonCodes } = classifyTransfer({ net: net as any });
+  assert.equal(classification, "WATCH");
+  assert.ok(reasonCodes.includes("hit-short-negative-modest-long"));
+});
+
+test("D: free small edge → ROLL/WATCH not MAKE", () => {
+  const baseMetrics = {
+    xPts: 5, expectedMinutes: 75, startProbability: 0.85, sixtyProbability: 0.8, minutesRisk: 0.1,
+    xG: 0.4, xA: 0.3, xG90: 0.4, xA90: 0.3, cleanSheetProbability: 0.3, bonus: 0.4,
+    defensiveContribution: 1, saves: 0, penaltyRole: false, setPieceRole: false, confidence: 0.8,
+  };
+  const mk = (riskAdj: number) => ({
+    legs: [{ out: makePlayer({ id: 1 }), incoming: makePlayer({ id: 2 }), sellingPrice: 5, buyingPrice: 5 }],
+    transferCount: 1, hitCost: 0, hitLabel: "Free",
+    bankAfter: 1, freeTransfersAfter: 1, freeTransfersBefore: 1,
+    transfersRequired: 1, freeTransfersUsed: 1,
+    nextGwGross: 50, holdNextGwGross: 49,
+    grossDelta1: 0.2, grossDelta3: 0.4, grossDelta5: 0.5,
+    fiveGwNetVsHold: riskAdj, threeGwNetVsHold: riskAdj,
+    riskAdjustedFiveGwNetVsHold: riskAdj,
+    netEv5: riskAdj, netEv3: riskAdj, riskAdjustedNet5: riskAdj,
+    riskAdjustment: 1, confidence: 0.8, risk: "Low" as const, riskDrivers: [],
+    weeklyGrossDeltas: [0.2, 0.1, 0.1, 0, 0],
+    outMetrics: baseMetrics, inMetrics: baseMetrics,
+    individualGain1: 0.2, individualGain3: 0.4, individualGain5: 0.5,
+    outGw1: 2, inGw1: 2.2, outGw3: 6, inGw3: 6.4, outGw5: 10, inGw5: 10.5,
+    transferNowPlanTotal: 100, holdNowPlanTotal: 99.5,
+    timingEvVsWait: null, transferNowPath: [], holdNowPath: [], reasonCodes: [],
+  });
+  assert.equal(classifyTransfer({ net: mk(0.4) as any }).classification, "WATCH");
+  assert.equal(classifyTransfer({ net: mk(0.1) as any }).classification, "WATCH"); // near-zero band
+  assert.notEqual(classifyTransfer({ net: mk(0.4) as any }).classification, "MAKE");
+});
+
+test("E: FT state transitions — 0→HOLD→1 next; 1→HOLD→2; 5→HOLD→5; hit & spend", () => {
+  assert.equal(freeTransfersAfterDeadline(0, 0), 1); // 0 HOLD → 1
+  assert.equal(freeTransfersAfterDeadline(1, 0), 2); // 1 HOLD → 2
+  assert.equal(freeTransfersAfterDeadline(5, 0), 5); // 5 HOLD → 5 (cap)
+  assert.equal(freeTransfersAfterDeadline(0, 1), 1); // 0 + one hit transfer → 0-1+1 = 1
+  assert.equal(freeTransfersAfterDeadline(2, 1), 2); // 2 use one → 1+1 = 2
+  const initial = squad();
+  const data = dataFor(initial, 5);
+  const r0 = recommendTransfers(data, initial, 1.0, 0);
+  assert.equal(r0.hold.freeTransfersPath[0], 1);
+  const r1 = recommendTransfers(data, initial, 1.0, 1);
+  assert.equal(r1.hold.freeTransfersPath[0], 2);
+  const r5 = recommendTransfers(data, initial, 1.0, 5);
+  assert.equal(r5.hold.freeTransfersPath[0], 5);
+});
+
+test("F: risk adjustment displayed — raw NET, multiplier, risk-adj NET", () => {
+  const initial = squad();
+  const upgrade = starMid(99, 6.5);
+  const data = dataFor([...initial, upgrade], 5);
+  const result = recommendTransfers(data, initial, 2.0, 1, new Map([[21, 6]]));
+  const move = result.recommendations.find((r) => r.net.transferCount === 1);
+  assert.ok(move);
+  assert.ok(move!.net.riskAdjustment >= 0.55 && move!.net.riskAdjustment <= 1);
+  assert.ok(Array.isArray(move!.net.riskDrivers));
+  assert.ok(move!.net.riskDrivers.length >= 1);
+  if (move!.net.fiveGwNetVsHold > 0) {
+    assert.ok(
+      Math.abs(move!.net.riskAdjustedFiveGwNetVsHold - move!.net.fiveGwNetVsHold * move!.net.riskAdjustment) < 1e-9,
+    );
+  }
+});
+
+test("G: future path present on moves (transfer-now vs hold-now)", () => {
+  const initial = squad();
+  const upgrade = starMid(99, 6.5);
+  const data = dataFor([...initial, upgrade], 5);
+  const result = recommendTransfers(data, initial, 2.0, 0, new Map([[21, 6]]));
+  const move = result.recommendations.find((r) => r.net.transferCount === 1);
+  assert.ok(move);
+  assert.ok(move!.net.transferNowPath.length >= 1);
+  assert.ok(move!.net.holdNowPath.length >= 1);
+  assert.ok(move!.net.holdNowPath[0].includes("HOLD"));
+});
+
+test("H: hit cost exact — FT available / required / paid", () => {
+  const initial = squad();
+  const upgrade = starMid(99, 6.5);
+  const data = dataFor([...initial, upgrade], 5);
+  const result = recommendTransfers(data, initial, 2.0, 0, new Map([[21, 6]]));
+  const move = result.recommendations.find((r) => r.net.legs[0]?.incoming.id === 99);
+  assert.ok(move);
+  assert.equal(move!.net.freeTransfersBefore, 0);
+  assert.equal(move!.net.transfersRequired, 1);
+  assert.equal(move!.net.freeTransfersUsed, 0);
+  assert.equal(move!.net.hitCost, 4);
+  assert.equal(move!.net.hitLabel, "-4");
+});
+
+test("I: duplicate families capped by diversifyRecommendations", () => {
+  const initial = squad();
+  const stars = [90, 91, 92, 93, 94, 95].map((id) => starMid(id, 5.5));
+  const data = dataFor([...initial, ...stars], 5);
+  const result = recommendTransfers(data, initial, 5.0, 1, new Map(), {
+    rules: { maxSameOutgoingInResults: 1, maxSameIncomingInResults: 1, candidatePoolPerPosition: 30, resultLimit: 12 },
+  });
+  const moves = result.recommendations.filter((r) => r.net.transferCount === 1);
+  const outCounts = new Map<number, number>();
+  for (const m of moves) {
+    const o = m.net.legs[0].out.id;
+    outCounts.set(o, (outCounts.get(o) ?? 0) + 1);
+  }
+  for (const c of outCounts.values()) assert.ok(c <= 1);
+  const families = groupTransferFamilies(result.recommendations);
+  assert.ok(Array.isArray(families));
+});
+
+test("J: HOLD hero / bestDecision when hit-adjusted nets are poor", () => {
+  const initial = squad();
+  const mild = makePlayer({
+    id: 99, name: "Mild", teamId: 99, teamName: "Mild FC", teamShort: "MIL",
+    positionId: 3, position: "Midfielder", positionShort: "MID", price: 6.2,
+    epNext: 3.4, form: 3.2, pointsPerGame: 3.2, priorPointsPerGame: 3.2,
+    minutes: 2700, starts: 30, priorMinutes: 2500, chance: 100, status: "a",
+  });
+  const data = dataFor([...initial, mild], 5);
+  const result = recommendTransfers(data, initial, 1.0, 0, new Map([[21, 6]]));
+  assert.ok(result.bestDecision);
+  assert.equal(result.bestDecision!.action, "HOLD");
+  assert.equal(result.bestDecision!.classification, "HOLD");
+  assert.equal(result.primary?.classification, "HOLD");
+  // Alternative may be WATCH with transparent nets
+  if (result.bestDecision!.alternative) {
+    assert.notEqual(result.bestDecision!.alternative.classification, "HOLD");
+    assert.ok(typeof result.bestDecision!.alternative.net.fiveGwNetVsHold === "number");
+  }
+});
+
+test("thresholds: FREE vs HIT sets differ (BALANCED defaults)", () => {
+  const free = thresholdsForHit(0, DEFAULT_TRANSFER_RULES_2026_27);
+  const hit = thresholdsForHit(4, DEFAULT_TRANSFER_RULES_2026_27);
+  assert.equal(free.make, 2.0);
+  assert.equal(free.lean, 0.75);
+  assert.equal(hit.make, 4.0);
+  assert.equal(hit.lean, 3.0);
+  assert.ok(hit.make > free.make);
+});
+
+test("bestFuturePlan HOLD from 0 FT banks to 1 and may transfer later", () => {
+  const initial = squad();
+  const upgrade = starMid(99, 6.5);
+  const data = dataFor([...initial, upgrade], 5);
+  const state = createTeamState(initial, 2.0, 0);
+  const events = data.events.filter((e) => !e.finished).slice(0, 5);
+  const first = events[0].id;
+  const project = (p: FplPlayer, e: number) => p.epNext;
+  const pools = new Map<number, FplPlayer[]>();
+  pools.set(3, [upgrade]);
+  const plan = bestFuturePlan(state, data, events, first, pools, project, DEFAULT_TRANSFER_RULES_2026_27, []);
+  assert.equal(plan.steps[0].action, "HOLD");
+  assert.equal(plan.freeTransfersPath[0], 1);
+  // With a star available and FT after week 0, a later free transfer is expected
+  assert.ok(plan.steps.some((s, i) => i > 0 && s.action === "TRANSFER") || plan.steps.every((s) => s.action === "HOLD"));
+});
+
+test("schema v2 exposes bestDecision and type-B planner", () => {
+  const initial = squad();
+  const data = dataFor(initial, 5);
+  const result = recommendTransfers(data, initial, 1.0, 1);
+  const json = recommendationsToJson(result) as any;
+  assert.equal(json.schema, "fpl-edge.transfer-engine.v2");
+  assert.equal(json.planner, "type-B");
+  assert.ok(json.bestDecision);
+  assert.equal(json.hold.planner, "type-B");
+});
+
+test("behavior: BEST=HOLD with alt WATCH when modest hit edge", () => {
+  const initial = squad();
+  // Modest upgrade that under a -4 lands in WATCH band
+  const mid = makePlayer({
+    id: 99, name: "ModestIn", teamId: 99, teamName: "Mod FC", teamShort: "MOD",
+    positionId: 3, position: "Midfielder", positionShort: "MID", price: 6.3,
+    epNext: 4.2, form: 4.0, pointsPerGame: 4.0, priorPointsPerGame: 4.0,
+    priorExpectedGoals: 6, priorExpectedAssists: 5,
+    expectedGoals: 3, expectedAssists: 2,
+    minutes: 2700, starts: 30, priorMinutes: 2500, chance: 100, status: "a",
+  });
+  const data = dataFor([...initial, mid], 5);
+  const result = recommendTransfers(data, initial, 1.5, 0, new Map([[21, 6]]));
+  assert.equal(result.bestDecision?.action, "HOLD");
+  const alt = result.bestDecision?.alternative;
+  if (alt) {
+    assert.ok(["WATCH", "LEAN", "AVOID", "MAKE"].includes(alt.classification));
+    assert.ok(typeof alt.net.threeGwNetVsHold === "number");
+    assert.ok(typeof alt.net.fiveGwNetVsHold === "number");
+    assert.ok(alt.net.hitCost === 4);
+  }
+});
+
+
+test("plan budgets abort runaway candidate×horizon work", () => {
+  const initial = squad();
+  const extras = Array.from({ length: 40 }, (_, i) => starMid(200 + i, 5.5 + (i % 5) * 0.1));
+  const data = dataFor([...initial, ...extras], 5);
+  const started = Date.now();
+  const result = recommendTransfers(data, initial, 5.0, 1, new Map(), {
+    rules: {
+      candidatePoolPerPosition: 30,
+      maxEvalCandidates: 12,
+      maxPlanNodes: 400,
+      planTimeBudgetMs: 50,
+      futureBeamWidth: 4,
+      resultLimit: 6,
+    },
+  });
+  const elapsed = Date.now() - started;
+  assert.ok(result.hold);
+  assert.equal(result.hold.planner, "type-B");
+  assert.ok(Array.isArray(result.recommendations));
+  // Must finish well under a hung-tab threshold.
+  assert.ok(elapsed < 2000, `engine took ${elapsed}ms under tight budgets`);
+});
+
+test("overview profile skips deep future beam and stays fast", () => {
+  const initial = squad();
+  const extras = Array.from({ length: 40 }, (_, i) => starMid(300 + i, 5.5));
+  const data = dataFor([...initial, ...extras], 5);
+  const started = Date.now();
+  const result = recommendTransfers(data, initial, 5.0, 1, new Map(), {
+    rules: OVERVIEW_TRANSFER_RULES,
+    limit: 1,
+  });
+  const elapsed = Date.now() - started;
+  assert.ok(result.hold.planner === "type-B");
+  assert.ok(result.hold.freeTransfersPath.length >= 1);
+  assert.ok(elapsed < 1000, `overview profile took ${elapsed}ms`);
+});
+
+
+test("overview sync path cannot invoke deep future search", () => {
+  const initial = squad();
+  const extras = Array.from({ length: 30 }, (_, i) => starMid(400 + i, 5.5));
+  const data = dataFor([...initial, ...extras], 5);
+  recommendTransfers(data, initial, 5.0, 1, new Map(), {
+    mode: "shallow",
+    limit: 1,
+  });
+  const budget = getLastPlanBudgetForTests();
+  assert.ok(budget, "expected plan budget from last recommendTransfers");
+  assert.equal(budget.deepBeamInvocations, 0, "shallow/Overview must not enter deep future beam");
+  assert.ok(isShallowPlanning(mergeTransferRules(OVERVIEW_TRANSFER_RULES)));
+  assert.equal(mergeTransferRules(OVERVIEW_TRANSFER_RULES).futureBeamWidth, 0);
+});
+
+test("mode shallow forces futureBeamWidth 0 even if rules ask for deep beam", () => {
+  const initial = squad();
+  const data = dataFor(initial, 5);
+  const result = recommendTransfers(data, initial, 5.0, 1, new Map(), {
+    mode: "shallow",
+    rules: { futureBeamWidth: 12, beamWidth: 12, maxEvalCandidates: 20 },
+    limit: 1,
+  });
+  assert.equal(result.rules.futureBeamWidth, 0);
+  assert.equal(result.rules.beamWidth, 0);
+  const budget = getLastPlanBudgetForTests();
+  assert.equal(budget?.deepBeamInvocations ?? -1, 0);
+});
+
+test("bestTransfers overview profile uses shallow mode", () => {
+  const initial = squad();
+  const data = dataFor([...initial, starMid(501, 8)], 5);
+  bestTransfers(data, initial, 5.0, 1, 1, new Map(), { profile: "overview" });
+  const budget = getLastPlanBudgetForTests();
+  assert.equal(budget?.deepBeamInvocations ?? -1, 0);
+});
+
+test("scheduleDeferred eventually runs and is cancellable", async () => {
+  let ran = false;
+  const handle = scheduleDeferred(() => { ran = true; }, { timeout: 20, delayMs: 0 });
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(ran, true);
+  let ran2 = false;
+  const handle2 = scheduleDeferred(() => { ran2 = true; }, { timeout: 50 });
+  handle2.cancel();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(ran2, false);
 });

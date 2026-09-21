@@ -71,6 +71,19 @@ export type EngineTransfer = {
   nextGwGross: number;
   /** Explicit HOLD / NO TRANSFER ranked option. */
   isHold?: boolean;
+  threeGwNetVsHold?: number;
+  fiveGwNetVsHold?: number;
+  riskAdjustedFiveGwNetVsHold?: number;
+  riskAdjustment?: number;
+  riskDrivers?: { code: string; label: string; detail: string }[];
+  transferNowPath?: string[];
+  holdNowPath?: string[];
+  timingEvVsWait?: number | null;
+  freeTransfersBefore?: number;
+  freeTransfersAfter?: number;
+  freeTransfersUsed?: number;
+  holdNextGwGross?: number;
+  reasonCodes?: string[];
 };
 
 
@@ -138,6 +151,19 @@ export function recommendationToTransfer(rec: TransferRecommendation, playersByI
       hitLabel: "Free",
       nextGwGross: net.nextGwGross,
       isHold: true,
+      threeGwNetVsHold: 0,
+      fiveGwNetVsHold: 0,
+      riskAdjustedFiveGwNetVsHold: 0,
+      riskAdjustment: 1,
+      riskDrivers: net.riskDrivers,
+      transferNowPath: net.transferNowPath,
+      holdNowPath: net.holdNowPath,
+      timingEvVsWait: null,
+      freeTransfersBefore: net.freeTransfersBefore,
+      freeTransfersAfter: net.freeTransfersAfter,
+      freeTransfersUsed: 0,
+      holdNextGwGross: net.holdNextGwGross,
+      reasonCodes: net.reasonCodes,
     };
   }
   const out = resolveEnginePlayer(net.legs[0].out, playersById);
@@ -229,6 +255,19 @@ export function recommendationToTransfer(rec: TransferRecommendation, playersByI
     bankAfter: net.bankAfter,
     hitLabel: net.hitLabel,
     nextGwGross: net.nextGwGross,
+    threeGwNetVsHold: net.threeGwNetVsHold,
+    fiveGwNetVsHold: net.fiveGwNetVsHold,
+    riskAdjustedFiveGwNetVsHold: net.riskAdjustedFiveGwNetVsHold,
+    riskAdjustment: net.riskAdjustment,
+    riskDrivers: net.riskDrivers,
+    transferNowPath: net.transferNowPath,
+    holdNowPath: net.holdNowPath,
+    timingEvVsWait: net.timingEvVsWait,
+    freeTransfersBefore: net.freeTransfersBefore,
+    freeTransfersAfter: net.freeTransfersAfter,
+    freeTransfersUsed: net.freeTransfersUsed,
+    holdNextGwGross: net.holdNextGwGross,
+    reasonCodes: net.reasonCodes,
   };
 }
 
@@ -257,4 +296,11 @@ export function selectPrimaryEngineTransfer(rows: EngineTransfer[]): EngineTrans
     rows.find((row) => row.classification === "LEAN") ??
     null
   );
+}
+
+/** BEST DECISION for the hero: HOLD row when no MAKE/LEAN, else the primary move. */
+export function selectBestDecisionTransfer(rows: EngineTransfer[]): EngineTransfer | null {
+  const actionable = selectPrimaryEngineTransfer(rows);
+  if (actionable) return actionable;
+  return rows.find((row) => row.isHold || row.classification === "HOLD") ?? null;
 }

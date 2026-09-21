@@ -1,6 +1,7 @@
 /**
  * Configurable FPL 2026/27 transfer rules for the recommendation engine.
  * Tunable — never hardcode season constants at call sites.
+ * BALANCED defaults below; FREE vs -4 HIT thresholds are separate.
  */
 
 export type TransferEngineRules = {
@@ -18,14 +19,50 @@ export type TransferEngineRules = {
   horizonGw: number;
   /**
    * Per-GW discount factors applied to squad EP (index 0 = next GW).
-   * Default: 1.00, 0.94, 0.88, 0.82, 0.76
+   * Default: 1.00, 0.94, 0.88, 0.82, 0.76 — DO NOT change projection weights here.
    */
   horizonDiscounts: readonly number[];
-  /** Risk-adj 5-GW NET vs HOLD thresholds for classification. */
-  makeNetThreshold: number;
-  leanNetThreshold: number;
-  /** Below this risk-adj NET → AVOID (when a move was evaluated). */
-  avoidNetCeiling: number;
+
+  // --- FREE transfer classification thresholds (risk-adj 5-GW NET vs HOLD) ---
+  /** FREE: MAKE when risk-adj NET >= this. BALANCED default +2.0 */
+  freeMakeNetThreshold: number;
+  /** FREE: LEAN floor (below MAKE). BALANCED default +0.75 */
+  freeLeanNetThreshold: number;
+  /** FREE: WATCH floor (below LEAN). BALANCED default +0.25 */
+  freeWatchNetThreshold: number;
+  /** FREE: HOLD band half-width around 0. BALANCED default 0.25 → HOLD in [-0.25, +0.25] */
+  freeHoldBand: number;
+  /** FREE: below this → AVOID. BALANCED default -0.25 */
+  freeAvoidNetCeiling: number;
+
+  // --- HIT (-4 / paid) classification thresholds ---
+  /** HIT: MAKE when risk-adj NET >= this. BALANCED default +4.0 */
+  hitMakeNetThreshold: number;
+  /** HIT: LEAN floor. BALANCED default +3.0 */
+  hitLeanNetThreshold: number;
+  /** HIT: WATCH floor. BALANCED default +0.5 */
+  hitWatchNetThreshold: number;
+  /** HIT: HOLD band half-width. BALANCED default 0.25 */
+  hitHoldBand: number;
+  /** HIT: below this → AVOID. BALANCED default 0 (clearly negative) */
+  hitAvoidNetCeiling: number;
+
+  /**
+   * Decision margin: risk-adj NET must clear the MAKE threshold by at least this
+   * extra amount on FREE moves so tiny positives do not become MAKE.
+   */
+  freeMakeMargin: number;
+  /** Extra margin required on top of hitMakeNetThreshold for MAKE on hits. */
+  hitMakeMargin: number;
+
+  /**
+   * When a hit move has shortTermNet (3-GW) < 0 and 5-GW risk-adj is only modest
+   * (below this), classify WATCH instead of LEAN unless long-term is very strong.
+   */
+  hitModestLongTermCeiling: number;
+  /** Long-term risk-adj NET that overrides the short-term-negative → WATCH rule. */
+  hitStrongLongTermFloor: number;
+
   /** Minimum incoming start probability for MAKE (role security). */
   makeStartProbability: number;
   /** Minimum incoming expected minutes for MAKE. */
@@ -48,6 +85,27 @@ export type TransferEngineRules = {
   maxSameOutgoingInResults: number;
   /** Cap how many top results share the same incoming player. */
   maxSameIncomingInResults: number;
+  /** Minimum remaining-horizon gain to take a future free transfer in type-B plans. */
+  futureTransferMargin: number;
+  /** Max week-0 pairs that get a full type-B plan eval (cheap-prefiltered). */
+  maxEvalCandidates: number;
+  /** Hard cap on plan search nodes across one recommendTransfers call. */
+  maxPlanNodes: number;
+  /** Wall-clock soft budget (ms); remaining work is skipped when exceeded. */
+  planTimeBudgetMs: number;
+  /**
+   * Future-GW free-transfer beam. 0 = skip deep future search (Overview first-paint)
+   * while still banking FT on HOLD (type-B FT path preserved).
+   */
+  futureBeamWidth: number;
+
+  // --- Legacy aliases (kept for older callers / JSON) ---
+  /** @deprecated use freeMakeNetThreshold */
+  makeNetThreshold: number;
+  /** @deprecated use freeLeanNetThreshold */
+  leanNetThreshold: number;
+  /** @deprecated use freeAvoidNetCeiling */
+  avoidNetCeiling: number;
 };
 
 export const DEFAULT_TRANSFER_RULES_2026_27: TransferEngineRules = Object.freeze({
@@ -58,21 +116,61 @@ export const DEFAULT_TRANSFER_RULES_2026_27: TransferEngineRules = Object.freeze
   teamLimit: 3,
   horizonGw: 5,
   horizonDiscounts: Object.freeze([1.0, 0.94, 0.88, 0.82, 0.76]),
-  makeNetThreshold: 2.5,
-  leanNetThreshold: 1.0,
-  avoidNetCeiling: -0.5,
+
+  freeMakeNetThreshold: 2.0,
+  freeLeanNetThreshold: 0.75,
+  freeWatchNetThreshold: 0.25,
+  freeHoldBand: 0.25,
+  freeAvoidNetCeiling: -0.25,
+
+  hitMakeNetThreshold: 4.0,
+  hitLeanNetThreshold: 3.0,
+  hitWatchNetThreshold: 0.5,
+  hitHoldBand: 0.25,
+  hitAvoidNetCeiling: 0,
+
+  freeMakeMargin: 0.15,
+  hitMakeMargin: 0.35,
+
+  hitModestLongTermCeiling: 2.5,
+  hitStrongLongTermFloor: 5.0,
+
   makeStartProbability: 0.7,
   makeExpectedMinutes: 60,
   makeConfidence: 0.55,
   watchStartProbability: 0.55,
   watchExpectedMinutes: 45,
   watchConfidence: 0.35,
-  beamWidth: 36,
-  candidatePoolPerPosition: 18,
+  beamWidth: 12,
+  candidatePoolPerPosition: 12,
   resultLimit: 24,
   maxWeek1Hit: 8,
   maxSameOutgoingInResults: 2,
   maxSameIncomingInResults: 2,
+  futureTransferMargin: 0.35,
+  maxEvalCandidates: 40,
+  maxPlanNodes: 6000,
+  planTimeBudgetMs: 180,
+  futureBeamWidth: 8,
+
+  // Legacy mirrors of FREE thresholds
+  makeNetThreshold: 2.0,
+  leanNetThreshold: 0.75,
+  avoidNetCeiling: -0.25,
+});
+
+/**
+ * Overview / first-paint profile: type-B HOLD still banks FT, but skips deep
+ * future free-transfer beam so Live Overview cannot hang Chrome (RESULT_CODE_HUNG).
+ */
+export const OVERVIEW_TRANSFER_RULES: Partial<TransferEngineRules> = Object.freeze({
+  candidatePoolPerPosition: 6,
+  beamWidth: 0,
+  futureBeamWidth: 0,
+  maxEvalCandidates: 8,
+  maxPlanNodes: 800,
+  planTimeBudgetMs: 45,
+  resultLimit: 1,
 });
 
 export function mergeTransferRules(
@@ -80,11 +178,22 @@ export function mergeTransferRules(
 ): TransferEngineRules {
   const base = DEFAULT_TRANSFER_RULES_2026_27;
   const discounts = overrides.horizonDiscounts ?? base.horizonDiscounts;
-  return {
+  const merged = {
     ...base,
     ...overrides,
-    horizonDiscounts: Object.freeze([...discounts]),
+    horizonDiscounts: Object.freeze([...discounts]) as readonly number[],
   };
+  // Keep legacy aliases in sync when only the new keys are overridden.
+  if (overrides.freeMakeNetThreshold !== undefined && overrides.makeNetThreshold === undefined) {
+    merged.makeNetThreshold = overrides.freeMakeNetThreshold;
+  }
+  if (overrides.freeLeanNetThreshold !== undefined && overrides.leanNetThreshold === undefined) {
+    merged.leanNetThreshold = overrides.freeLeanNetThreshold;
+  }
+  if (overrides.freeAvoidNetCeiling !== undefined && overrides.avoidNetCeiling === undefined) {
+    merged.avoidNetCeiling = overrides.freeAvoidNetCeiling;
+  }
+  return merged;
 }
 
 /** Official hit formula: max(0, n − FT) × hitPoints. */
@@ -128,4 +237,18 @@ export function hitLabel(
   if (hitCost === rules.hitPointsPerTransfer) return "-4";
   if (hitCost === rules.hitPointsPerTransfer * 2) return "-8";
   return `−${hitCost}`;
+}
+
+/** Active threshold set for a move given whether a hit is paid. */
+export function thresholdsForHit(hitCost: number, rules: TransferEngineRules) {
+  const isHit = hitCost > 0;
+  return {
+    isHit,
+    make: isHit ? rules.hitMakeNetThreshold : rules.freeMakeNetThreshold,
+    lean: isHit ? rules.hitLeanNetThreshold : rules.freeLeanNetThreshold,
+    watch: isHit ? rules.hitWatchNetThreshold : rules.freeWatchNetThreshold,
+    holdBand: isHit ? rules.hitHoldBand : rules.freeHoldBand,
+    avoid: isHit ? rules.hitAvoidNetCeiling : rules.freeAvoidNetCeiling,
+    makeMargin: isHit ? rules.hitMakeMargin : rules.freeMakeMargin,
+  };
 }
