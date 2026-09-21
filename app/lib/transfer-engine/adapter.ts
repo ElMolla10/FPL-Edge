@@ -69,11 +69,54 @@ export type EngineTransfer = {
   bankAfter: number;
   hitLabel: string;
   nextGwGross: number;
+  /** Explicit HOLD / NO TRANSFER ranked option. */
+  isHold?: boolean;
 };
 
 export function recommendationToTransfer(rec: TransferRecommendation): EngineTransfer | null {
-  if (!rec.net.legs.length) return null;
   const net = rec.net;
+  if (!net.legs.length) {
+    if (rec.classification !== "HOLD" && rec.classification !== "ROLL") return null;
+    const stub = { id: 0, name: "HOLD", positionShort: "MID", price: 0, teamShort: "—", teamId: 0 } as unknown as FplPlayer;
+    const stubIn = { ...stub, name: "NO TRANSFER" } as unknown as FplPlayer;
+    return {
+      out: stub,
+      incoming: stubIn,
+      gain1: 0, gain3: 0, gain5: 0,
+      individualGain1: 0, individualGain3: 0, individualGain5: 0,
+      outGw1: 0, inGw1: 0, outGw3: 0, inGw3: 0, outGw5: 0, inGw5: 0,
+      price: 0, minutes: 0, expectedMinutesOut: 0, expectedMinutesIn: 0,
+      startProbOut: 1, startProbIn: 1, dcOut: 0, dcIn: 0,
+      attackingOut: 0, attackingIn: 0, fixtureAdjustmentIn: 3,
+      confidenceOut: 1, confidenceIn: 1,
+      teamAttackIn: 1, teamDefenceIn: 1, opponentDefenceIn: 1, opponentAttackIn: 1,
+      fixtureAttackMultiplierIn: 1, fixtureDefenceMultiplierIn: 1,
+      outMetrics: net.outMetrics, inMetrics: net.inMetrics,
+      gainBand: classifyFiveGwGain(0),
+      anomalies: [],
+      hitCost: 0,
+      netDifference: 0,
+      utilityChange: null,
+      rankScore: 0,
+      reviewRequired: false,
+      weeklyGains: net.weeklyGrossDeltas,
+      positiveWeeks: 0,
+      gainWithoutBestWeek: 0,
+      qualityStatus: "watchlist",
+      qualityScore: 100,
+      qualityReasons: [{ code: "engine-hold", message: rec.reason }],
+      risk: "Low",
+      classification: "HOLD",
+      engineReason: rec.reason,
+      netEv3: 0,
+      netEv5: 0,
+      riskAdjustedNet5: 0,
+      bankAfter: net.bankAfter,
+      hitLabel: "Free",
+      nextGwGross: net.nextGwGross,
+      isHold: true,
+    };
+  }
   const out = net.legs[0].out;
   const incoming = net.legs[0].incoming;
   const om = net.outMetrics;

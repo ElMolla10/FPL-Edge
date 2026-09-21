@@ -45,6 +45,7 @@ export {
   createTeamState,
   recommendTransfers,
   recommendationsToJson,
+  diversifyRecommendations,
 } from "./recommend";
 
 export {

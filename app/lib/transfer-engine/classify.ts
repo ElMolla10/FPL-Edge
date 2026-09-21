@@ -14,8 +14,8 @@ export function classifyTransfer(
 ): { classification: TransferClassification; reason: string } {
   if (input.isHold || !input.net || input.net.transferCount === 0) {
     return {
-      classification: "ROLL",
-      reason: "Hold the squad and bank the free transfer — no move clears the risk-adjusted NET bar versus HOLD.",
+      classification: "HOLD",
+      reason: "HOLD / NO TRANSFER — keep the current squad. Hit-adjusted alternatives do not clear the risk-adjusted NET bar versus doing nothing.",
     };
   }
 
@@ -86,7 +86,7 @@ export function buildRecommendationCard(
 ): TransferRecommendationCard {
   if (!net || net.transferCount === 0) {
     return {
-      classification: "ROLL",
+      classification: "HOLD",
       outName: "—",
       inName: "—",
       outId: 0,
@@ -128,6 +128,6 @@ export function classificationToLegacyQuality(
   classification: TransferClassification,
 ): "actionable" | "watchlist" | "blocked" {
   if (classification === "MAKE" || classification === "LEAN") return "actionable";
-  if (classification === "WATCH" || classification === "ROLL") return "watchlist";
+  if (classification === "WATCH" || classification === "ROLL" || classification === "HOLD") return "watchlist";
   return "blocked";
 }

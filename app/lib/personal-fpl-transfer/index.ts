@@ -38,6 +38,8 @@ export {
 } from "./store";
 export {
   liveTeamFinanceFromMyTeam,
+  remainingFreeTransfers,
+  resolveAuthoritativeFreeTransfers,
   resolveTransferBankMillions,
   tryFetchLiveTeamFinance,
   type LiveOverlayError,

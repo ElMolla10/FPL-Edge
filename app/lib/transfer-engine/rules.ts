@@ -44,6 +44,10 @@ export type TransferEngineRules = {
   resultLimit: number;
   /** Max hit points allowed in week-1 evaluation (0 / 4 / 8). */
   maxWeek1Hit: number;
+  /** Cap how many top results share the same outgoing player (family diversity). */
+  maxSameOutgoingInResults: number;
+  /** Cap how many top results share the same incoming player. */
+  maxSameIncomingInResults: number;
 };
 
 export const DEFAULT_TRANSFER_RULES_2026_27: TransferEngineRules = Object.freeze({
@@ -67,6 +71,8 @@ export const DEFAULT_TRANSFER_RULES_2026_27: TransferEngineRules = Object.freeze
   candidatePoolPerPosition: 18,
   resultLimit: 24,
   maxWeek1Hit: 8,
+  maxSameOutgoingInResults: 2,
+  maxSameIncomingInResults: 2,
 });
 
 export function mergeTransferRules(

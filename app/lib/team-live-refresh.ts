@@ -77,6 +77,9 @@ export function cachedTeamDiffersFromApi(playerIds: number[], manager: TeamApiMa
   if (!cached) return true;
   if (cached.bank !== manager.bank) return true;
   if ((cached.bankSource ?? null) !== (manager.bankSource ?? null)) return true;
+  if ((cached.transfersMade ?? null) !== (manager.transfersMade ?? null)) return true;
+  if ((cached.transferCost ?? null) !== (manager.transferCost ?? null)) return true;
+  if ((cached.freeTransferLimit ?? null) !== (manager.freeTransferLimit ?? null)) return true;
 
   const cachedPicks = Array.isArray(cached.picks) ? cached.picks : [];
   const apiPicks = Array.isArray(manager.picks) ? manager.picks : [];
