@@ -153,3 +153,18 @@ test("priceProtectionAlerts: no fetched priceOutlook (empty array, e.g. a fixtur
   const squad = [makePlayer({ id: 1, priceProjectionToday: 3, priceOutlook: [] })];
   assert.deepEqual(priceProtectionAlerts(squad), []);
 });
+
+test("priceOutlookSignal: missing/undefined priceOutlook never crashes (HOLD stubs / partial players)", () => {
+  const missing = makePlayer({ id: 1 });
+  // Simulate engine HOLD stub / incomplete cast that omitted the field entirely.
+  delete (missing as { priceOutlook?: unknown }).priceOutlook;
+  assert.deepEqual(priceOutlookSignal(missing), []);
+  const nil = makePlayer({ id: 2, priceOutlook: undefined as unknown as [] });
+  assert.deepEqual(priceOutlookSignal(nil), []);
+});
+
+test("priceProtectionAlerts: missing priceOutlook never crashes", () => {
+  const player = makePlayer({ id: 1, priceProjectionToday: 3 });
+  delete (player as { priceOutlook?: unknown }).priceOutlook;
+  assert.deepEqual(priceProtectionAlerts([player]), []);
+});
