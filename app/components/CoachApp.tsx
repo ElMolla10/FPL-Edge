@@ -863,9 +863,13 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
   },[populationPercentiles,meta,primaryMain,best]);
   if(!a)return <div className="coach-page"><h1 className="screen-title">Transfers</h1><ConnectTeam data={data} onConnected={m=>{setMeta(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Build manually instead →</button></div>;
   if(rankingBlocked)return <div className="coach-page"><h1 className="screen-title">Transfers</h1><ReconnectFplPanel errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{const live=await refreshConnectedTeamFromApi(data,{force:true});try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}if(live.updated)onTeamChange()}}/></div>;
-  const actionableRows=rows.filter(row=>row.qualityStatus==="actionable");
-  const watchlistRows=rows.filter(row=>row.qualityStatus==="watchlist");
-  const blockedRows=rows.filter(row=>row.qualityStatus==="blocked");
+  const makeRows=rows.filter(row=>row.classification==="MAKE");
+  const leanRows=rows.filter(row=>row.classification==="LEAN");
+  const watchRows=rows.filter(row=>row.classification==="WATCH"||(!row.classification&&row.qualityStatus==="watchlist"));
+  const avoidRows=rows.filter(row=>row.classification==="AVOID"||(!row.classification&&row.qualityStatus==="blocked"));
+  const actionableRows=makeRows.length||leanRows.length?[...makeRows,...leanRows]:rows.filter(row=>row.qualityStatus==="actionable");
+  const watchlistRows=watchRows;
+  const blockedRows=avoidRows;
   const holdNote=transferHoldNote(nearestInHorizon(detectFixtureAnomalies(data).doubles,futureEvents(data,5).map(e=>e.id)),roll);
   const setWatch=(id:number)=>{const next=watchIds.includes(id)?watchIds.filter(x=>x!==id):[...watchIds,id];setWatchIds(next);persist("fpl-edge-watchlist",JSON.stringify(next))};
   const toggleExpand=(key:string)=>setExpanded(x=>{const next=new Set(x);next.has(key)?next.delete(key):next.add(key);return next});
@@ -877,8 +881,18 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
       <section className="recommended-move">
         <div className="call-label"><span>RECOMMENDED MOVE</span><b>{roll?"SAVE":"QUALITY-GATED EDGE"}</b></div>
         <h2>{roll?"ROLL":`${best.out.name} → ${best.incoming.name}`}</h2>
-        <p>{roll?"No actionable single transfer clears both the 2.2-point threshold and the projection-evidence, minutes and robustness gates.":`This is the highest-ranked legal route that passed every quality gate. ${best.risk} minutes risk.`}</p>
-        {!roll&&<div>{[["GW","1",best.gain1],["NEXT","3",best.gain3],["NEXT","5",best.gain5]].map(([label,n,value])=><span key={String(n)}><small>{label} {n}</small><b>{Number(value)>=0?"+":""}{Number(value).toFixed(1)} pts</b></span>)}<span><small>PRICE DIFFERENCE</small><b>{`${best.price>=0?"+":"−"}£${Math.abs(best.price).toFixed(1)}m`}</b></span><span><small>EXPECTED MINUTES</small><b>{`${best.minutes>=0?"+":""}${Math.round(best.minutes)}`}</b></span><span><small>TRANSFER HIT</small><b>{best.hitCost?`−${best.hitCost}`:"None"}</b></span><span><small>NET (AFTER HIT)</small><b>{best.netDifference>=0?"+":""}{best.netDifference.toFixed(1)} pts</b></span>{best.utilityChange!==null&&<span><small>RISK-ADJUSTED OBJECTIVE</small><b>{best.utilityChange>=0?"+":""}{best.utilityChange.toFixed(1)}</b><em>Optimizer objective; not the /100 team rating</em></span>}</div>}
+        <p>{roll?"No transfer clears the risk-adjusted 5-GW NET vs HOLD bar — ROLL and bank the free transfer.":`Highest risk-adjusted 5-GW NET vs HOLD among legal MAKE/LEAN moves. ${best.risk} minutes risk.`}</p>
+        {!roll&&<div>
+          <span><small>CLASSIFICATION</small><b>{best.classification??"LEAN"}</b></span>
+          <span><small>HIT</small><b>{best.hitLabel??(best.hitCost?`−${best.hitCost}`:"Free")}</b></span>
+          <span><small>BANK AFTER</small><b>£{(best.bankAfter??0).toFixed(1)}m</b></span>
+          <span><small>NEXT GW GROSS</small><b>{(best.nextGwGross??best.gain1).toFixed(1)}</b></span>
+          <span><small>3-GW NET</small><b>{(best.netEv3??best.netDifference)>=0?"+":""}{(best.netEv3??best.netDifference).toFixed(1)}</b></span>
+          <span><small>5-GW NET</small><b>{(best.netEv5??best.netDifference)>=0?"+":""}{(best.netEv5??best.netDifference).toFixed(1)}</b></span>
+          <span><small>RISK-ADJ 5-GW NET</small><b>{(best.riskAdjustedNet5??best.rankScore)>=0?"+":""}{(best.riskAdjustedNet5??best.rankScore).toFixed(1)}</b></span>
+          <span><small>CONFIDENCE</small><b>{Math.round(best.confidenceIn*100)}%</b></span>
+        </div>}
+        {!roll&&best.engineReason&&<p className="engine-reason-hero">{best.engineReason}</p>}
         <strong>{roll?"Recommendation: SAVE THE TRANSFER":best.gain1-best.hitCost>0?"Recommendation: MOVE NOW":"Recommendation: WAIT / RECHECK"}</strong>
         {!roll&&a&&<PersonalTransferPlace elementOut={best.out.id} elementIn={best.incoming.id} event={a.first} purchasePrice={best.incoming.price} outName={best.out.name} inName={best.incoming.name} note="Shortcut for the top recommended move — expand any ranked route below, or use Draft Lab sandbox, to place a different transfer."/>}
       </section>
@@ -889,10 +903,10 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
         <RankEstimatePanel title="Estimated rank if this transfer plays out" result={primaryRankEstimate} />
       </section>}
       {fullDesk&&holdNote&&<p className="transfer-hold-note">{holdNote}</p>}
-      {fullDesk&&<section className="quality-gate-summary"><header><span>RECOMMENDATION QUALITY GATE</span><h2>Raw upside must earn the right to be ranked.</h2></header><div><article><b>{actionableRows.length}</b><span>Actionable</span><small>Can become the primary recommendation</small></article><article><b>{watchlistRows.length}</b><span>Watchlist</span><small>Promising, but evidence or timing is incomplete</small></article><article><b>{blockedRows.length}</b><span>Blocked</span><small>Fails a hard plausibility or role-security floor</small></article></div></section>}
-      {fullDesk&&<TransferRouteList title="Actionable routes" eyebrow="PASSED EVERY GATE" rows={actionableRows.slice(0,10)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
-      {fullDesk&&<TransferRouteList title="Watchlist routes" eyebrow="NOT READY TO RECOMMEND" rows={watchlistRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
-      {fullDesk&&<TransferRouteList title="Blocked by the quality gate" eyebrow="VISIBLE FOR AUDIT · NEVER RANKED #1" rows={blockedRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
+      {fullDesk&&<section className="quality-gate-summary engine-class-summary"><header><span>NET VS HOLD · CLASSIFICATION</span><h2>Risk-adjusted 5-GW NET decides MAKE / LEAN / ROLL / WATCH / AVOID.</h2></header><div><article><b>{makeRows.length}</b><span>MAKE</span><small>Clear NET edge after hit</small></article><article><b>{leanRows.length}</b><span>LEAN</span><small>Positive but thinner edge</small></article><article><b>{watchlistRows.length}</b><span>WATCH</span><small>Incomplete evidence or timing</small></article><article><b>{blockedRows.length}</b><span>AVOID</span><small>Negative NET or weak role</small></article></div></section>}
+      {fullDesk&&<TransferRouteList title="MAKE & LEAN" eyebrow="PRIMARY RANKING" rows={actionableRows.slice(0,10)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
+      {fullDesk&&<TransferRouteList title="WATCH" eyebrow="MONITOR · NOT PRIMARY" rows={watchlistRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
+      {fullDesk&&<TransferRouteList title="AVOID" eyebrow="AUDIT ONLY · NEVER #1" rows={blockedRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
       {fullDesk&&<PriceIntel rows={rows}/>}
       {fullDesk&&process.env.NODE_ENV!=="production"&&<TransferDebugTable rows={rows.slice(0,10)}/>}
       {!fullDesk&&<SeasonLocked feature="Safe and aggressive alternatives, and multi-week routes, are part of the season pass." onUpgrade={onUpgrade}/>}
@@ -951,19 +965,22 @@ function TransferRoutePlanner({routes,horizon,setHorizon,maxWeeklyHit,setMaxWeek
 
 function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,setWatch,confidence,event}:{title:string;eyebrow:string;rows:Transfer[];expanded:Set<string>;toggleExpand:(key:string)=>void;watchIds:number[];setWatch:(id:number)=>void;confidence:ReturnType<typeof useTransferDecisionConfidence>;event:number}){
   if(!rows.length)return null;
-  return <section className={`ranked-moves quality-${rows[0].qualityStatus}`}>
-    <header><div><span>{eyebrow}</span><h2>{title}</h2></div><small>{rows[0].qualityStatus==="actionable"?"Ranked by quality-adjusted squad impact":"Kept separate from the primary recommendation"}</small></header>
-    {rows.map((r,i)=>{const key=`${r.out.id}-${r.incoming.id}`;const isOpen=expanded.has(key);return <article key={key} className={`quality-${r.qualityStatus}`}>
+  const classKey=(r:Transfer)=>r.classification?.toLowerCase()??r.qualityStatus;
+  return <section className={`ranked-moves quality-${rows[0].qualityStatus} engine-${classKey(rows[0])}`}>
+    <header><div><span>{eyebrow}</span><h2>{title}</h2></div><small>Ranked by risk-adjusted 5-GW NET vs HOLD</small></header>
+    {rows.map((r,i)=>{const key=`${r.out.id}-${r.incoming.id}`;const isOpen=expanded.has(key);const net3=r.netEv3??r.netDifference;const net5=r.netEv5??r.netDifference;const hit=r.hitLabel??(r.hitCost?`−${r.hitCost}`:"Free");const cls=r.classification??(r.qualityStatus==="actionable"?"LEAN":r.qualityStatus==="watchlist"?"WATCH":"AVOID");return <article key={key} className={`quality-${r.qualityStatus} engine-${String(cls).toLowerCase()}`}>
       <i>{i+1}</i>
-      <div><span>{r.out.name}</span><b>→ {r.incoming.name}</b><small>{r.incoming.teamShort} · £{r.incoming.price.toFixed(1)}m</small></div>
-      <p><b>{r.gain1>=0?"+":""}{r.gain1.toFixed(1)}</b><small>GW</small></p>
-      <p><b>{r.gain3>=0?"+":""}{r.gain3.toFixed(1)}</b><small>3 GW</small></p>
-      <p><b>{r.gain5>=0?"+":""}{r.gain5.toFixed(1)}</b><small>5 GW squad</small></p>
-      <em className={`quality-badge ${r.qualityStatus}`}>{r.qualityStatus} · {r.qualityScore}/100</em>
-      <em className={r.risk.toLowerCase()}>{r.risk} risk</em>
+      <div><span>{r.out.name}</span><b>→ {r.incoming.name}</b><small>{r.incoming.teamShort} · £{r.incoming.price.toFixed(1)}m · bank after £{(r.bankAfter??0).toFixed(1)}m</small></div>
+      <p><b>{hit}</b><small>Hit</small></p>
+      <p><b>{(r.nextGwGross??r.gain1)>=0&&r.nextGwGross!==undefined?r.nextGwGross.toFixed(1):(r.gain1>=0?"+":"")+r.gain1.toFixed(1)}</b><small>Next GW gross</small></p>
+      <p><b>{net3>=0?"+":""}{net3.toFixed(1)}</b><small>3-GW NET</small></p>
+      <p><b>{net5>=0?"+":""}{net5.toFixed(1)}</b><small>5-GW NET</small></p>
+      <em className={`quality-badge engine-badge ${String(cls).toLowerCase()}`}>{cls}</em>
+      <em className={r.risk.toLowerCase()}>{Math.round((r.confidenceIn??0)*100)}% conf · {r.risk}</em>
       <button onClick={()=>toggleExpand(key)}>{isOpen?"Hide detail":"Show detail"}</button>
       <button onClick={()=>setWatch(r.incoming.id)}>{watchIds.includes(r.incoming.id)?"Watching ✓":"Watch"}</button>
       {isOpen&&<>
+        <p className="engine-reason">{r.engineReason??r.qualityReasons[0]?.message??""}</p>
         <TransferBreakdown r={r} decision={confidence.state.results[confidence.keyFor(r)]} analysisActive={confidence.state.activeKey===confidence.keyFor(r)} analysisBusy={confidence.state.activeKey!==null} onAnalyze={()=>confidence.analyzeAlternative(r)}/>
         <PersonalTransferPlace elementOut={r.out.id} elementIn={r.incoming.id} event={event} purchasePrice={r.incoming.price} outName={r.out.name} inName={r.incoming.name} note="Places this ranked route — not limited to the top recommendation."/>
       </>}

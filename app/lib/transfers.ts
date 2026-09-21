@@ -2,25 +2,14 @@ import { FplData, FplPlayer, ProjectionMetrics, futureEvents, isCompleteSquad, p
 import { AnomalyFlag, FiveGwGainBand, classifyFiveGwGain, transferAnomalies } from "./anomalies";
 import { TRANSFER_ACTION_THRESHOLD, TransferQualityReason, TransferQualityStatus, evaluateTransferQuality, transferHitCost } from "./transfer-quality";
 import { plannedChipFor, readPlannedChips } from "./chip-portfolio";
-import { conservativeSellingFromSeasonChange } from "./fpl-selling-price";
+import {
+  bestTransfersFromEngine,
+  isLegalSingleTransfer,
+  selectPrimaryEngineTransfer,
+  type TransferClassification,
+} from "./transfer-engine";
 
-// When the selling-price map omits an owned player, never fall back to raw now_cost for
-// risen players — that overstates ITB (FPL keeps only floor(rises/2)). Season-start
-// purchase + official formula is the conservative public-data bound.
-function salePriceFallback(player: FplPlayer): number {
-  const derived = conservativeSellingFromSeasonChange(player.price, player.priceChangeSinceStart ?? 0);
-  return Number.isFinite(derived) && derived >= 0 ? Math.round(derived * 10) / 10 : player.price;
-}
 
-// Moved from CoachApp.tsx (Phase 1 of the Draft Lab result-mode work) so LiveDraftBuilder.tsx's
-// "Best available transfer right now" can call the real, already-battle-tested single-transfer
-// engine directly -- real selling-price handling when connected, whole-squad re-optimized ranking
-// (not a player-level approximation), the full evaluateTransferQuality gate, real hit cost -- rather
-// than building a second, weaker computation from the recommended-changes diff mechanism. Same
-// circular-import reason as the Pitch/transfer-quality extractions: CoachApp.tsx already imports
-// LiveDraftBuilder, so LiveDraftBuilder importing this back from CoachApp.tsx would cycle.
-// sortTransfersByQuality/selectPrimaryTransfer stay bundled with Transfer/bestTransfers here since
-// all four are one cohesive unit, not independently useful pieces.
 export type Transfer={
   out:FplPlayer;incoming:FplPlayer;
   gain1:number;gain3:number;gain5:number;
@@ -38,25 +27,36 @@ export type Transfer={
   weeklyGains:number[];positiveWeeks:number;gainWithoutBestWeek:number;
   qualityStatus:TransferQualityStatus;qualityScore:number;qualityReasons:TransferQualityReason[];
   risk:"Low"|"Medium"|"High";
+  /** Present when ranked by the 2026 transfer-engine rebuild. */
+  classification?:TransferClassification;
+  engineReason?:string;
+  netEv3?:number;
+  netEv5?:number;
+  riskAdjustedNet5?:number;
+  bankAfter?:number;
+  hitLabel?:string;
+  nextGwGross?:number;
 };
 
 const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
 const qualityOrder:Record<TransferQualityStatus,number>={actionable:0,watchlist:1,blocked:2};
+const classificationOrder:Record<TransferClassification,number>={MAKE:0,LEAN:1,WATCH:2,ROLL:3,AVOID:4};
 
 export function sortTransfersByQuality(rows:Transfer[]):Transfer[]{
-  return [...rows].sort((a,b)=>qualityOrder[a.qualityStatus]-qualityOrder[b.qualityStatus]||b.rankScore-a.rankScore||b.netDifference-a.netDifference);
+  return [...rows].sort((a,b)=>{
+    const ca=a.classification,cb=b.classification;
+    if(ca&&cb&&ca!==cb)return classificationOrder[ca]-classificationOrder[cb];
+    return qualityOrder[a.qualityStatus]-qualityOrder[b.qualityStatus]||b.rankScore-a.rankScore||b.netDifference-a.netDifference;
+  });
 }
 
 export function selectPrimaryTransfer(rows:Transfer[],threshold=TRANSFER_ACTION_THRESHOLD):Transfer|null{
+  const enginePrimary=selectPrimaryEngineTransfer(rows as Parameters<typeof selectPrimaryEngineTransfer>[0]);
+  if(enginePrimary)return enginePrimary;
+  // Legacy fallback when rows lack classification (e.g. evaluateTransfer ad-hoc pairs).
   return sortTransfersByQuality(rows).find(row=>row.qualityStatus==="actionable"&&row.rankScore>=threshold)??null;
 }
 
-// Shared setup for scoring transfers against ONE squad: the whole-squad best-XI+captain baseline
-// (per gameweek, before any swap) and a memoized single-player projection lookup. Split out of
-// bestTransfers() so evaluateTransfer() (a single ad-hoc pair, e.g. a live Draft Lab pitch swap) can
-// build the same baseline without needing bestTransfers()'s full candidate sweep, while bestTransfers()
-// itself still computes this ONCE per call rather than once per (out,incoming) pair -- that reuse is
-// the reason this stayed a closure-returning function rather than being folded into buildTransferRow.
 type TransferBaseline={
   events:{id:number}[];first:number;hitCost:number;
   projected:(player:FplPlayer,eventId:number)=>number;
@@ -70,23 +70,12 @@ function buildTransferBaseline(data:FplData,squad:FplPlayer[],freeTransfers:numb
   const hitCost=hitCostOverride??transferHitCost(1,freeTransfers);
   const projectionCache=new Map<string,number>();
   const projected=(player:FplPlayer,eventId:number)=>{const key=`${player.id}:${eventId}`;if(!projectionCache.has(key))projectionCache.set(key,playerProjection(player,eventId,data.fixtures,first));return projectionCache.get(key)!};
-  // A planned Triple Captain/Bench Boost for a specific future event adds one more term to
-  // whichever candidate squad is being scored for THAT event only -- same two-term addition
-  // evaluateProjectionReceipt already uses to reconcile a receipt against the real chip that was
-  // played (CoachApp.tsx), just applied forward from an unconfirmed plan instead of backward from
-  // confirmed history. Wildcard/Free Hit are deliberately NOT handled here (Option A, Feature #7
-  // revision): they change which 15 players this formula should even be scoring, not a term within
-  // it, and squadWeekTotal always scores one fixed candidate squad passed in by the caller.
   const plannedChips=readPlannedChips();
   const squadWeekTotal=(players:FplPlayer[],eventId:number)=>{let best=0;const score=(p:FplPlayer)=>projected(p,eventId);const keepers=players.filter(p=>p.positionShort==="GKP").sort((a,b)=>score(b)-score(a));const chip=plannedChipFor(plannedChips,eventId);for(let def=3;def<=5;def++)for(let mid=2;mid<=5;mid++){const fwd=10-def-mid;if(fwd<1||fwd>3)continue;const xi=[keepers[0],...players.filter(p=>p.positionShort==="DEF").sort((a,b)=>score(b)-score(a)).slice(0,def),...players.filter(p=>p.positionShort==="MID").sort((a,b)=>score(b)-score(a)).slice(0,mid),...players.filter(p=>p.positionShort==="FWD").sort((a,b)=>score(b)-score(a)).slice(0,fwd)].filter(Boolean);if(xi.length!==11)continue;const captain=[...xi].sort((a,b)=>score(b)-score(a))[0];const captainBonus=chip==="Triple Captain"?score(captain):0;const benchBonus=chip==="Bench Boost"?players.filter(p=>!xi.includes(p)).reduce((sum,p)=>sum+score(p),0):0;best=Math.max(best,xi.reduce((sum,p)=>sum+score(p),0)+score(captain)+captainBonus+benchBonus)}return best};
   const baselineSquadByEvent=events.map(event=>squadWeekTotal(squad,event.id));
   return{events,first,hitCost,projected,squadWeekTotal,baselineSquadByEvent};
 }
 
-// The actual per-candidate computation -- moved verbatim out of bestTransfers()'s loop body, not
-// rewritten. om/outByEvent are passed in (not recomputed here) because bestTransfers() computes them
-// once per OUT player and reuses them across every candidate IN player for that OUT; recomputing
-// them per pair here would silently reintroduce the O(squad x pool) cost this split is meant to avoid.
 function buildTransferRow(data:FplData,squad:FplPlayer[],baseline:TransferBaseline,out:FplPlayer,om:ProjectionMetrics,outByEvent:number[],incoming:FplPlayer):Transfer{
   const{events,first,hitCost,projected,squadWeekTotal,baselineSquadByEvent}=baseline;
   const outGw1=outByEvent[0]||0,outGw3=outByEvent.slice(0,3).reduce((a,b)=>a+b,0),outGw5=outByEvent.reduce((a,b)=>a+b,0);
@@ -94,10 +83,6 @@ function buildTransferRow(data:FplData,squad:FplPlayer[],baseline:TransferBaseli
   const inByEvent=events.map(e=>projected(incoming,e.id));
   const inGw1=inByEvent[0]||0,inGw3=inByEvent.slice(0,3).reduce((a,b)=>a+b,0),inGw5=inByEvent.reduce((a,b)=>a+b,0);
   const individualGain1=inGw1-outGw1,individualGain3=inGw3-outGw3,individualGain5=inGw5-outGw5;
-  // Standing decision (reviewed ac6a221): rank by the whole-squad re-optimized delta
-  // (best XI + captain before vs after the swap), not the raw individual player delta above.
-  // This matches the optimizer's own squad-level objective rather than a player-level one, and
-  // individualGain1/3/5 stay on the row so the breakdown UI can still show the simpler number.
   const swapped=squad.map(player=>player.id===out.id?incoming:player);
   const swappedSquadByEvent=events.map(event=>squadWeekTotal(swapped,event.id));
   const squadDeltas=swappedSquadByEvent.map((total,index)=>total-baselineSquadByEvent[index]);
@@ -110,24 +95,6 @@ function buildTransferRow(data:FplData,squad:FplPlayer[],baseline:TransferBaseli
   const calibration=playerCalibrationProfile(incoming);
   const quality=evaluateTransferQuality({gain1,gain3,gain5,weeklyGains:squadDeltas,expectedMinutes:im.expectedMinutes,startProbability:im.startProbability,confidence:im.confidence,calibrationGroup:calibration.group,lowPlContinuityClub:calibration.lowPlContinuityClub,anomalyCodes:anomalies.map(flag=>flag.code)});
   const reviewRequired=quality.status==="blocked";
-  // Standing decision (reviewed ac6a221, re-affirmed in the Decision Confidence Engine
-  // integration review): bounded 0.55-1.0x discount on positive gain, sized so it can never invert
-  // a ranking. This is a point-estimate risk adjustment for exactly the failure class this
-  // projection engine review started from (Hull City's Mendy/Ajayi -- see the ac6a221 review).
-  //
-  // The joint squad-level Monte Carlo Decision Confidence Engine (008867b onward) is NOT a
-  // replacement for this multiplier and this is not a removal-pending stopgap anymore: the engine
-  // is deliberately too expensive to run across bestTransfers()'s full ~200-candidate sweep, so it
-  // was scoped from the start to run once, opt-in, on an already-ranked single candidate (primary
-  // transfer or a user-selected alternative) as deep verification -- not as the ranking mechanism.
-  // confidenceMultiplier remains the only risk adjustment applied across the full sweep and is not
-  // stacked with the engine's output; they answer different questions at different candidate counts.
-  //
-  // Replacing confidenceMultiplier still needs either (a) a cheap per-candidate approximation built
-  // from the engine's own cheap-to-compute primitives -- e.g. playerPointsDistribution's per-player
-  // blank/haul probabilities, not a full per-candidate Monte Carlo run -- or (b) a fundamentally
-  // different ranking architecture that doesn't require re-scoring every candidate at simulation
-  // cost. Neither exists yet. This is real future design work, not a pending removal.
   const confidenceMultiplier=clamp(.55+im.startProbability*.25+im.confidence*.2,.55,1);
   const riskAdjustedGain=(gain5>0?gain5*confidenceMultiplier:gain5)-hitCost;
   const qualityAdjustedGain=riskAdjustedGain*(.7+quality.score*.003);
@@ -150,15 +117,7 @@ function buildTransferRow(data:FplData,squad:FplPlayer[],baseline:TransferBaseli
   };
 }
 
-// Standalone single-pair evaluator -- added for Draft Lab's pitch-click swap (click a player, pick
-// a specific replacement, get the same real breakdown bestTransfers() gives its ranked candidates).
-// Deliberately takes no bank/sellingPrices: the caller (bestTransfers()'s loop, or Draft Lab's own
-// swap() validation) is responsible for confirming the pair is legal and affordable BEFORE calling
-// this -- it computes the projection/quality/gain breakdown for a given pair, it does not gate
-// eligibility. Throws if there is no future event to project against (the season is over); every
-// real call site already requires live event data to reach this point at all (Draft Lab hides the
-// swap interaction whenever eventIds is empty), so this is a genuine precondition, not a normal
-// control-flow path to render around.
+/** Ad-hoc single-pair evaluator for Draft Lab pitch swaps (not the ranking sweep). */
 export function evaluateTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer,incoming:FplPlayer,freeTransfers=1,hitCostOverride?:number):Transfer{
   const baseline=buildTransferBaseline(data,squad,freeTransfers,hitCostOverride);
   if(!baseline)throw new Error("No future gameweek to project this transfer against.");
@@ -167,43 +126,21 @@ export function evaluateTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer,in
   return buildTransferRow(data,squad,baseline,out,om,outByEvent,incoming);
 }
 
-// Official FPL placement rules for a single out→in swap. Shared by bestTransfers (ranking source for
-// the Transfers page / Place / preview) so illegal or unaffordable suggestions never enter the list.
-// Club limit is checked against the rest of the squad (outgoing player already removed) -- same
-// discipline as LiveDraftBuilder.validateSwap -- and budget uses selling price + bank, not market
-// price of the player being sold. Missing map entries use conservative FPL selling
-// (season-start purchase + floor(rises/2)), never raw now_cost for risen players.
 export type PlaceableTransferReason="owned"|"unavailable"|"position"|"club-limit"|"budget"|"squad-shape";
 export function isPlaceableTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer,incoming:FplPlayer,bank:number,sellingPrices=new Map<number,number>()):{placeable:true}|{placeable:false;reason:PlaceableTransferReason}{
-  if(incoming.positionId!==out.positionId)return{placeable:false,reason:"position"};
-  if(squad.some(player=>player.id===incoming.id))return{placeable:false,reason:"owned"};
-  if(incoming.status==="u")return{placeable:false,reason:"unavailable"};
-  const rest=squad.filter(player=>player.id!==out.id);
-  if(rest.filter(player=>player.teamId===incoming.teamId).length>=data.rules.teamLimit)return{placeable:false,reason:"club-limit"};
-  // Non-finite bank must not silently pass every swap (NaN comparisons are always false).
-  const safeBank=Number.isFinite(bank)?bank:0;
-  const saleValue=sellingPrices.has(out.id)?sellingPrices.get(out.id)!:salePriceFallback(out);
-  if(incoming.price>saleValue+safeBank+.001)return{placeable:false,reason:"budget"};
-  const next=squad.map(player=>player.id===out.id?incoming:player);
-  if(!isCompleteSquad(next,data))return{placeable:false,reason:"squad-shape"};
-  return{placeable:true};
+  const result=isLegalSingleTransfer(data,squad,out,incoming,bank,sellingPrices);
+  if(result.legal)return{placeable:true};
+  const reason=result.reason;
+  if(reason==="duplicate-out"||reason==="duplicate-in")return{placeable:false,reason:"owned"};
+  return{placeable:false,reason};
 }
 
+/**
+ * Transfers page ranking — powered by app/lib/transfer-engine (NET vs HOLD,
+ * discounted multi-GW squad EP, MAKE/LEAN/ROLL/WATCH/AVOID).
+ * isPlaceableTransfer / live selling prices remain the legality gate inside the engine.
+ */
 export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTransfers=1,limit=12,sellingPrices=new Map<number,number>()):Transfer[]{
-  // isCompleteSquad, not the stricter isValidSquad -- squad here is the caller's real/saved squad
-  // (never a candidate this function is constructing), and a real manager's squad can legitimately
-  // be worth more than the nominal £100m budget today due to price rises since it was assembled.
   if(!isCompleteSquad(squad,data))return[];
-  const baseline=buildTransferBaseline(data,squad,freeTransfers);
-  if(!baseline)return[];
-  const rows:Transfer[]=[];
-  for(const out of squad){
-    const om=projectionMetrics(out,baseline.first,data.fixtures,baseline.first);
-    const outByEvent=baseline.events.map(e=>baseline.projected(out,e.id));
-    for(const incoming of data.players){
-      if(!isPlaceableTransfer(data,squad,out,incoming,bank,sellingPrices).placeable)continue;
-      rows.push(buildTransferRow(data,squad,baseline,out,om,outByEvent,incoming));
-    }
-  }
-  return sortTransfersByQuality(rows).slice(0,limit);
+  return bestTransfersFromEngine(data,squad,bank,freeTransfers,limit,sellingPrices) as Transfer[];
 }
