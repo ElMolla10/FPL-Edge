@@ -852,7 +852,7 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
   // success message yet kept rendering the connect screen until an unrelated revision bump (e.g. a
   // full data refresh) happened to fire.
   const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);
-  const[tab,setTab]=useState<"routes"|"moves"|"watchlist">("moves");const[fts,setFts]=useState(readFreeTransfers);
+  const[tab,setTab]=useState<"routes"|"moves"|"watchlist">("moves");/* Single moves default + leftmost */const[fts,setFts]=useState(readFreeTransfers);
   const liveFtKnown=meta?.bankSource==="live-my-team"&&meta.freeTransferLimit!==undefined&&meta.freeTransferLimit!==null;
   useEffect(()=>{
     if(!liveFtKnown||!meta)return;
@@ -945,20 +945,20 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
     {fullDesk&&<section className="transfer-tabs"><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Single moves</button><button className={tab==="routes"?"active":""} onClick={()=>setTab("routes")}>Route planner</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select>{liveFtKnown&&<small className="ft-live-hint"> live FPL · {meta?.transfersMade??0} made this GW</small>}</label></section>}
     {transferTab==="routes"?<TransferRoutePlanner routes={routes} horizon={routeHorizon} setHorizon={setRouteHorizon} maxWeeklyHit={maxWeeklyHit} setMaxWeeklyHit={setMaxWeeklyHit}/>:transferTab==="moves"?<>
       <section className="transfer-bank-strip" aria-label="Transfer bank used for rankings"><span>IN THE BANK</span><b>£{bank.toFixed(1)}m</b><small>{meta?.bankSource==="live-my-team"?"live FPL transfer bank":meta?.liveOverlayError?"live bank unavailable":meta?"official public data":"builder estimate"}</small><span>FREE TRANSFERS</span><b>{fts}</b><small>{liveFtKnown?`live · ${meta?.transfersMade??0} already made`:"manual / stored"}</small></section>
+      {/* SHELL Phase 1 (transfers-presentation): one badge + metrics once + denser why chrome.
+          Presentation only — do not change transfer-engine ranking / classification / NET math.
+          Route planner card CONTENT frozen (E): TransferRoutePlanner body fields/solver copy untouched. */}
       <section className="recommended-move best-decision-hero" aria-label="Best decision">
-        <div className="call-label"><span>BEST DECISION</span><b>{decisionHold?"HOLD":"MAKE"}</b></div>
+        <div className="call-label"><span>BEST DECISION</span><b className={decisionHold?"badge-hold":"badge-make"}>{decisionHold?"HOLD":(decision!.classification??"MAKE")}</b></div>
         <h2>{decisionHold?"HOLD — do not transfer now":`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
-        <p>{decisionHold
+        <p className="best-decision-lede">{decisionHold
           ?(fts<=0?"Should I transfer? No — with 0 FT, no move clears the hit-adjusted NET vs the type-B HOLD plan (bank FT, keep future free upgrades).":"Should I transfer? No — HOLD now, bank the free transfer, and keep future free upgrades available.")
-          :`Should I transfer? Yes — ${decision!.classification??"MAKE"} clears the risk-adjusted 5-GW NET vs HOLD bar. ${decision!.risk} risk (minutes/start) · ${Math.round(decision!.confidenceIn*100)}% confidence (evidence; confidence ≠ risk).`}</p>
-        <div>
-          <span><small>ACTION</small><b>{decisionHold?"HOLD":"TRANSFER"}</b></span>
-          <span><small>CLASSIFICATION</small><b>{decisionHold?"HOLD":(decision!.classification??"LEAN")}</b></span>
+          :`Should I transfer? Yes — clears the risk-adjusted 5-GW NET vs HOLD bar.`}</p>
+        <div className="best-decision-metrics" aria-label="Decision metrics">
           <span><small>HIT</small><b>{decisionHold?"Free":(decision!.hitLabel??(decision!.hitCost?`−${decision!.hitCost}`:"Free"))}</b></span>
           {!decisionHold&&decision&&<>
-            <span><small>3-GW NET vs HOLD</small><b>{(decision.threeGwNetVsHold??decision.netEv3??decision.netDifference)>=0?"+":""}{(decision.threeGwNetVsHold??decision.netEv3??decision.netDifference).toFixed(1)}</b></span>
             <span><small>5-GW NET vs HOLD</small><b>{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference)>=0?"+":""}{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference).toFixed(1)}</b></span>
-            <span><small>ADJUSTED 5-GW NET vs HOLD</small><b>{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore)>=0?"+":""}{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore).toFixed(1)}</b></span>
+            <span><small>ADJUSTED 5-GW NET</small><b>{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore)>=0?"+":""}{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore).toFixed(1)}</b></span>
             <span><small>CONFIDENCE · RISK</small><b>{Math.round(decision.confidenceIn*100)}% · {decision.risk}</b></span>
           </>}
           {decisionHold&&<>
@@ -966,9 +966,11 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
             <span><small>NET vs HOLD</small><b>0.0</b></span>
           </>}
         </div>
-        <p className="engine-reason-hero">{decisionHold?(decision?.engineReason??"Type-B HOLD: no transfer now; future free transfers stay available."):(decision?.engineReason??"")}</p>
+        <div className="engine-why" aria-label="Why">
+          <span>WHY</span>
+          <p className="engine-reason-hero">{decisionHold?(decision?.engineReason??"Type-B HOLD: no transfer now; future free transfers stay available."):(decision?.engineReason??"")}</p>
+        </div>
         {decisionHold&&bestAlt&&<aside className="best-decision-alt"><span>BEST ALTERNATIVE</span><b>{bestAlt.out.name} → {bestAlt.incoming.name}</b><small>{bestAlt.classification??"WATCH"} · {bestAlt.hitLabel??(bestAlt.hitCost?`−${bestAlt.hitCost}`:"Free")} · 5-GW NET vs HOLD {(bestAlt.fiveGwNetVsHold??bestAlt.netEv5??0)>=0?"+":""}{(bestAlt.fiveGwNetVsHold??bestAlt.netEv5??0).toFixed(1)} · risk-adj {(bestAlt.riskAdjustedFiveGwNetVsHold??bestAlt.riskAdjustedNet5??0)>=0?"+":""}{(bestAlt.riskAdjustedFiveGwNetVsHold??bestAlt.riskAdjustedNet5??0).toFixed(1)}</small><p>{bestAlt.engineReason??""}</p></aside>}
-        <strong>{decisionHold?"Recommendation: HOLD / NO TRANSFER":"Recommendation: MOVE NOW"}</strong>
         {!decisionHold&&a&&decision&&<PersonalTransferPlace elementOut={decision.out.id} elementIn={decision.incoming.id} event={a.first} purchasePrice={decision.incoming.price} outName={decision.out.name} inName={decision.incoming.name} note="Shortcut for the best decision — expand any ranked route below, or use Draft Lab sandbox, to place a different transfer."/>}
       </section>
       {!roll&&fullDesk&&<section className="primary-transfer-confidence" aria-label="Primary transfer Decision Confidence">
@@ -1012,12 +1014,14 @@ function TransferRoutePlanner({routes,horizon,setHorizon,maxWeeklyHit,setMaxWeek
   const signed=(value:number)=>`${value>=0?"+":""}${value.toFixed(1)}`;
   if(!best)return <section className="route-planner-empty"><span>ROUTE SOLVER</span><h2>No legal route could be produced.</h2><p>Refresh official data and confirm that the saved squad contains 15 legal players.</p></section>;
   return <>
-    <section className="route-planner-controls">
+    {/* FREEZE (E): Route planner card CONTENT — body fields, solver copy, ranking internals — frozen.
+        Below: chrome wrappers / spacing / typography classes only. */}
+    <section className="route-planner-controls route-planner-chrome">
       <div><span>PLANNING HORIZON</span>{([3,5,8] as const).map(value=><button className={horizon===value?"active":""} onClick={()=>setHorizon(value)} key={value}>{value} GWs</button>)}</div>
       <div><span>MAX HIT IN ONE GW</span>{([0,4,8] as const).map(value=><button className={maxWeeklyHit===value?"active":""} onClick={()=>setMaxWeeklyHit(value)} key={value}>{value?`−${value}`:"No hits"}</button>)}</div>
       <p>The solver searches rolls, one-transfer and two-transfer combinations while preserving legal squads, exact selling values, bank and free transfers after every deadline.</p>
     </section>
-    <section className="route-planner-hero">
+    <section className="route-planner-hero route-planner-chrome">
       <div><span>BEST COMPLETE ROUTE</span><h2>{best.firstAction}</h2><p>{best.gain>.05?`${signed(best.gain)} net projected points versus making no transfers across ${horizon} gameweeks.`:`No legal transfer sequence currently beats rolling across ${horizon} gameweeks.`}</p></div>
       <strong className={best.gain>.05?"positive":"neutral"}>{signed(best.gain)}<small>NET EDGE</small></strong>
       <div className="route-hero-metrics"><p><span>Projected points</span><b>{best.netProjectedPoints.toFixed(1)}</b></p><p><span>Transfers</span><b>{best.totalTransfers}</b></p><p><span>Hit cost</span><b>{best.totalHitCost?`−${best.totalHitCost}`:"0"}</b></p><p><span>Final bank</span><b>£{best.finalBank.toFixed(1)}m</b></p><p><span>Route evidence</span><b>{Math.round(best.confidence*100)}%</b></p><p><span>Risk</span><b>{best.risk}</b></p></div>
