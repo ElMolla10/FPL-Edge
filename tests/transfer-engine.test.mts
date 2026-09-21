@@ -3,6 +3,7 @@ import test from "node:test";
 import type { FplData, FplPlayer } from "../app/lib/fpl.ts";
 import {
   DEFAULT_TRANSFER_RULES_2026_27,
+  OVERVIEW_TRANSFER_RULES,
   bestFuturePlan,
   buildHoldBaseline,
   classifyTransfer,
@@ -820,4 +821,43 @@ test("behavior: BEST=HOLD with alt WATCH when modest hit edge", () => {
     assert.ok(typeof alt.net.fiveGwNetVsHold === "number");
     assert.ok(alt.net.hitCost === 4);
   }
+});
+
+
+test("plan budgets abort runaway candidate×horizon work", () => {
+  const initial = squad();
+  const extras = Array.from({ length: 40 }, (_, i) => starMid(200 + i, 5.5 + (i % 5) * 0.1));
+  const data = dataFor([...initial, ...extras], 5);
+  const started = Date.now();
+  const result = recommendTransfers(data, initial, 5.0, 1, new Map(), {
+    rules: {
+      candidatePoolPerPosition: 30,
+      maxEvalCandidates: 12,
+      maxPlanNodes: 400,
+      planTimeBudgetMs: 50,
+      futureBeamWidth: 4,
+      resultLimit: 6,
+    },
+  });
+  const elapsed = Date.now() - started;
+  assert.ok(result.hold);
+  assert.equal(result.hold.planner, "type-B");
+  assert.ok(Array.isArray(result.recommendations));
+  // Must finish well under a hung-tab threshold.
+  assert.ok(elapsed < 2000, `engine took ${elapsed}ms under tight budgets`);
+});
+
+test("overview profile skips deep future beam and stays fast", () => {
+  const initial = squad();
+  const extras = Array.from({ length: 40 }, (_, i) => starMid(300 + i, 5.5));
+  const data = dataFor([...initial, ...extras], 5);
+  const started = Date.now();
+  const result = recommendTransfers(data, initial, 5.0, 1, new Map(), {
+    rules: OVERVIEW_TRANSFER_RULES,
+    limit: 1,
+  });
+  const elapsed = Date.now() - started;
+  assert.ok(result.hold.planner === "type-B");
+  assert.ok(result.hold.freeTransfersPath.length >= 1);
+  assert.ok(elapsed < 1000, `overview profile took ${elapsed}ms`);
 });

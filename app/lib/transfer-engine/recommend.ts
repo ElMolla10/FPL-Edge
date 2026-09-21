@@ -23,8 +23,11 @@ import {
 } from "./squad-ep";
 import {
   bestFuturePlan,
+  budgetOk,
+  createPlanBudget,
   summarizePlanPath,
   waitOneGwThenTransferPlan,
+  type PlanBudget,
 } from "./plan";
 import type {
   BestDecision,
@@ -173,6 +176,8 @@ function evaluateSingleMove(
   project: (p: FplPlayer, e: number) => number,
   pools: Map<number, FplPlayer[]>,
   rules: TransferEngineRules,
+  budget: PlanBudget,
+  computeTiming: boolean,
 ): TransferNetEV | null {
   const legal = isLegalSingleTransfer(
     data,
@@ -197,7 +202,8 @@ function evaluateSingleMove(
   const nextState = applyLegsToState(state, [leg], hitCost, rules);
 
   // Type-B: NET = best future plan after transfer-now − best future plan after hold-now
-  const transferPlan = bestFuturePlan(state, data, events, first, pools, project, rules, [leg]);
+  if (!budgetOk(budget)) return null;
+  const transferPlan = bestFuturePlan(state, data, events, first, pools, project, rules, [leg], budget);
   const fiveGwNetVsHold = transferPlan.discountedTotal - holdPlan.discountedTotal;
 
   // 3-GW slice of the same plans (hits fully in week 1 already inside discounted totals)
@@ -237,9 +243,10 @@ function evaluateSingleMove(
   const grossDelta5 = weeklyGrossDeltas.reduce((a, b) => a + b, 0);
 
   let timingEvVsWait: number | null = null;
-  if (hitCost > 0) {
+  // Timing EV is an extra full plan — skip on Overview/shallow or when budget is tight.
+  if (hitCost > 0 && computeTiming && budgetOk(budget)) {
     const waitPlan = waitOneGwThenTransferPlan(
-      state, data, events, first, pools, project, rules, leg,
+      state, data, events, first, pools, project, rules, leg, budget,
     );
     if (waitPlan) {
       timingEvVsWait = transferPlan.discountedTotal - waitPlan.discountedTotal;
@@ -506,6 +513,10 @@ function buildBestDecision(
  * Full Mohamed transfer recommendation engine (type-B HOLD).
  * Ranks by risk-adjusted 5-GW NET vs HOLD (best future plan after transfer-now
  * minus best future plan after hold-now). Projection weights unchanged.
+ *
+ * Hotfix: week-0 pairs are cheap-prefiltered to maxEvalCandidates; shared
+ * planTimeBudgetMs / maxPlanNodes abort runaway work; Overview uses
+ * OVERVIEW_TRANSFER_RULES (futureBeamWidth 0) so first paint cannot hang Chrome.
  */
 export function recommendTransfers(
   data: FplData,
@@ -565,9 +576,13 @@ export function recommendTransfers(
   };
 
   const pools = scoreCandidatePool(data, events, first, project, metrics, rules);
+  const budget = createPlanBudget(rules);
+  const shallowFuture = (rules.futureBeamWidth ?? rules.beamWidth ?? 0) <= 0;
+  const maxEval = Math.max(1, rules.maxEvalCandidates);
 
-  // Type-B HOLD baseline: no transfer NOW, bank FT, allow future free transfers.
-  const holdPlan = bestFuturePlan(state, data, events, first, pools, project, rules, []);
+  // Type-B HOLD baseline: no transfer NOW, bank FT, allow future free transfers
+  // (future beam may be 0 on Overview — still banks FT; no deep continuation search).
+  const holdPlan = bestFuturePlan(state, data, events, first, pools, project, rules, [], budget);
   const hold: HoldBaseline = {
     kind: "HOLD",
     planner: "type-B",
@@ -579,16 +594,42 @@ export function recommendTransfers(
     pathSummary: summarizePlanPath(holdPlan),
   };
 
-  const nets: TransferNetEV[] = [];
+  // Cheap pre-rank week-0 pairs so we never full-plan the entire candidate×squad matrix.
+  type Pair = { out: FplPlayer; incoming: FplPlayer; cheap: number };
+  const pairs: Pair[] = [];
   for (const out of state.squad) {
     const pool = pools.get(out.positionId) ?? [];
     for (const incoming of pool) {
       if (incoming.id === out.id) continue;
-      const net = evaluateSingleMove(
-        data, state, holdPlan, hold, out, incoming, events, first, project, pools, rules,
+      const legal = isLegalSingleTransfer(
+        data, state.squad, out, incoming, state.bank, state.sellingPrices, rules,
       );
-      if (net) nets.push(net);
+      if (!legal.legal) continue;
+      const hitCost = exactHitCost(1, state.freeTransfers, rules);
+      if (hitCost > rules.maxWeek1Hit) continue;
+      let cheap = 0;
+      for (let i = 0; i < events.length; i++) {
+        const d = rules.horizonDiscounts[i] ?? 1;
+        cheap += (project(incoming, events[i].id) - project(out, events[i].id)) * d;
+      }
+      cheap -= hitCost;
+      pairs.push({ out, incoming, cheap });
     }
+  }
+  pairs.sort((a, b) => b.cheap - a.cheap);
+  const toEval = pairs.slice(0, maxEval);
+
+  const nets: TransferNetEV[] = [];
+  const timingSlots = shallowFuture ? 0 : Math.min(6, toEval.length);
+  for (let idx = 0; idx < toEval.length; idx++) {
+    if (!budgetOk(budget)) break;
+    const { out, incoming } = toEval[idx];
+    const computeTiming = idx < timingSlots;
+    const net = evaluateSingleMove(
+      data, state, holdPlan, hold, out, incoming, events, first, project, pools, rules,
+      budget, computeTiming,
+    );
+    if (net) nets.push(net);
   }
 
   const moveRecs: TransferRecommendation[] = nets
