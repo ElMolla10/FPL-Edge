@@ -1,6 +1,5 @@
 import type { FplPlayer, ProjectionMetrics } from "../fpl";
 import type { TransferEngineRules } from "./rules";
-import type { FuturePlan } from "./plan";
 
 /** Classification for NET-first recommendation cards. */
 export type TransferClassification = "MAKE" | "LEAN" | "HOLD" | "ROLL" | "WATCH" | "AVOID";
@@ -24,15 +23,11 @@ export type SquadWeekLineup = {
 
 export type HoldBaseline = {
   kind: "HOLD" | "ROLL";
-  /** Type-B: HOLD allows future free transfers (not a frozen 5-GW squad). */
-  planner: "type-B";
   weeklyGross: number[];
   weeklyDiscounted: number[];
   discountedTotal: number;
   undiscountedTotal: number;
   freeTransfersPath: number[];
-  /** Simplified path labels for UI. */
-  pathSummary: string[];
 };
 
 export type TransferLeg = {
@@ -42,15 +37,9 @@ export type TransferLeg = {
   buyingPrice: number;
 };
 
-export type RiskDriver = {
-  code: string;
-  label: string;
-  detail: string;
-};
-
 /**
- * Net expected value of a transfer plan versus the HOLD/ROLL baseline (type-B).
- * Ranking key is riskAdjustedFiveGwNetVsHold.
+ * Net expected value of a transfer plan versus the HOLD/ROLL baseline.
+ * Ranking key is riskAdjustedNet5 (discounted, hit-subtracted, risk-adjusted).
  */
 export type TransferNetEV = {
   legs: TransferLeg[];
@@ -59,37 +48,20 @@ export type TransferNetEV = {
   hitLabel: string;
   bankAfter: number;
   freeTransfersAfter: number;
-  /** FT available before this move. */
-  freeTransfersBefore: number;
-  /** Transfers required this GW. */
-  transfersRequired: number;
-  /** Transfers paid by FT. */
-  freeTransfersUsed: number;
   /** Next-GW squad gross EP after the move (before hit). */
   nextGwGross: number;
-  /** HOLD path next-GW gross (for hit detail). */
-  holdNextGwGross: number;
-  /** Undiscounted squad EP deltas vs HOLD weekly (gross, before hit). */
+  /** Undiscounted squad EP deltas vs HOLD (gross, before hit). */
   grossDelta1: number;
   grossDelta3: number;
   grossDelta5: number;
-  /** Raw (pre risk-adj) discounted 5-GW NET vs type-B HOLD. */
-  fiveGwNetVsHold: number;
-  /** Discounted 3-GW NET vs type-B HOLD (full hit in week 1). */
-  threeGwNetVsHold: number;
-  /** Risk-adjusted fiveGwNetVsHold used for ranking / classification. */
-  riskAdjustedFiveGwNetVsHold: number;
-  /** @deprecated alias of fiveGwNetVsHold */
+  /** Discounted 5-GW squad EP minus hit, minus HOLD discounted total. */
   netEv5: number;
-  /** @deprecated alias of threeGwNetVsHold */
+  /** netEv3 (first 3 discounts) minus proportional hit attribution (full hit in week 1). */
   netEv3: number;
-  /** @deprecated alias of riskAdjustedFiveGwNetVsHold */
+  /** Risk-adjusted netEv5 used for ranking / classification. */
   riskAdjustedNet5: number;
-  /** Risk multiplier applied when fiveGwNetVsHold > 0. */
-  riskAdjustment: number;
   confidence: number;
   risk: "Low" | "Medium" | "High";
-  riskDrivers: RiskDriver[];
   weeklyGrossDeltas: number[];
   outMetrics: ProjectionMetrics;
   inMetrics: ProjectionMetrics;
@@ -103,18 +75,6 @@ export type TransferNetEV = {
   inGw3: number;
   outGw5: number;
   inGw5: number;
-  /** Act-now plan discounted total. */
-  transferNowPlanTotal: number;
-  /** Hold-now (type-B) plan discounted total. */
-  holdNowPlanTotal: number;
-  /** Act-now vs wait-one-GW-then-same-transfer (hits). null when waiting cannot help. */
-  timingEvVsWait: number | null;
-  /** Simplified future path after transferring now. */
-  transferNowPath: string[];
-  /** Simplified future path after holding now. */
-  holdNowPath: string[];
-  /** Structured reason codes for multi-signal classification. */
-  reasonCodes: string[];
 };
 
 export type TransferRecommendation = {
@@ -135,54 +95,22 @@ export type TransferRecommendationCard = {
   hitCost: number;
   bankAfter: number;
   nextGwGross: number;
-  threeGwNetVsHold: number;
-  fiveGwNetVsHold: number;
-  riskAdjustedFiveGwNetVsHold: number;
-  /** @deprecated */
   net3: number;
-  /** @deprecated */
   net5: number;
-  /** @deprecated */
   riskAdjustedNet5: number;
   confidence: number;
   risk: "Low" | "Medium" | "High";
   reason: string;
-  riskDrivers?: RiskDriver[];
-  transferNowPath?: string[];
-  holdNowPath?: string[];
-  timingEvVsWait?: number | null;
-  freeTransfersBefore?: number;
-  freeTransfersAfter?: number;
-};
-
-export type BestDecision = {
-  action: "HOLD" | "MAKE";
-  classification: TransferClassification;
-  headline: string;
-  reason: string;
-  confidence: number;
-  risk: "Low" | "Medium" | "High";
-  hitLabel: string;
-  hitCost: number;
-  threeGwNetVsHold: number;
-  fiveGwNetVsHold: number;
-  riskAdjustedFiveGwNetVsHold: number;
-  /** Best alternative move when primary is HOLD (often WATCH). */
-  alternative: TransferRecommendation | null;
-  recommendation: TransferRecommendation;
 };
 
 export type TransferEngineResult = {
   rules: TransferEngineRules;
   hold: HoldBaseline;
-  /** Primary decision: HOLD or best MAKE/LEAN. */
+  /** Primary decision: often a ROLL card when nothing clears MAKE/LEAN. */
   primary: TransferRecommendation | null;
-  /** Hero answer: Should I transfer? */
-  bestDecision: BestDecision | null;
   recommendations: TransferRecommendation[];
-  /** Explicit ROLL/HOLD card always present for UI baseline. */
+  /** Explicit ROLL card always present for UI baseline. */
   rollCard: TransferRecommendationCard;
-  holdPlan?: FuturePlan;
 };
 
 export type TransferEngineOptions = {

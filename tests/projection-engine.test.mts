@@ -8,6 +8,7 @@ import {
   PROJECTION_MODEL_VERSION,
   ROLE_SECURITY_FLOOR,
   attachIntegrityWarnings,
+  bestXi,
   findIdentityConflicts,
   isLowPlContinuity,
   isValidSquad,
@@ -244,7 +245,7 @@ test("transfer accuracy excludes pending routes instead of counting them as zero
   assert.equal(metric.positivePct,50);
 });
 
-test("reconciliation: individual IN−OUT and NET-vs-HOLD invariants on bestTransfers rows", () => {
+test("reconciliation: every GW/3GW/5GW transfer delta returned by bestTransfers equals IN minus OUT exactly", () => {
   const out = makePlayer({ id: 2, positionId: 3, position: "Midfielder", positionShort: "MID", price: 5.5, teamId: 1, priorMinutes: 1636, priorStarts: 18, priorExpectedGoals: 1.39, priorExpectedAssists: 3.95, priorPointsPerGame: 4.1 });
   const gkps = [1, 2].map((n) => makePlayer({ id: 100 + n, positionId: 1, position: "Goalkeeper", positionShort: "GKP", price: 4.5, teamId: 100 + n }));
   const defs = [1, 2, 3, 4, 5].map((n) => makePlayer({ id: 10 + n, positionId: 2, position: "Defender", positionShort: "DEF", price: 4.5, teamId: 110 + n }));
@@ -282,7 +283,7 @@ test("reconciliation: individual IN−OUT and NET-vs-HOLD invariants on bestTran
 
   const rows = bestTransfers(data, squad, 5);
   // Diversity caps (maxSameIncomingInResults) may keep cheaper outs ahead of the
-  // originally constructed `out` id — still verify maths on a ranked row.
+  // originally constructed `out` id — still verify IN−OUT maths on a ranked row.
   const row = rows.find((r: Transfer) => r.incoming.id === incoming.id && !r.isHold && r.classification !== "HOLD");
   assert.ok(row, "expected at least one ranked OUT->IN transfer into the constructed target");
   const rankedOut = row!.out;
@@ -291,38 +292,19 @@ test("reconciliation: individual IN−OUT and NET-vs-HOLD invariants on bestTran
   const outByEvent = eventIds.map((e) => playerProjection(rankedOut, e, fixtures, 1));
   const inByEvent = eventIds.map((e) => playerProjection(incoming, e, fixtures, 1));
 
-  // Audit fields: raw player projection IN−OUT (not ranking keys after engine rebuild).
   assert.ok(Math.abs(row!.individualGain1 - (inByEvent[0] - outByEvent[0])) < 1e-9, "individual GW1 delta must equal IN GW1 minus OUT GW1 exactly");
   assert.ok(Math.abs(row!.individualGain3 - (inByEvent.slice(0, 3).reduce((a, b) => a + b, 0) - outByEvent.slice(0, 3).reduce((a, b) => a + b, 0))) < 1e-9, "individual 3-GW delta must equal IN minus OUT exactly");
   assert.ok(Math.abs(row!.individualGain5 - (inByEvent.reduce((a, b) => a + b, 0) - outByEvent.reduce((a, b) => a + b, 0))) < 1e-9, "individual 5-GW delta must equal IN minus OUT exactly");
+
+  const swapped=squad.map(player=>player.id===rankedOut.id?incoming:player);
+  const squadDeltas=eventIds.map(event=>bestXi(swapped,event,fixtures,1).total-bestXi(squad,event,fixtures,1).total);
+  assert.ok(Math.abs(row!.gain1-squadDeltas[0])<1e-9,"ranked GW1 gain must be the whole-squad XI/captain delta");
+  assert.ok(Math.abs(row!.gain3-squadDeltas.slice(0,3).reduce((a,b)=>a+b,0))<1e-9,"ranked 3-GW gain must be the whole-squad delta");
+  assert.ok(Math.abs(row!.gain5-squadDeltas.reduce((a,b)=>a+b,0))<1e-9,"ranked 5-GW gain must be the whole-squad delta");
+
+  // Same underlying raw xPts metric on both sides — not weighted, not captain-doubled, not bench-discounted.
   assert.ok(Math.abs(row!.outGw1 - outByEvent[0]) < 1e-9);
   assert.ok(Math.abs(row!.inGw1 - inByEvent[0]) < 1e-9);
-
-  // gain1/3/5 are undiscounted gross squad EP deltas of transfer-now plan vs type-B HOLD
-  // path (future free transfers allowed) — not frozen-squad bestXi(IN−OUT) deltas.
-  assert.ok(Array.isArray(row!.weeklyGains) && row!.weeklyGains.length === 5, "weeklyGains must cover the 5-GW HOLD-relative path");
-  const weekly = row!.weeklyGains;
-  assert.ok(Math.abs(row!.gain1 - (weekly[0] ?? 0)) < 1e-9, "gain1 must equal week-1 gross delta vs HOLD path");
-  assert.ok(Math.abs(row!.gain3 - weekly.slice(0, 3).reduce((a, b) => a + b, 0)) < 1e-9, "gain3 must equal first-3 weekly gross deltas vs HOLD");
-  assert.ok(Math.abs(row!.gain5 - weekly.reduce((a, b) => a + b, 0)) < 1e-9, "gain5 must equal sum of weekly gross deltas vs HOLD");
-
-  // Ranking / classification keys: discounted NET vs HOLD + risk adjustment.
-  assert.equal(typeof row!.fiveGwNetVsHold, "number");
-  assert.equal(typeof row!.threeGwNetVsHold, "number");
-  assert.equal(typeof row!.riskAdjustedFiveGwNetVsHold, "number");
-  assert.equal(typeof row!.riskAdjustment, "number");
-  assert.equal(row!.fiveGwNetVsHold, row!.netEv5, "netEv5 alias must match fiveGwNetVsHold");
-  assert.equal(row!.threeGwNetVsHold, row!.netEv3, "netEv3 alias must match threeGwNetVsHold");
-  assert.equal(row!.riskAdjustedFiveGwNetVsHold, row!.riskAdjustedNet5, "riskAdjustedNet5 alias must match riskAdjustedFiveGwNetVsHold");
-  assert.equal(row!.netDifference, row!.fiveGwNetVsHold, "netDifference must equal raw 5-GW NET vs HOLD");
-  if ((row!.fiveGwNetVsHold ?? 0) > 0) {
-    assert.ok(
-      Math.abs((row!.riskAdjustedFiveGwNetVsHold ?? 0) - (row!.fiveGwNetVsHold ?? 0) * (row!.riskAdjustment ?? 1)) < 1e-9,
-      "positive 5-GW NET must be risk-scaled for ranking",
-    );
-  } else {
-    assert.equal(row!.riskAdjustedFiveGwNetVsHold, row!.fiveGwNetVsHold, "non-positive NET is not risk-inflated");
-  }
 });
 
 test("regression: a promoted player with no PL prior cannot turn one live haul into elite future attacking output",()=>{
