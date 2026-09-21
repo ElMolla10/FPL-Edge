@@ -279,17 +279,12 @@ function AccountBar({onAuthChange,onAccount,initialOpen=false}:{onAuthChange:()=
   const signOut=async()=>{await fetch("/api/auth/logout",{method:"POST"});setAccount(null);onAccount(null);onAuthChange()};
   if(!checked)return <div className="account-bar account-chip"><small>Checking…</small></div>;
   if(account){
-    const initial=(account.email.trim()[0]||"?").toUpperCase();
-    const short=account.email.length>24?`${account.email.slice(0,21)}…`:account.email;
+    const short=account.email.length>28?`${account.email.slice(0,25)}…`:account.email;
     return <div className="account-bar signed-in account-chip" title={account.email}>
-      <span className="account-avatar" aria-hidden="true">{initial}</span>
-      <div className="account-meta">
-        <b>{short}</b>
-        <div className="account-actions">
-          {!account.seasonPassActive&&<a className="account-pass-link" href="/pay">Season pass</a>}
-          {account.method==="chatgpt"?<a href={`/signout-with-chatgpt?return_to=${returnTo}`}>Sign out</a>:<button type="button" onClick={signOut}>Sign out</button>}
-        </div>
-      </div>
+      <span className="account-email">{short}</span>
+      {account.method==="chatgpt"
+        ?<a className="account-signout" href={`/signout-with-chatgpt?return_to=${returnTo}`}>Sign out</a>
+        :<button type="button" className="account-signout" onClick={signOut}>Sign out</button>}
     </div>;
   }
   return <div className="account-bar account-chip"><a className="account-open" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a></div>;

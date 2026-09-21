@@ -955,18 +955,35 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .personal-transfer-place>span{color:var(--text-muted-on-inverse)}
 
 /* ─── Phase 3 optional: signed-in account chrome (Mohamed C) ─── */
-/* Compact header chip; season pass lives in More / account link only (not header CTA). */
-.coach-header .account-bar.account-chip{display:flex;flex-direction:row;align-items:center;gap:8px;margin-top:0;padding:6px 8px;border:1px solid var(--line);background:var(--surface-card);border-radius:999px;min-height:40px;max-width:min(280px,46vw);color:var(--text)}
-.coach-header .account-bar.account-chip>small{font-size:10px;color:var(--text-muted);text-transform:none;letter-spacing:0}
-.account-avatar{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--surface-inverse);color:var(--text-on-inverse);font-size:11px;font-weight:900}
-.account-meta{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
-.account-meta>b{font-size:11px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;word-break:normal}
-.account-actions{display:flex;align-items:center;gap:8px}
-.account-actions button,.account-actions a{margin:0;border:0;background:transparent;padding:0;font-size:10px;font-weight:800;color:var(--text-muted);text-decoration:none;cursor:pointer}
-.account-actions button:hover,.account-actions a:hover{color:var(--text)}
-.account-pass-link{color:var(--text-muted)!important;text-decoration:underline!important;text-underline-offset:2px}
-.coach-header .account-bar.account-chip .account-open{width:auto;border:0;background:transparent;color:var(--text);padding:4px 8px;font-size:12px;font-weight:800}
+/* Compact header chip; season pass lives in More / account only (not header CTA). */
+.coach-header .account-bar.account-chip{
+  display:flex;flex-direction:row;align-items:center;gap:12px;
+  margin-top:0;padding:8px 14px 8px 16px;
+  border:1px solid var(--line);background:var(--surface-card);border-radius:999px;
+  min-height:40px;max-width:min(320px,48vw);color:var(--text);
+  box-sizing:border-box;
+}
+.coach-header .account-bar.account-chip::before,
+.coach-header .account-bar.account-chip::after{content:none;display:none}
+.coach-header .account-bar.account-chip>small{font-size:10px;color:var(--text-muted);text-transform:none;letter-spacing:0;padding:0}
+.coach-header .account-bar.account-chip .account-email{
+  flex:1;min-width:0;font-size:12px;font-weight:600;line-height:1.3;
+  color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+/* Beat .account-bar.signed-in a/button lime sidebar rules inside the header chip. */
+.coach-header .account-bar.account-chip.signed-in .account-signout,
+.coach-header .account-bar.account-chip .account-signout{
+  flex:0 0 auto;align-self:center;margin:0;border:0;background:transparent;
+  padding:6px 4px;margin-left:2px;
+  font-size:12px;font-weight:800;line-height:1.2;
+  color:var(--text);text-decoration:none;cursor:pointer;white-space:nowrap;
+}
+.coach-header .account-bar.account-chip .account-signout:hover{color:var(--lime)}
+.coach-header .account-bar.account-chip .account-open{
+  width:auto;border:0;background:transparent;color:var(--text);
+  padding:4px 6px;font-size:12px;font-weight:800;
+}
 .sheet-account-note{margin:8px 12px 4px;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:#102119;color:var(--text-muted-on-inverse);font-size:12px;line-height:1.4}
 @media(max-width:560px){
-  .coach-header .account-bar.account-chip{max-width:100%;flex:1}
+  .coach-header .account-bar.account-chip{max-width:100%;flex:1;padding:8px 12px 8px 14px}
 }
