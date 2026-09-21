@@ -1,10 +1,12 @@
 export {
   DEFAULT_TRANSFER_RULES_2026_27,
+  OVERVIEW_TRANSFER_RULES,
   mergeTransferRules,
   exactHitCost,
   clampFreeTransfers,
   freeTransfersAfterDeadline,
   hitLabel,
+  thresholdsForHit,
 } from "./rules";
 export type { TransferEngineRules } from "./rules";
 
@@ -19,7 +21,17 @@ export type {
   TransferRecommendationCard,
   TransferEngineResult,
   TransferEngineOptions,
+  TransferPlanningMode,
+  BestDecision,
+  RiskDriver,
 } from "./types";
+
+export {
+  scheduleDeferred,
+  isShallowPlanning,
+  isDeepFutureSearchEnabled,
+} from "./schedule";
+export type { DeferredHandle, ScheduleDeferredOptions } from "./schedule";
 
 export {
   optimalSquadWeek,
@@ -27,6 +39,16 @@ export {
   buildHoldBaseline,
   applyLegsToState,
 } from "./squad-ep";
+
+export {
+  bestFuturePlan,
+  waitOneGwThenTransferPlan,
+  summarizePlanPath,
+  createPlanBudget,
+  budgetOk,
+  chargeBudget,
+} from "./plan";
+export type { FuturePlan, FuturePlanStep, CandidatePool, PlanBudget } from "./plan";
 
 export {
   isLegalSingleTransfer,
@@ -46,11 +68,14 @@ export {
   recommendTransfers,
   recommendationsToJson,
   diversifyRecommendations,
+  groupTransferFamilies,
+  getLastPlanBudgetForTests,
 } from "./recommend";
 
 export {
   bestTransfersFromEngine,
   recommendationToTransfer,
   selectPrimaryEngineTransfer,
+  selectBestDecisionTransfer,
 } from "./adapter";
 export type { EngineTransfer } from "./adapter";
