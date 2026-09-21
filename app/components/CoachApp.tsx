@@ -940,7 +940,7 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
           {!decisionHold&&decision&&<>
             <span><small>3-GW NET vs HOLD</small><b>{(decision.threeGwNetVsHold??decision.netEv3??decision.netDifference)>=0?"+":""}{(decision.threeGwNetVsHold??decision.netEv3??decision.netDifference).toFixed(1)}</b></span>
             <span><small>5-GW NET vs HOLD</small><b>{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference)>=0?"+":""}{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference).toFixed(1)}</b></span>
-            <span><small>RISK-ADJ 5-GW vs HOLD</small><b>{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore)>=0?"+":""}{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore).toFixed(1)}</b></span>
+            <span><small>ADJUSTED 5-GW NET vs HOLD</small><b>{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore)>=0?"+":""}{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore).toFixed(1)}</b></span>
             <span><small>CONFIDENCE · RISK</small><b>{Math.round(decision.confidenceIn*100)}% · {decision.risk}</b></span>
           </>}
           {decisionHold&&<>
@@ -1033,7 +1033,7 @@ function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,se
       <p><b>{(r.threeGwNetVsHold??net3)>=0?"+":""}{(r.threeGwNetVsHold??net3).toFixed(1)}</b><small>3-GW NET vs HOLD</small></p>
       <p><b>{(r.fiveGwNetVsHold??net5)>=0?"+":""}{(r.fiveGwNetVsHold??net5).toFixed(1)}</b><small>5-GW NET vs HOLD</small></p>
       <em className={`quality-badge engine-badge ${String(cls).toLowerCase()}`}>{cls}</em>
-      <em className={r.risk.toLowerCase()}>{Math.round((r.confidenceIn??0)*100)}% confidence · {r.risk} risk</em>
+      <em className={r.risk.toLowerCase()}>{Math.round((r.confidenceIn??0)*100)}% projection evidence · {r.risk} risk</em>
       <button onClick={()=>toggleExpand(key)}>{isOpen?"Hide detail":"Show detail"}</button>
       <button onClick={()=>setWatch(r.incoming.id)}>{watchIds.includes(r.incoming.id)?"Watching ✓":"Watch"}</button>
       {isOpen&&<>
@@ -1041,9 +1041,9 @@ function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,se
         <p className="confidence-risk-note"><small>Confidence is projection evidence strength; risk is minutes/start volatility — they are not the same.</small></p>
         {!isHold&&<section className="engine-net-detail">
           <header><span>NET VS HOLD · DETAIL</span></header>
-          <p><span>5-GW raw NET vs HOLD</span><b>{(r.fiveGwNetVsHold??net5)>=0?"+":""}{(r.fiveGwNetVsHold??net5).toFixed(1)}</b></p>
-          <p><span>Risk adjustment</span><b>×{(r.riskAdjustment??1).toFixed(2)}</b></p>
-          <p><span>Risk-adj 5-GW NET vs HOLD</span><b>{(r.riskAdjustedFiveGwNetVsHold??r.riskAdjustedNet5??net5)>=0?"+":""}{(r.riskAdjustedFiveGwNetVsHold??r.riskAdjustedNet5??net5).toFixed(1)}</b></p>
+          <p><span>Raw 5-GW NET vs HOLD</span><b>{(r.fiveGwNetVsHold??net5)>=0?"+":""}{(r.fiveGwNetVsHold??net5).toFixed(1)}</b></p>
+          <p><span>Risk adjustment (points Δ)</span><b>{((r.riskAdjustmentPointsDelta??((r.riskAdjustedFiveGwNetVsHold??r.riskAdjustedNet5??net5)-(r.fiveGwNetVsHold??net5))))>=0?"+":""}{(r.riskAdjustmentPointsDelta??((r.riskAdjustedFiveGwNetVsHold??r.riskAdjustedNet5??net5)-(r.fiveGwNetVsHold??net5))).toFixed(1)}</b><small>×{(r.riskAdjustment??1).toFixed(2)} · confidence only</small></p>
+          <p><span>Adjusted 5-GW NET vs HOLD</span><b>{(r.riskAdjustedFiveGwNetVsHold??r.riskAdjustedNet5??net5)>=0?"+":""}{(r.riskAdjustedFiveGwNetVsHold??r.riskAdjustedNet5??net5).toFixed(1)}</b></p>
           {r.hitCost>0&&<div className="hit-detail-breakdown">
             <span>HIT BREAKDOWN</span>
             <p><span>FT available</span><b>{r.freeTransfersBefore??0}</b></p>
@@ -1057,7 +1057,7 @@ function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,se
             {r.timingEvVsWait!=null&&<p><span>Act-now vs wait 1 GW</span><b>{r.timingEvVsWait>=0?"+":""}{r.timingEvVsWait.toFixed(1)}</b><small>{r.timingEvVsWait>0?"Acting now modelled better than waiting one GW for a free move.":"Waiting one GW for a free move is modelled at least as good."}</small></p>}
           </div>}
           {!!r.riskDrivers?.length&&<div className="risk-drivers"><span>RISK DRIVERS</span>{r.riskDrivers.map(d=><p key={d.code}><b>{d.label}</b> {d.detail}</p>)}</div>}
-          {!!r.transferNowPath?.length&&<div className="future-paths"><span>TRANSFER-NOW PATH</span><ol>{r.transferNowPath.map(s=><li key={s}>{s}</li>)}</ol></div>}
+          {!!(r.transferNowPathLegs?.length||r.transferNowPath?.length)&&<div className="future-paths"><span>WHY THIS FUTURE MOVE? · TRANSFER-NOW</span><ol>{(r.transferNowPathLegs??r.transferNowPath!.map((s,i)=>({summary:s,eventId:i,offset:i,action:"HOLD" as const,hitCost:0,freeTransfersBefore:0,freeTransfersAfter:0,weeklyGross:0,discountedEp:0,netEp:0}))).map((leg,i)=><li key={`${leg.eventId}-${i}`}><b>{leg.summary}</b>{("weeklyGross" in leg && leg.weeklyGross>0)&&<small> · {leg.weeklyGross.toFixed(1)} xPts · FT {leg.freeTransfersBefore}→{leg.freeTransfersAfter}</small>}</li>)}</ol></div>}
           {!!r.holdNowPath?.length&&<div className="future-paths"><span>HOLD-NOW PATH</span><ol>{r.holdNowPath.map(s=><li key={s}>{s}</li>)}</ol></div>}
         </section>}
         <TransferBreakdown r={r} decision={confidence.state.results[confidence.keyFor(r)]} analysisActive={confidence.state.activeKey===confidence.keyFor(r)} analysisBusy={confidence.state.activeKey!==null} onAnalyze={()=>confidence.analyzeAlternative(r)}/>
@@ -1067,7 +1067,7 @@ function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,se
   </section>;
 }
 
-function TransferDebugTable({rows}:{rows:Transfer[]}){return <section className="transfer-debug-table"><header><span>DEV ONLY · TRANSFER ENGINE DEBUG</span><h2>Every number, traceable to its components.</h2></header><div className="debug-table-scroll"><table><thead><tr><th>OUT</th><th>IN</th><th>OUT GW1</th><th>IN GW1</th><th>GW1 Δ</th><th>OUT 3GW</th><th>IN 3GW</th><th>3GW Δ</th><th>OUT 5GW</th><th>IN 5GW</th><th>5GW Δ</th><th>xMins OUT/IN</th><th>Start% OUT/IN</th><th>Risk OUT/IN</th><th>Fixture adj.</th><th>DC IN</th><th>Attacking IN</th><th>Projection evidence IN</th><th>Risk-adjusted objective Δ (not /100 rating)</th></tr></thead><tbody>{rows.map(r=><tr key={`${r.out.id}-${r.incoming.id}`}><td>{r.out.name}</td><td>{r.incoming.name}</td><td>{r.outGw1.toFixed(2)}</td><td>{r.inGw1.toFixed(2)}</td><td>{r.gain1.toFixed(2)}</td><td>{r.outGw3.toFixed(2)}</td><td>{r.inGw3.toFixed(2)}</td><td>{r.gain3.toFixed(2)}</td><td>{r.outGw5.toFixed(2)}</td><td>{r.inGw5.toFixed(2)}</td><td>{r.gain5.toFixed(2)}</td><td>{Math.round(r.expectedMinutesOut)}/{Math.round(r.expectedMinutesIn)}</td><td>{Math.round(r.startProbOut*100)}%/{Math.round(r.startProbIn*100)}%</td><td>{Math.round((1-r.startProbOut)*100)}%/{Math.round((1-r.startProbIn)*100)}%</td><td>{r.fixtureAdjustmentIn.toFixed(1)}</td><td>{r.dcIn.toFixed(2)}</td><td>{r.attackingIn.toFixed(2)}</td><td>{Math.round(r.confidenceIn*100)}%</td><td>{r.utilityChange===null?"—":r.utilityChange.toFixed(2)}</td></tr>)}</tbody></table></div></section>}
+function TransferDebugTable({rows}:{rows:Transfer[]}){return <section className="transfer-debug-table"><header><span>DEV ONLY · TRANSFER ENGINE DEBUG</span><h2>Every number, traceable to its components.</h2></header><div className="debug-table-scroll"><table><thead><tr><th>OUT</th><th>IN</th><th>OUT GW1</th><th>IN GW1</th><th>GW1 Δ</th><th>OUT 3GW</th><th>IN 3GW</th><th>3GW Δ</th><th>OUT 5GW</th><th>IN 5GW</th><th>5GW Δ</th><th>xMins OUT/IN</th><th>Start% OUT/IN</th><th>Risk OUT/IN</th><th>Fixture adj.</th><th>DC IN</th><th>Attacking IN</th><th>Projection evidence IN</th><th>Optimizer utility Δ (NOT expected points; not /100)</th></tr></thead><tbody>{rows.map(r=><tr key={`${r.out.id}-${r.incoming.id}`}><td>{r.out.name}</td><td>{r.incoming.name}</td><td>{r.outGw1.toFixed(2)}</td><td>{r.inGw1.toFixed(2)}</td><td>{r.gain1.toFixed(2)}</td><td>{r.outGw3.toFixed(2)}</td><td>{r.inGw3.toFixed(2)}</td><td>{r.gain3.toFixed(2)}</td><td>{r.outGw5.toFixed(2)}</td><td>{r.inGw5.toFixed(2)}</td><td>{r.gain5.toFixed(2)}</td><td>{Math.round(r.expectedMinutesOut)}/{Math.round(r.expectedMinutesIn)}</td><td>{Math.round(r.startProbOut*100)}%/{Math.round(r.startProbIn*100)}%</td><td>{Math.round((1-r.startProbOut)*100)}%/{Math.round((1-r.startProbIn)*100)}%</td><td>{r.fixtureAdjustmentIn.toFixed(1)}</td><td>{r.dcIn.toFixed(2)}</td><td>{r.attackingIn.toFixed(2)}</td><td>{Math.round(r.confidenceIn*100)}%</td><td>{r.utilityChange===null?"—":r.utilityChange.toFixed(2)}</td></tr>)}</tbody></table></div></section>}
 
 // FPL doesn't publish its price-change algorithm, and priceProjectionToday is FPL's own
 // first-party end-of-day forecast (not a heuristic estimated from raw transfer counts here) --

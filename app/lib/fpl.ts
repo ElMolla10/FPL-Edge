@@ -1,4 +1,6 @@
 import type { TeamQualityProfile } from "./team-quality";
+import { availabilityForEvent, nextRoundAvailability, type AvailabilityState } from "./availability";
+import { fixturesForPlayerEvent } from "./fixtures";
 
 // FPL's own real 3-day-ahead price-change forecast, one entry per offset (0=today, 1=tomorrow,
 // 2=day after) -- confirmed live that every player always returns exactly 3, in order. likelihood
@@ -8,7 +10,7 @@ export type PriceOutlookDay = Readonly<{ offsetDays: number; projectedPercent: n
 
 export type FplPlayer = {
   id:number; name:string; firstName:string; secondName:string; teamId:number; teamName:string; teamShort:string;
-  positionId:number; position:string; positionShort:string; price:number; status:string; chance:number|null;
+  positionId:number; position:string; positionShort:string; price:number; status:string; chance:number|null; chanceThisRound?:number|null;
   epNext:number; form:number; pointsPerGame:number; priorPointsPerGame:number; priorMinutes:number; priorStarts:number; priorExpectedGoals:number; priorExpectedAssists:number; priorBonus:number; priorSaves:number; priorPenaltiesSaved:number; priorDefensiveContribution:number; totalPoints:number; eventPoints:number; eventMinutes:number; eventBonus:number; eventDefensiveContribution:number; selectedBy:number; priceChange:number; priceProjectionToday:number; priceChangeSinceStart:number; priceOutlook:readonly PriceOutlookDay[];
   transfersIn:number; transfersOut:number; goals:number; assists:number; expectedGoals:number; expectedAssists:number;
   expectedGoalInvolvements:number; expectedGoalsConceded:number; cleanSheets:number; goalsConceded:number; minutes:number;
@@ -25,10 +27,11 @@ export type FplData = { updatedAt:string; source:string; seasonStatsThrough:numb
 
 // Bump whenever projection or ranking semantics change. Deadline receipts persist this value so
 // later accuracy reports never compare outcomes from different model generations as one system.
-export const PROJECTION_MODEL_VERSION="fpl-edge-2026.08.23-r6";
+export const PROJECTION_MODEL_VERSION="fpl-edge-2026.09.21-r7";
 
 const difficultyFactor:Record<number,number>={1:1.24,2:1.12,3:1,4:.88,5:.76};
-export const availability=(player:FplPlayer)=>player.chance!==null?Math.max(0,player.chance/100):player.status==="a"?1:player.status==="d"?.72:.2;
+/** Next-round only (legacy). Projections use availabilityForEvent — never copy flat across horizon (H1). */
+export const availability=(player:FplPlayer)=>nextRoundAvailability(player);
 // No grace window past an event's own deadline: once locked, there's nothing left to plan for it,
 // regardless of whether its matches have finished being played. That's a separate "results"
 // concept (official post-event history), not this function's job.
@@ -135,28 +138,49 @@ const ownDefenceFactor:Record<number,number>={1:.72,2:.85,3:1,4:1.12,5:1.24};
 const logFactorial=(n:number)=>{let s=0;for(let i=2;i<=n;i++)s+=Math.log(i);return s};
 const poissonAtLeast=(lambda:number,threshold:number)=>{if(lambda<=0)return 0;let cdf=0;for(let k=0;k<threshold;k++)cdf+=Math.exp(-lambda+k*Math.log(lambda)-logFactorial(k));return clamp(1-cdf,0,1)};
 
-export type ProjectionMetrics={xPts:number;expectedMinutes:number;startProbability:number;sixtyProbability:number;rotationRisk:number;xG:number;xA:number;xG90:number;xA90:number;cleanSheetProbability:number;bonus:number;defensiveContribution:number;saves:number;penaltySavePoints?:number;penaltyRole:boolean;setPieceRole:boolean;confidence:number;calibrationGroup?:PlayerCalibrationGroup;confidenceCap?:number;currentEvidenceWeight?:number;teamAttackFactor?:number;opponentDefenceFactor?:number;teamDefenceFactor?:number;opponentAttackFactor?:number;fixtureAttackMultiplier?:number;fixtureDefenceMultiplier?:number;fixtureCount?:number};
+export type ProjectionMetrics={xPts:number;expectedMinutes:number;startProbability:number;/** P(bench appearance mass) = 1 − startProbability in current model. */benchProbability?:number;/** E(minutes|start). */minutesIfStart?:number;/** E(minutes|bench). */minutesIfBench?:number;sixtyProbability:number;rotationRisk:number;xG:number;xA:number;xG90:number;xA90:number;cleanSheetProbability:number;bonus:number;defensiveContribution:number;saves:number;penaltySavePoints?:number;penaltyRole:boolean;setPieceRole:boolean;confidence:number;/** Role security 0–1 — influences confidence/uncertainty ONLY, not a second xPts multiply when minutes already embed start risk. */roleSecurity?:number;availabilityState?:AvailabilityState;chanceOfStart?:number;chanceOfAppearance?:number;availabilityConfidence?:number;calibrationGroup?:PlayerCalibrationGroup;confidenceCap?:number;currentEvidenceWeight?:number;teamAttackFactor?:number;opponentDefenceFactor?:number;teamDefenceFactor?:number;opponentAttackFactor?:number;fixtureAttackMultiplier?:number;fixtureDefenceMultiplier?:number;fixtureCount?:number};
 function projectionMetricsBase(player:FplPlayer,eventId:number,fixtures:FplFixture[],firstEvent:number):ProjectionMetrics{
-  const games=fixtures.filter(f=>f.event===eventId&&(f.teamH===player.teamId||f.teamA===player.teamId));
-  const available=availability(player);
+  const games=fixturesForPlayerEvent(fixtures,player,eventId);
+  const horizon=availabilityForEvent(player,eventId,firstEvent);
+  const available=horizon.availability;
   // Older persisted/test fixtures predate explicit provenance and already represent real PL priors;
   // production API payloads always set priorSource, so a promoted/new player can never enter this
   // branch merely because a current-season bootstrap total happens to be non-zero.
   const calibration=playerCalibrationProfile(player),hasPremierLeaguePrior=calibration.hasPremierLeaguePrior;
   const roleBaseline=clamp(.42+player.selectedBy/100,.35,.82);
-  const historicalStartRate=hasPremierLeaguePrior?clamp(player.priorStarts/38,.08,.98):roleBaseline;
+  // H2: do NOT permanently tax incomplete prior seasons as priorStarts/38 (Palmer case).
+  // Only soften the /38 denominator when the player has a substantial prior start sample (≥18);
+  // tiny 1–2 start outliers still shrink against a full 38-GW season. Also accelerate
+  // current-season weight when the player is currently nailed.
+  const priorEligibleGames=hasPremierLeaguePrior
+    ? (player.priorStarts>=18
+        ? Math.min(38, Math.max(player.priorStarts, Math.round(player.priorMinutes / 78)))
+        : 38)
+    : 0;
+  const historicalStartRate=hasPremierLeaguePrior
+    ? clamp(player.priorStarts / Math.max(1, priorEligibleGames), .08, .98)
+    : roleBaseline;
   const completedMatches=Math.max(0,player.teamMatchesPlayed??player.starts);
-  const rolePriorMatches=calibration.rolePriorMatches;
   const observedStarts=Math.min(player.starts,completedMatches);
-  const blendedStartRate=(historicalStartRate*rolePriorMatches+observedStarts)/Math.max(1,rolePriorMatches+completedMatches);
+  const currentStartShare=completedMatches>0?observedStarts/completedMatches:0;
+  // After several consecutive starts, shrink prior pseudo-matches so early-season inertia fades.
+  const consecutiveNailed=completedMatches>=3&&currentStartShare>=.9;
+  const effectiveRolePrior=consecutiveNailed
+    ? Math.max(2, Math.round(calibration.rolePriorMatches * .35))
+    : calibration.rolePriorMatches;
+  const blendedStartRate=(historicalStartRate*effectiveRolePrior+observedStarts)/Math.max(1,effectiveRolePrior+completedMatches);
   const roleRisk=player.scoutRisks?.length?Math.min(.18,player.scoutRisks.length*.05):0;
   const startProbability=clamp(blendedStartRate*available-roleRisk,.03,.99);
+  const benchProbability=1-startProbability;
   const historicalMinutesPerStart=hasPremierLeaguePrior&&player.priorStarts?clamp(player.priorMinutes/player.priorStarts,58,90):72;
   const currentMinutesPerStart=player.starts?clamp(player.minutes/player.starts,58,90):historicalMinutesPerStart;
   const currentSampleWeight=clamp(player.minutes/(player.minutes+calibration.currentLearningMinutes),0,calibration.currentWeightCap);
-  const minutesPerStart=historicalMinutesPerStart*(1-currentSampleWeight)+currentMinutesPerStart*currentSampleWeight;
-  const expectedMinutes=clamp(startProbability*minutesPerStart+(1-startProbability)*12,4,90);
-  const sixtyProbability=clamp(startProbability*(minutesPerStart>=72?.94:.72),.02,.98);
+  const minutesIfStart=historicalMinutesPerStart*(1-currentSampleWeight)+currentMinutesPerStart*currentSampleWeight;
+  const minutesIfBench=12;
+  // ExpectedMinutes = P(start)*E(min|start) + P(bench)*E(min|bench)
+  const expectedMinutes=clamp(startProbability*minutesIfStart+benchProbability*minutesIfBench,4,90);
+  const sixtyProbability=clamp(startProbability*(minutesIfStart>=72?.94:.72),.02,.98);
+  const roleSecurity=clamp(startProbability*.55+clamp(expectedMinutes/90,0,1)*.25+horizon.availabilityConfidence*.2,.05,1);
   const baseline=baselineRates[player.positionShort]??baselineRates.MID;
   const priorXG90=hasPremierLeaguePrior?shrinkPer90(player.priorExpectedGoals,player.priorMinutes,baseline.xG90,calibration.priorShrinkageMinutes):baseline.xG90;
   const priorXA90=hasPremierLeaguePrior?shrinkPer90(player.priorExpectedAssists,player.priorMinutes,baseline.xA90,calibration.priorShrinkageMinutes):baseline.xA90;
@@ -174,16 +198,30 @@ function projectionMetricsBase(player:FplPlayer,eventId:number,fixtures:FplFixtu
   const bonusPerStart=priorBonusPerStart*(1-currentSampleWeight)+currentBonusPerStart*currentSampleWeight;
   const dcThreshold=player.positionShort==="DEF"?10:12;
   let totals={xPts:0,xG:0,xA:0,cleanSheetProbability:0,bonus:0,defensiveContribution:0,saves:0,penaltySavePoints:0};
-  for(const game of games){const home=game.teamH===player.teamId;const difficulty=home?game.teamHDifficulty:game.teamADifficulty;const attackFactor=home?1.08:.95;const csProb=clamp(.31*(home?1.05:.94),.05,.68);const appearance=(1-sixtyProbability)*startProbability+sixtyProbability*2;const roleBoost=(penaltyRole?.09:0)+(setPieceRole?.035:0);const expectedXG=Math.max(0,xG90*expectedMinutes/90*attackFactor+roleBoost*startProbability);const expectedXA=Math.max(0,xA90*expectedMinutes/90*attackFactor+(setPieceRole?.035:0)*startProbability);const goalPoints=player.positionShort==="FWD"?4:player.positionShort==="MID"?5:6;const cleanSheetPoints=player.positionShort==="MID"?1:["GKP","DEF"].includes(player.positionShort)?4:0;const bonus=clamp(bonusPerStart*startProbability*attackFactor+(expectedXG+expectedXA)*.45,0,1.6);const dcLambda=dcPerStart*(expectedMinutes/90);const dc=["DEF","MID","FWD"].includes(player.positionShort)?poissonAtLeast(dcLambda,dcThreshold)*2:0;let savePoints=0,penaltySave=0,saves=0;if(player.positionShort==="GKP"){const priorSavesPerStart=hasPremierLeaguePrior?shrinkPerStart(player.priorSaves,player.priorStarts,2.6):2.6;const currentSavesPerStart=player.starts?shrinkPerStart(player.saves,player.starts,2.6,8):2.6;const savesPerStart=priorSavesPerStart*(1-currentSampleWeight)+currentSavesPerStart*currentSampleWeight;saves=savesPerStart*(difficulty>=4?1.18:difficulty<=2?.85:1)*startProbability;savePoints=saves/3;const priorPenaltiesSavedPerStart=hasPremierLeaguePrior?shrinkPerStart(player.priorPenaltiesSaved,player.priorStarts,.03):.03;penaltySave=priorPenaltiesSavedPerStart*.22*5}const fixturePts=appearance+expectedXG*goalPoints+expectedXA*3+csProb*cleanSheetPoints*sixtyProbability+bonus+dc+savePoints+penaltySave;totals.xPts+=fixturePts;totals.xG+=expectedXG;totals.xA+=expectedXA;totals.cleanSheetProbability+=csProb;totals.bonus+=bonus;totals.defensiveContribution+=dc;totals.saves+=saves;totals.penaltySavePoints+=penaltySave}
-  const officialNext=eventId===firstEvent?player.epNext:0;const componentTotal=totals.xPts;const blended=officialNext>0?componentTotal*.82+officialNext*.18:componentTotal;const historicalConfidence=hasPremierLeaguePrior?clamp(player.priorMinutes/1800,0,1):0;const currentConfidence=clamp(player.minutes/900,0,1);const confidence=clamp(historicalConfidence*.5+currentConfidence*.25+startProbability*.25,.05,calibration.confidenceCap);return{xPts:games.length?clamp(blended,0,16*Math.max(1,games.length)):0,expectedMinutes,startProbability,sixtyProbability,rotationRisk:1-startProbability,xG:totals.xG,xA:totals.xA,xG90,xA90,cleanSheetProbability:games.length?totals.cleanSheetProbability/games.length:0,bonus:totals.bonus,defensiveContribution:totals.defensiveContribution,saves:totals.saves,penaltySavePoints:totals.penaltySavePoints,penaltyRole,setPieceRole,confidence,calibrationGroup:calibration.group,confidenceCap:calibration.confidenceCap,currentEvidenceWeight:currentSampleWeight,fixtureCount:games.length};
+  for(const game of games){
+    const home=game.teamH===player.teamId;const difficulty=home?game.teamHDifficulty:game.teamADifficulty;const attackFactor=home?1.08:.95;
+    // H3: opponent-aware CS stub when fixture carries quality ratings; else home/away baseline.
+    const oppDef=home?(game.teamADefenceQuality??null):(game.teamHDefenceQuality??null);
+    const oppAtk=home?(game.teamAAttackQuality??null):(game.teamHAttackQuality??null);
+    let csProb:number;
+    if(oppAtk!==null&&oppDef!==null){
+      const defenceMul=clamp((home?(player.teamQualityDefenceHome??1):(player.teamQualityDefenceAway??1))/Math.max(.6,oppAtk),.7,1.4);
+      const xGA=1.42*(home?.88:1.12)/defenceMul;
+      csProb=clamp(Math.exp(-xGA),.05,.68);
+    }else{
+      csProb=clamp(.31*(home?1.05:.94),.05,.68);
+    }
+    const appearance=(1-sixtyProbability)*startProbability+sixtyProbability*2;const roleBoost=(penaltyRole?.09:0)+(setPieceRole?.035:0);const expectedXG=Math.max(0,xG90*expectedMinutes/90*attackFactor+roleBoost*startProbability);const expectedXA=Math.max(0,xA90*expectedMinutes/90*attackFactor+(setPieceRole?.035:0)*startProbability);const goalPoints=player.positionShort==="FWD"?4:player.positionShort==="MID"?5:6;const cleanSheetPoints=player.positionShort==="MID"?1:["GKP","DEF"].includes(player.positionShort)?4:0;const bonus=clamp(bonusPerStart*startProbability*attackFactor+(expectedXG+expectedXA)*.45,0,1.6);const dcLambda=dcPerStart*(expectedMinutes/90);const dc=["DEF","MID","FWD"].includes(player.positionShort)?poissonAtLeast(dcLambda,dcThreshold)*2:0;let savePoints=0,penaltySave=0,saves=0;if(player.positionShort==="GKP"){const priorSavesPerStart=hasPremierLeaguePrior?shrinkPerStart(player.priorSaves,player.priorStarts,2.6):2.6;const currentSavesPerStart=player.starts?shrinkPerStart(player.saves,player.starts,2.6,8):2.6;const savesPerStart=priorSavesPerStart*(1-currentSampleWeight)+currentSavesPerStart*currentSampleWeight;saves=savesPerStart*(difficulty>=4?1.18:difficulty<=2?.85:1)*startProbability;savePoints=saves/3;const priorPenaltiesSavedPerStart=hasPremierLeaguePrior?shrinkPerStart(player.priorPenaltiesSaved,player.priorStarts,.03):.03;penaltySave=priorPenaltiesSavedPerStart*.22*5}const fixturePts=appearance+expectedXG*goalPoints+expectedXA*3+csProb*cleanSheetPoints*sixtyProbability+bonus+dc+savePoints+penaltySave;totals.xPts+=fixturePts;totals.xG+=expectedXG;totals.xA+=expectedXA;totals.cleanSheetProbability+=csProb;totals.bonus+=bonus;totals.defensiveContribution+=dc;totals.saves+=saves;totals.penaltySavePoints+=penaltySave}
+  const officialNext=eventId===firstEvent?player.epNext:0;const componentTotal=totals.xPts;const blended=officialNext>0?componentTotal*.82+officialNext*.18:componentTotal;const historicalConfidence=hasPremierLeaguePrior?clamp(player.priorMinutes/1800,0,1):0;const currentConfidence=clamp(player.minutes/900,0,1);const confidence=clamp(historicalConfidence*.45+currentConfidence*.2+startProbability*.2+horizon.availabilityConfidence*.15,.05,calibration.confidenceCap);return{xPts:games.length?clamp(blended,0,16*Math.max(1,games.length)):0,expectedMinutes,startProbability,benchProbability,minutesIfStart,minutesIfBench,sixtyProbability,rotationRisk:1-startProbability,xG:totals.xG,xA:totals.xA,xG90,xA90,cleanSheetProbability:games.length?totals.cleanSheetProbability/games.length:0,bonus:totals.bonus,defensiveContribution:totals.defensiveContribution,saves:totals.saves,penaltySavePoints:totals.penaltySavePoints,penaltyRole,setPieceRole,confidence,roleSecurity,availabilityState:horizon.state,chanceOfStart:horizon.chanceOfStart*startProbability/Math.max(.01,available||startProbability),chanceOfAppearance:horizon.chanceOfAppearance,availabilityConfidence:horizon.availabilityConfidence,calibrationGroup:calibration.group,confidenceCap:calibration.confidenceCap,currentEvidenceWeight:currentSampleWeight,fixtureCount:games.length};
 }
+
 // Applies the normalized team-quality layer to the stable player/minutes model above. Ratings are
 // league-relative multipliers where 1.00 is average and higher defence means stronger defence.
 // FDR remains a small residual in the base model; direct own-team and opponent quality now carry
 // the explicit attack/defence signal that raw 1,000+ official strength values previously lost.
 export function projectionMetrics(player:FplPlayer,eventId:number,fixtures:FplFixture[],firstEvent:number):ProjectionMetrics{
   const base=projectionMetricsBase(player,eventId,fixtures,firstEvent);
-  const games=fixtures.filter(fixture=>fixture.event===eventId&&(fixture.teamH===player.teamId||fixture.teamA===player.teamId));
+  const games=fixturesForPlayerEvent(fixtures,player,eventId);
   if(!games.length)return{...base,teamAttackFactor:1,opponentDefenceFactor:1,teamDefenceFactor:1,opponentAttackFactor:1,fixtureAttackMultiplier:1,fixtureDefenceMultiplier:1};
   const legacyFactor=(value:number|null|undefined,table:Record<number,number>)=>value!==null&&value!==undefined&&value>=1&&value<=5?(table[Math.round(value)]??1):1;
   const contexts=games.map(game=>{

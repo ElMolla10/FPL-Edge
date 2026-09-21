@@ -27,6 +27,25 @@ export type FuturePlanStep = {
   discountedEp: number;
 };
 
+/** Structured future-path leg for UI drilldown ("WHY THIS FUTURE MOVE?"). */
+export type PlanPathLeg = {
+  eventId: number;
+  offset: number;
+  action: "HOLD" | "TRANSFER";
+  outName?: string;
+  inName?: string;
+  outId?: number;
+  inId?: number;
+  hitCost: number;
+  freeTransfersBefore: number;
+  freeTransfersAfter: number;
+  weeklyGross: number;
+  discountedEp: number;
+  /** Slice of plan EP net of hit for this step (hit only in week 0 when paid). */
+  netEp: number;
+  summary: string;
+};
+
 export type FuturePlan = {
   steps: FuturePlanStep[];
   /** Sum of discounted weekly EP minus hits paid across the horizon. */
@@ -358,12 +377,36 @@ export function waitOneGwThenTransferPlan(
 }
 
 export function summarizePlanPath(plan: FuturePlan, maxSteps = 5): string[] {
+  return explainPlanPath(plan, maxSteps).map((leg) => leg.summary);
+}
+
+/** Structured metrics at each simulated GW for transfer-now / hold-now drilldown. */
+export function explainPlanPath(plan: FuturePlan, maxSteps = 5): PlanPathLeg[] {
   return plan.steps.slice(0, maxSteps).map((step, index) => {
     const gw = `GW+${index}`;
+    const netEp = step.discountedEp - (index === 0 ? step.hitCost : 0);
+    let summary: string;
     if (step.action === "HOLD") {
-      return `${gw}: HOLD (${step.freeTransfersBefore}→${step.freeTransfersAfter} FT)`;
+      summary = `${gw}: HOLD (${step.freeTransfersBefore}→${step.freeTransfersAfter} FT) · ${step.grossEp.toFixed(1)} xPts`;
+    } else {
+      const hit = step.hitCost > 0 ? ` ${hitLabel(step.hitCost)}` : " free";
+      summary = `${gw}: ${step.outName}→${step.inName}${hit} (${step.freeTransfersBefore}→${step.freeTransfersAfter} FT) · ${step.grossEp.toFixed(1)} xPts`;
     }
-    const hit = step.hitCost > 0 ? ` ${hitLabel(step.hitCost)}` : " free";
-    return `${gw}: ${step.outName}→${step.inName}${hit} (${step.freeTransfersBefore}→${step.freeTransfersAfter} FT)`;
+    return {
+      eventId: step.eventId,
+      offset: index,
+      action: step.action,
+      outName: step.outName,
+      inName: step.inName,
+      outId: step.outId,
+      inId: step.inId,
+      hitCost: step.hitCost,
+      freeTransfersBefore: step.freeTransfersBefore,
+      freeTransfersAfter: step.freeTransfersAfter,
+      weeklyGross: step.grossEp,
+      discountedEp: step.discountedEp,
+      netEp,
+      summary,
+    };
   });
 }

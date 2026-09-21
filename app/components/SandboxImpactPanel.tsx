@@ -121,8 +121,8 @@ export default function SandboxImpactPanel({ comparison, latestTransfer, freeTra
     </header>
 
     <div className="sandbox-rating-heroes">
-      <article><span>Overall team rating · latest</span><ValueTransition {...latest.rating} places={0} suffix="/100" /></article>
-      <article><span>Overall team rating · since baseline</span><ValueTransition {...cumulative.rating} places={0} suffix="/100" /></article>
+      <article><span>Overall team rating (decision score) · latest</span><ValueTransition {...latest.rating} places={0} suffix="/100 score" /></article>
+      <article><span>Overall team rating · since baseline</span><ValueTransition {...cumulative.rating} places={0} suffix="/100 score" /></article>
       <article className="secondary"><span>Risk-adjusted objective · latest</span><ValueTransition {...latest.objective} /></article>
     </div>
 

@@ -11,7 +11,11 @@ export type ModelRelease={
 
 export const MODEL_RELEASES:ModelRelease[]=[
   {
-    version:"fpl-edge-2026.08.23-r6",short:"r6",title:"Multi-gameweek transfer routes",released:"23 Aug 2026",current:true,
+    version:"fpl-edge-2026.09.21-r7",short:"r7",title:"Horizon availability & minutes model",released:"21 Sep 2026",current:true,
+    changes:["Applies chance_of_playing_next_round to GW+0 only with injury recovery / suspension calendars.","Fixes priorStarts/38 incomplete-prior tax; ExpectedMinutes = P(start)·E(min|start)+P(bench)·E(min|bench).","Removes soft start-risk double-count on positive NET; confidence-only ranking adjustment."],
+  },
+  {
+    version:"fpl-edge-2026.08.23-r6",short:"r6",title:"Multi-gameweek transfer routes",released:"23 Aug 2026",current:false,
     changes:["Searches roll, single-transfer and double-transfer decisions across 3–8 gameweeks.","Carries exact selling values, bank, free transfers and hit costs through every deadline.","Freezes the four best complete routes inside version-7 deadline receipts."],
   },
   {

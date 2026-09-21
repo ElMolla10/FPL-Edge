@@ -78,6 +78,9 @@ export type EngineTransfer = {
   riskDrivers?: { code: string; label: string; detail: string }[];
   transferNowPath?: string[];
   holdNowPath?: string[];
+  transferNowPathLegs?: import("./plan").PlanPathLeg[];
+  holdNowPathLegs?: import("./plan").PlanPathLeg[];
+  riskAdjustmentPointsDelta?: number;
   timingEvVsWait?: number | null;
   freeTransfersBefore?: number;
   freeTransfersAfter?: number;
@@ -158,6 +161,9 @@ export function recommendationToTransfer(rec: TransferRecommendation, playersByI
       riskDrivers: net.riskDrivers,
       transferNowPath: net.transferNowPath,
       holdNowPath: net.holdNowPath,
+      transferNowPathLegs: net.transferNowPathLegs,
+      holdNowPathLegs: net.holdNowPathLegs,
+      riskAdjustmentPointsDelta: net.riskAdjustmentPointsDelta,
       timingEvVsWait: null,
       freeTransfersBefore: net.freeTransfersBefore,
       freeTransfersAfter: net.freeTransfersAfter,
@@ -262,6 +268,9 @@ export function recommendationToTransfer(rec: TransferRecommendation, playersByI
     riskDrivers: net.riskDrivers,
     transferNowPath: net.transferNowPath,
     holdNowPath: net.holdNowPath,
+    transferNowPathLegs: net.transferNowPathLegs,
+    holdNowPathLegs: net.holdNowPathLegs,
+    riskAdjustmentPointsDelta: net.riskAdjustmentPointsDelta,
     timingEvVsWait: net.timingEvVsWait,
     freeTransfersBefore: net.freeTransfersBefore,
     freeTransfersAfter: net.freeTransfersAfter,

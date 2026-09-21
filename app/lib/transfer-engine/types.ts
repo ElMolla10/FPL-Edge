@@ -1,6 +1,6 @@
 import type { FplPlayer, ProjectionMetrics } from "../fpl";
 import type { TransferEngineRules } from "./rules";
-import type { FuturePlan } from "./plan";
+import type { FuturePlan, PlanPathLeg } from "./plan";
 
 /** Classification for NET-first recommendation cards. */
 export type TransferClassification = "MAKE" | "LEAN" | "HOLD" | "ROLL" | "WATCH" | "AVOID";
@@ -113,6 +113,11 @@ export type TransferNetEV = {
   transferNowPath: string[];
   /** Simplified future path after holding now. */
   holdNowPath: string[];
+  /** Structured path legs for UI drilldown. */
+  transferNowPathLegs?: PlanPathLeg[];
+  holdNowPathLegs?: PlanPathLeg[];
+  /** riskAdjustedFiveGwNetVsHold − fiveGwNetVsHold (points delta from confidence-only adj). */
+  riskAdjustmentPointsDelta?: number;
   /** Structured reason codes for multi-signal classification. */
   reasonCodes: string[];
 };
