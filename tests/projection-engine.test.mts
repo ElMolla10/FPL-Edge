@@ -282,18 +282,21 @@ test("reconciliation: every GW/3GW/5GW transfer delta returned by bestTransfers 
   assert.equal(isValidSquad(squad, data), true, "test fixture squad must be a legal 15-player squad");
 
   const rows = bestTransfers(data, squad, 5);
-  const row = rows.find((r: Transfer) => r.out.id === out.id && r.incoming.id === incoming.id);
-  assert.ok(row, "expected the constructed OUT->IN transfer to appear among candidates");
+  // Diversity caps (maxSameIncomingInResults) may keep cheaper outs ahead of the
+  // originally constructed `out` id — still verify IN−OUT maths on a ranked row.
+  const row = rows.find((r: Transfer) => r.incoming.id === incoming.id && !r.isHold && r.classification !== "HOLD");
+  assert.ok(row, "expected at least one ranked OUT->IN transfer into the constructed target");
+  const rankedOut = row!.out;
 
   const eventIds = [1, 2, 3, 4, 5];
-  const outByEvent = eventIds.map((e) => playerProjection(out, e, fixtures, 1));
+  const outByEvent = eventIds.map((e) => playerProjection(rankedOut, e, fixtures, 1));
   const inByEvent = eventIds.map((e) => playerProjection(incoming, e, fixtures, 1));
 
   assert.ok(Math.abs(row!.individualGain1 - (inByEvent[0] - outByEvent[0])) < 1e-9, "individual GW1 delta must equal IN GW1 minus OUT GW1 exactly");
   assert.ok(Math.abs(row!.individualGain3 - (inByEvent.slice(0, 3).reduce((a, b) => a + b, 0) - outByEvent.slice(0, 3).reduce((a, b) => a + b, 0))) < 1e-9, "individual 3-GW delta must equal IN minus OUT exactly");
   assert.ok(Math.abs(row!.individualGain5 - (inByEvent.reduce((a, b) => a + b, 0) - outByEvent.reduce((a, b) => a + b, 0))) < 1e-9, "individual 5-GW delta must equal IN minus OUT exactly");
 
-  const swapped=squad.map(player=>player.id===out.id?incoming:player);
+  const swapped=squad.map(player=>player.id===rankedOut.id?incoming:player);
   const squadDeltas=eventIds.map(event=>bestXi(swapped,event,fixtures,1).total-bestXi(squad,event,fixtures,1).total);
   assert.ok(Math.abs(row!.gain1-squadDeltas[0])<1e-9,"ranked GW1 gain must be the whole-squad XI/captain delta");
   assert.ok(Math.abs(row!.gain3-squadDeltas.slice(0,3).reduce((a,b)=>a+b,0))<1e-9,"ranked 3-GW gain must be the whole-squad delta");

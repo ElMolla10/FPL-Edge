@@ -24,7 +24,7 @@ import { FiveGwGainBand } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
 import { markSignedIn, persist, readFreeTransfers, syncWithServer, writeAccountTeam } from "../lib/persistence";
 import { refreshConnectedTeamFromApi } from "../lib/team-live-refresh";
-import { resolveAuthoritativeFreeTransfers } from "../lib/personal-fpl-transfer";
+import { resolveAuthoritativeFreeTransfers } from "../lib/personal-fpl-transfer/ft-state";
 import { TEAM_SIGN_IN_HREF, TeamLinkAuthProvider, useTeamLinkAuth } from "./team-link-auth";
 import { MODEL_RELEASES, comparableModelRows, groupByModelVersion, modelDisplayName, modelRelease } from "../lib/model-version";
 import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } from "../lib/bench-order";
