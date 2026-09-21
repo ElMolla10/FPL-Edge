@@ -191,7 +191,7 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
     {mobileOverlay&&<MobileSheet title={mobileOverlay} onClose={()=>setMobileOverlay(null)}>
       {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)}><span>{label}</span>{key==="transfers"?<small className="sheet-hint">Single · Route · Watch</small>:null}</button>)}
       {mobileOverlay==="PRO"&&proItems.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}
-      {mobileOverlay==="More"&&<><button type="button" onClick={()=>go("deadline")}><span>Final check</span></button><button type="button" onClick={()=>go("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}{(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
+      {mobileOverlay==="More"&&<><button type="button" onClick={()=>go("deadline")}><span>Final check</span></button><button type="button" onClick={()=>go("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}{desk==="season"?<p className="sheet-account-note">Season pass active · managed on your account</p>:(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
     </MobileSheet>}
   </main></TeamLinkAuthProvider>
 }
@@ -277,9 +277,22 @@ function AccountBar({onAuthChange,onAccount,initialOpen=false}:{onAuthChange:()=
     finally{setBusy(false)}
   };
   const signOut=async()=>{await fetch("/api/auth/logout",{method:"POST"});setAccount(null);onAccount(null);onAuthChange()};
-  if(!checked)return <div className="account-bar"><small>Checking sign-in…</small></div>;
-  if(account)return <div className="account-bar signed-in"><small className="account-pass">{account.seasonPassActive?"Season pass":"Free"}</small><b>{account.email}</b>{account.method==="chatgpt"?<a href={`/signout-with-chatgpt?return_to=${returnTo}`}>Sign out</a>:<button onClick={signOut}>Sign out</button>}</div>;
-  return <div className="account-bar"><a className="account-open" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a><a className="account-open" href="/signup?return_to=%2F%3Fapp%3D1">Sign up</a></div>;
+  if(!checked)return <div className="account-bar account-chip"><small>Checking…</small></div>;
+  if(account){
+    const initial=(account.email.trim()[0]||"?").toUpperCase();
+    const short=account.email.length>24?`${account.email.slice(0,21)}…`:account.email;
+    return <div className="account-bar signed-in account-chip" title={account.email}>
+      <span className="account-avatar" aria-hidden="true">{initial}</span>
+      <div className="account-meta">
+        <b>{short}</b>
+        <div className="account-actions">
+          {!account.seasonPassActive&&<a className="account-pass-link" href="/pay">Season pass</a>}
+          {account.method==="chatgpt"?<a href={`/signout-with-chatgpt?return_to=${returnTo}`}>Sign out</a>:<button type="button" onClick={signOut}>Sign out</button>}
+        </div>
+      </div>
+    </div>;
+  }
+  return <div className="account-bar account-chip"><a className="account-open" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a></div>;
 }
 
 // revision is a required re-read trigger, not just an initial-mount read -- without it, a manager
