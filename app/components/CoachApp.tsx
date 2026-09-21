@@ -1018,8 +1018,9 @@ function TransferDebugTable({rows}:{rows:Transfer[]}){return <section className=
 export const MEANINGFUL_PRICE_PRESSURE=15;
 
 export type PriceTiming={direction:"rise"|"fall"|"stable";message:string};
-export function priceTimingSignal(player:FplPlayer):PriceTiming{
-  const pct=player.priceProjectionToday;
+export function priceTimingSignal(player:FplPlayer|null|undefined):PriceTiming{
+  if(!player)return{direction:"stable",message:"No meaningful price pressure today."};
+  const pct=player.priceProjectionToday??0;
   if(pct>=MEANINGFUL_PRICE_PRESSURE)return{direction:"rise",message:`${Math.round(pct)}% rise pressure today (FPL's own projection) — buying before a rise saves money.`};
   if(pct<=-MEANINGFUL_PRICE_PRESSURE)return{direction:"fall",message:`${Math.round(Math.abs(pct))}% fall pressure today — no rush, a drop may make this cheaper soon.`};
   return{direction:"stable",message:"No meaningful price pressure today."};
@@ -1032,11 +1033,13 @@ export type PriceOutlookDaySignal={offsetDays:number;direction:"rise"|"fall"|"st
 // likelihood sign ever disagrees with its projectedPercent sign, that day classifies as "stable"
 // rather than trusting a possibly-inconsistent read -- never observed live, but not something to
 // assume either.
-function priceOutlookDays(player:FplPlayer):readonly PriceOutlookDay[]{
+function priceOutlookDays(player:FplPlayer|null|undefined):readonly PriceOutlookDay[]{
+  if(!player)return[];
   const raw=player.priceOutlook;
   return Array.isArray(raw)?raw:[];
 }
-export function priceOutlookSignal(player:FplPlayer):readonly PriceOutlookDaySignal[]{
+export function priceOutlookSignal(player:FplPlayer|null|undefined):readonly PriceOutlookDaySignal[]{
+  if(!player)return[];
   return[...priceOutlookDays(player)].sort((a,b)=>a.offsetDays-b.offsetDays).map(day=>{
     const disagreement=day.projectedPercent!==0&&day.likelihood!==0&&Math.sign(day.likelihood)!==Math.sign(day.projectedPercent);
     if(disagreement)return{offsetDays:day.offsetDays,direction:"stable" as const};
@@ -1055,7 +1058,8 @@ export type PriceRiskAlert=Readonly<{player:FplPlayer;offsetDays:number;pct:numb
 // pressure magnitude.
 export function priceProtectionAlerts(squad:readonly FplPlayer[]):readonly PriceRiskAlert[]{
   return squad.map(player=>{
-    if(player.priceProjectionToday<=-MEANINGFUL_PRICE_PRESSURE){
+    if(!player)return null;
+    if((player.priceProjectionToday??0)<=-MEANINGFUL_PRICE_PRESSURE){
       const pct=Math.abs(player.priceProjectionToday);
       return{player,offsetDays:0,pct,message:`carries ${Math.round(pct)}% fall pressure today — selling before the drop protects the standard £0.1m step.`};
     }

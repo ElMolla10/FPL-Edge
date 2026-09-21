@@ -73,7 +73,20 @@ export type EngineTransfer = {
   isHold?: boolean;
 };
 
-export function recommendationToTransfer(rec: TransferRecommendation): EngineTransfer | null {
+
+/** Prefer the live FplPlayer from data.players so UI fields like priceOutlook are never stripped. */
+function resolveEnginePlayer(player: FplPlayer, byId?: Map<number, FplPlayer>): FplPlayer {
+  const full = byId?.get(player.id);
+  if (full) return full;
+  if (Array.isArray(player.priceOutlook)) return player;
+  return {
+    ...player,
+    priceOutlook: [],
+    priceProjectionToday: player.priceProjectionToday ?? 0,
+  };
+}
+
+export function recommendationToTransfer(rec: TransferRecommendation, playersById?: Map<number, FplPlayer>): EngineTransfer | null {
   const net = rec.net;
   if (!net.legs.length) {
     if (rec.classification !== "HOLD" && rec.classification !== "ROLL") return null;
@@ -127,8 +140,8 @@ export function recommendationToTransfer(rec: TransferRecommendation): EngineTra
       isHold: true,
     };
   }
-  const out = net.legs[0].out;
-  const incoming = net.legs[0].incoming;
+  const out = resolveEnginePlayer(net.legs[0].out, playersById);
+  const incoming = resolveEnginePlayer(net.legs[0].incoming, playersById);
   const om = net.outMetrics;
   const im = net.inMetrics;
   const gain1 = net.grossDelta1;
@@ -232,8 +245,9 @@ export function bestTransfersFromEngine(
     ...options,
     limit,
   });
+  const playersById = new Map(data.players.map((player) => [player.id, player]));
   return result.recommendations
-    .map(recommendationToTransfer)
+    .map((rec) => recommendationToTransfer(rec, playersById))
     .filter((row): row is EngineTransfer => row !== null);
 }
 
