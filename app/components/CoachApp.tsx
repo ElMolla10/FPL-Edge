@@ -153,9 +153,19 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   const researchRest=navGroups.filter(g=>g.label==="Research"||g.label==="League & History").flatMap(g=>[...g.items]).filter(([key])=>key!=="players"&&!PRO_VIEWS.has(key));
   const squadRest=mySquadGroup.items.filter(([key])=>key!=="team"&&!PRO_VIEWS.has(key));
   const sideNav=[...PRIMARY_NAV.slice(0,2),...squadRest,...PRIMARY_NAV.slice(2)];
-  const inGroup=(group:NavGroup)=>group.items.some(([key])=>key===view);
   const toggleMobileOverlay=(label:string)=>setMobileOverlay(current=>current===label?null:label);
   const teamAuth=desk==="unknown"?"loading":desk==="visitor"?"out":"in";
+  // Phone 5-tab destinations are partitioned (no overlap) so content-based active states
+  // never light two sheet tabs for the same view. Intentional dual-active: when a sheet is
+  // open, that sheet's tab stays active AND the underlying content tab may also stay active
+  // (sheet affordance + current page). Wrong dual-active (e.g. News lighting My Squad+PRO)
+  // is avoided by this partition. Deep Transfers-under-Squad segments = Phase 2.
+  const phoneSquadViews=new Set<View>(["team","transfers","squad-fixtures"]);
+  const phoneProViews=new Set<View>(proItems.map(([key])=>key));
+  const phoneMoreViews=new Set<View>(["deadline","players",...researchRest.map(([key])=>key)]);
+  const phoneSquadActive=mobileOverlay==="My Squad"||phoneSquadViews.has(view);
+  const phoneProActive=mobileOverlay==="PRO"||phoneProViews.has(view);
+  const phoneMoreActive=mobileOverlay==="More"||phoneMoreViews.has(view);
   // Phase 1 chrome-strip: sticky header = Wordmark · GW countdown · Sign in/Account only.
   // Season pass lives under More; floating Coach pill removed; freshness owned by sidebar (desktop) / slim line (phone).
   return <TeamLinkAuthProvider value={teamAuth}><main className={desk==="visitor"?"coach-shell signed-out":"coach-shell"}>
@@ -164,11 +174,11 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading}/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
     </section>
     {(desk==="free"||desk==="season")&&<footer className="coach-footer"><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>}
-    <nav className="coach-mobile-nav"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={mobileOverlay==="My Squad"||inGroup(mySquadGroup)||view==="transfers"?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i><NavIcon id="team"/></i>My Squad</button><button className={mobileOverlay==="PRO"||proItems.some(([key])=>key===view)?"active":""} onClick={()=>toggleMobileOverlay("PRO")}><i><NavIcon id="pro"/></i>PRO</button><button className={view==="coach"?"active":""} onClick={()=>go("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={mobileOverlay==="More"||view==="players"||researchRest.some(([key])=>key===view)?"active":""} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
+    <nav className="coach-mobile-nav" aria-label="Phone primary"><button className={view==="overview"?"active":""} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={phoneSquadActive?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i><NavIcon id="team"/></i>My Squad</button><button className={phoneProActive?"active":""} onClick={()=>toggleMobileOverlay("PRO")}><i><NavIcon id="pro"/></i>PRO</button><button className={view==="coach"?"active":""} onClick={()=>go("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={phoneMoreActive?"active":""} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
     {mobileOverlay&&<MobileSheet title={mobileOverlay} onClose={()=>setMobileOverlay(null)}>
-      {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["deadline","Final check"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}
+      {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}
       {mobileOverlay==="PRO"&&proItems.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}
-      {mobileOverlay==="More"&&<><button type="button" onClick={()=>go("players")}><span>Players</span></button>{researchRest.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}{(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
+      {mobileOverlay==="More"&&<><button type="button" onClick={()=>go("deadline")}><span>Final check</span></button><button type="button" onClick={()=>go("players")}><span>Players</span></button>{researchRest.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}{(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
     </MobileSheet>}
   </main></TeamLinkAuthProvider>
 }

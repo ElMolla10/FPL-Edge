@@ -432,7 +432,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .signin-action .team-signin{min-height:36px;padding:0 14px}
 .signin-action small{max-width:240px;font-size:11px;line-height:1.35;color:var(--text-muted);text-align:right}
 .coach-shell.signed-out .coach-main{padding-bottom:28px}
-@media(max-width:850px){.coach-shell.signed-out .coach-main{padding-bottom:88px}.signin-action{align-items:flex-start}.signin-action small{text-align:left}}
+@media(max-width:850px){.coach-shell.signed-out .coach-main{padding-bottom:calc(180px + max(16px,env(safe-area-inset-bottom,0px)))}.signin-action{align-items:flex-start}.signin-action small{text-align:left}}
 
 
 
@@ -590,7 +590,8 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .coach-header .account-bar{max-width:42vw;min-width:0}
   .coach-header .account-bar b,.coach-header .account-bar small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 
-  .mobile-sheet{display:flex;flex-direction:column;position:fixed;z-index:75;left:0;right:0;top:0;bottom:calc(64px + max(env(safe-area-inset-bottom,0px),34px));background:var(--canvas-dark);color:var(--canvas-light);padding:max(16px,env(safe-area-inset-top,0px),47px) max(14px,env(safe-area-inset-right,0px)) 12px max(14px,env(safe-area-inset-left,0px))}
+  /* Sheet sits above tab bar: 8+48 content + bottom pad with 34px Capacitor floor. */
+  .mobile-sheet{display:flex;flex-direction:column;position:fixed;z-index:75;left:0;right:0;top:0;bottom:calc(56px + max(16px,env(safe-area-inset-bottom,0px),34px));background:var(--canvas-dark);color:var(--canvas-light);padding:max(16px,env(safe-area-inset-top,0px),47px) max(14px,env(safe-area-inset-right,0px)) 12px max(14px,env(safe-area-inset-left,0px))}
   .mobile-sheet>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}
   .mobile-sheet h2{margin:0;font-size:22px;letter-spacing:-.03em}
   .mobile-sheet>header>button{border:1px solid var(--hairline-dark);background:transparent;color:var(--canvas-light);width:40px;height:40px;border-radius:8px;font-size:24px;line-height:1}
@@ -756,7 +757,10 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .builder-pitch-row article:has(.pin-toggle) .tc-mark{top:15px}
   .chip-actions-row{grid-template-columns:1fr 1fr}
   .chip-action-triple-captain{padding:10px}
-  /* Safe-area floors: Capacitor often reports env(safe-area-inset-*) as 0. Pad header/nav themselves. */
+  /* Phone tab / safe-area clearance (Phase 1 PR #2).
+     Tab bar composition: padding-top 8 + button min-height 48 + padding-bottom max(16, safe).
+     Capacitor WKWebView often reports env(safe-area-inset-*)=0 — keep hard floors (16 bottom,
+     34 sheet, 47 header top, 180 main). Content must never sit under the tab bar. */
   .coach-header{padding-top:max(8px,env(safe-area-inset-top,0px),47px);padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px));box-sizing:border-box}
   .coach-main{padding-top:12px;padding-left:max(16px,calc(14px + env(safe-area-inset-left,0px)));padding-right:max(16px,calc(14px + env(safe-area-inset-right,0px)));padding-bottom:calc(180px + max(16px,env(safe-area-inset-bottom,0px)))}
   .coach-shell.signed-out .coach-main{padding-bottom:calc(180px + max(16px,env(safe-area-inset-bottom,0px)))}
@@ -766,6 +770,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .coach-mobile-nav button:active{background:#13261e}
   .coach-mobile-nav button.active{color:var(--lime);background:#173026}
   .coach-mobile-nav button.active i{color:var(--lime)}
+  /* Team bar flush above tab buttons (8+48 = 56 content box + bottom pad). */
   .coach-footer{bottom:calc(56px + max(16px,env(safe-area-inset-bottom,0px)));z-index:65;background:#0b1612;border-top:1px solid rgba(255,255,255,.14);box-shadow:none}
   .coach-shell:not(.signed-out) .coach-mobile-nav{border-top:0;box-shadow:none}
 }
