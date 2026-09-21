@@ -28,6 +28,7 @@ import {
   budgetOk,
   createPlanBudget,
   summarizePlanPath,
+  explainPlanPath,
   waitOneGwThenTransferPlan,
   type PlanBudget,
 } from "./plan";
@@ -66,9 +67,10 @@ export function createTeamState(
   };
 }
 
-function riskMultiplier(startProbability: number, confidence: number): number {
-  // Bounded 0.55–1.0 — same philosophy as the prior engine: never invert via over-discount.
-  return clamp(0.55 + startProbability * 0.25 + confidence * 0.2, 0.55, 1);
+function riskMultiplier(_startProbability: number, confidence: number): number {
+  // H4: start/minutes already shrink xPts — do NOT re-multiply positive NET by start risk.
+  // Confidence (evidence strength) may gently damp ranking uncertainty only.
+  return clamp(0.88 + confidence * 0.12, 0.88, 1);
 }
 
 function buildRiskDrivers(
@@ -300,6 +302,9 @@ function evaluateSingleMove(
     timingEvVsWait,
     transferNowPath: summarizePlanPath(transferPlan),
     holdNowPath: summarizePlanPath(holdPlan),
+    transferNowPathLegs: explainPlanPath(transferPlan),
+    holdNowPathLegs: explainPlanPath(holdPlan),
+    riskAdjustmentPointsDelta: riskAdjustedFiveGwNetVsHold - fiveGwNetVsHold,
     reasonCodes: [],
   };
 }

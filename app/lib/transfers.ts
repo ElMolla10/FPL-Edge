@@ -46,6 +46,9 @@ export type Transfer={
   riskDrivers?:{code:string;label:string;detail:string}[];
   transferNowPath?:string[];
   holdNowPath?:string[];
+  transferNowPathLegs?:{eventId:number;offset:number;action:"HOLD"|"TRANSFER";outName?:string;inName?:string;outId?:number;inId?:number;hitCost:number;freeTransfersBefore:number;freeTransfersAfter:number;weeklyGross:number;discountedEp:number;netEp:number;summary:string}[];
+  holdNowPathLegs?:{eventId:number;offset:number;action:"HOLD"|"TRANSFER";outName?:string;inName?:string;outId?:number;inId?:number;hitCost:number;freeTransfersBefore:number;freeTransfersAfter:number;weeklyGross:number;discountedEp:number;netEp:number;summary:string}[];
+  riskAdjustmentPointsDelta?:number;
   timingEvVsWait?:number|null;
   freeTransfersBefore?:number;
   freeTransfersAfter?:number;

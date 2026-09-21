@@ -4,7 +4,8 @@ import test from "node:test";
 
 test("Transfers UI: confidence label uses full copy", () => {
   const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
-  assert.match(coach, /% confidence · \{r\.risk\} risk/);
+  // r7+: evidence strength labelled "projection evidence" (not abbreviated "conf")
+  assert.match(coach, /% projection evidence · \{r\.risk\} risk/);
   assert.doesNotMatch(coach, /% conf ·/);
 });
 

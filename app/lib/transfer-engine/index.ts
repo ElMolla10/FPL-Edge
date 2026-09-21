@@ -44,11 +44,12 @@ export {
   bestFuturePlan,
   waitOneGwThenTransferPlan,
   summarizePlanPath,
+  explainPlanPath,
   createPlanBudget,
   budgetOk,
   chargeBudget,
 } from "./plan";
-export type { FuturePlan, FuturePlanStep, CandidatePool, PlanBudget } from "./plan";
+export type { FuturePlan, PlanPathLeg, FuturePlanStep, CandidatePool, PlanBudget } from "./plan";
 
 export {
   isLegalSingleTransfer,

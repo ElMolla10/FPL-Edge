@@ -137,6 +137,7 @@ export async function GET() {
           price: number(player.now_cost) / 10,
           status: player.status,
           chance: player.chance_of_playing_next_round,
+          chanceThisRound: player.chance_of_playing_this_round,
           epNext: number(player.ep_next),
           form: number(player.form),
           pointsPerGame: appearances ? number(season.total_points) / appearances : 0,
