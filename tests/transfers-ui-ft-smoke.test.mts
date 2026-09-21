@@ -13,6 +13,9 @@ test("Transfers UI: wires authoritative live FT (limit − made) into rankings",
   assert.match(coach, /resolveAuthoritativeFreeTransfers/);
   assert.match(coach, /authoritativeFreeTransfers/);
   assert.match(coach, /HOLD \/ NO TRANSFER/);
+  // Must import client-safe ft-state — barrel pulls store → db → cloudflare:workers into Vite client.
+  assert.match(coach, /from ["']\.\.\/lib\/personal-fpl-transfer\/ft-state["']/);
+  assert.doesNotMatch(coach, /from ["']\.\.\/lib\/personal-fpl-transfer["']/);
   // Overview must not hardcode FT=1 into bestTransfers anymore
   assert.doesNotMatch(coach, /bestTransfers\(data,squad,finance\.baselineBank,1,/);
 });
