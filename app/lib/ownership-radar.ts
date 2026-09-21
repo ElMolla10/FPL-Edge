@@ -1,5 +1,5 @@
 import type { FplFixture, FplPlayer, PositionRule } from "./fpl";
-import { playerProjection } from "./fpl";
+import { ROLE_SECURITY_FLOOR, playerProjection, projectionMetrics } from "./fpl";
 
 export type TemplatePosition = Readonly<{ position: PositionRule; players: readonly FplPlayer[] }>;
 
@@ -34,6 +34,11 @@ export type DifferentialPosition = Readonly<{ position: PositionRule; players: r
 // two real, independently-verifiable axes. Callers get the real xPts5 and read the real selectedBy
 // off `player` directly; the rank sum itself is never returned or displayed. Capped at 5 per
 // position (Feature #5's existing "top 5 near misses" precedent, not a fresh number).
+// Likely-starter gate reuses the same ROLE_SECURITY_FLOOR already used by transfer route
+// security (startProbability >= 0.55 and expectedMinutes >= 45 on the next event). Without it,
+// bench/third-choice players with ~0% ownership dominate Raw Differentials even when their
+// "upside" is just noise from a non-starting role (e.g. backup GKs). Ranking still runs only
+// among players who clear that gate, so combined-rank peers stay honest.
 export function rawDifferentialsByPosition(
   players: readonly FplPlayer[],
   positions: readonly PositionRule[],
@@ -44,6 +49,13 @@ export function rawDifferentialsByPosition(
   return positions.map(position => {
     const scored = players
       .filter(p => p.positionId === position.id)
+      .filter(p => {
+        if (!firstEvent) return true;
+        if (p.status === "u") return false;
+        const m = projectionMetrics(p, firstEvent, fixtures, firstEvent);
+        return m.startProbability >= ROLE_SECURITY_FLOOR.startProbability
+          && m.expectedMinutes >= ROLE_SECURITY_FLOOR.expectedMinutes;
+      })
       .map(player => ({
         player,
         xPts5: firstEvent ? eventIds.reduce((sum, eventId) => sum + playerProjection(player, eventId, fixtures, firstEvent), 0) : 0,
