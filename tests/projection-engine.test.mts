@@ -396,23 +396,21 @@ test("transfer quality gate: blocked and watchlist rows cannot become the primar
   assert.equal(selectPrimaryTransfer([blocked,watch]),null);
 });
 
-// Overview's "THIS WEEK'S RECOMMENDATION" card and CoachDock's floating-orb summary previously
-// re-derived their own "is this transfer good enough to recommend" check with an independently
-// hardcoded `rankScore<2.2`/`rankScore>=2.2` comparison, instead of calling the same
-// selectPrimaryTransfer() the Transfers page uses. All three agreed by coincidence -- the
-// underlying rankScore cap for blocked/watchlist rows happened to keep them under 2.2 too -- but
-// nothing enforced that agreement, so a future change to selectPrimaryTransfer's threshold could
-// silently desync Overview/CoachDock from Transfers. This locks in that the duplication is gone:
-// selectPrimaryTransfer is the only place either 2.2 or a rankScore comparison against it appears.
-test("Overview and CoachDock select the primary transfer via selectPrimaryTransfer, not an independently duplicated 2.2 threshold",()=>{
+// Overview's "THIS WEEK'S RECOMMENDATION" card previously re-derived its own
+// "is this transfer good enough to recommend" check with an independently hardcoded
+// `rankScore<2.2`/`rankScore>=2.2` comparison, instead of calling selectPrimaryTransfer()
+// the Transfers page uses. The floating CoachDock orb was removed in shell/chrome-strip;
+// Overview must still share the selector (and must not reinvent the 2.2 threshold).
+test("Overview selects the primary transfer via selectPrimaryTransfer, not an independently duplicated 2.2 threshold",()=>{
   const source=readFileSync(new URL("../app/components/CoachApp.tsx",import.meta.url),"utf-8");
-  const overview=source.slice(source.indexOf("function Overview("),source.indexOf("function WhatChanged("));
-  const coachDock=source.slice(source.indexOf("function CoachDock("));
-  for(const [name,body] of [["Overview",overview],["CoachDock",coachDock]] as const){
-    assert.ok(body.includes("selectPrimaryTransfer("),`${name} must call selectPrimaryTransfer to pick its headline route`);
-    assert.ok(!/rankScore\s*[<>]=?\s*2\.2/.test(body),`${name} must not independently compare rankScore against the 2.2 action threshold`);
-    assert.ok(!body.includes(".reviewRequired"),`${name} must not re-check .reviewRequired alongside the shared selector -- it is already folded into qualityStatus/rankScore`);
-  }
+  assert.ok(!source.includes("function CoachDock("),"floating CoachDock was removed; do not restore it for this invariant");
+  const overviewStart=source.indexOf("function Overview(");
+  const overviewEnd=source.indexOf("function WhatChanged(");
+  assert.ok(overviewStart>=0&&overviewEnd>overviewStart,"Overview and WhatChanged markers must exist");
+  const overview=source.slice(overviewStart,overviewEnd);
+  assert.ok(overview.includes("selectPrimaryTransfer("),"Overview must call selectPrimaryTransfer to pick its headline route");
+  assert.ok(!/rankScore\s*[<>]=?\s*2\.2/.test(overview),"Overview must not independently compare rankScore against the 2.2 action threshold");
+  assert.ok(!overview.includes(".reviewRequired"),"Overview must not re-check .reviewRequired alongside the shared selector -- it is already folded into qualityStatus/rankScore");
 });
 
 test("transfer quality gate: optimizer utility cannot lift a blocked route back into recommendation",()=>{
