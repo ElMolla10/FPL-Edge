@@ -30,4 +30,6 @@ test("Transfers UI: PriceIntel skips HOLD and priceOutlookSignal defaults missin
   assert.match(coach, /priceOutlookDays/);
   assert.match(coach, /Array\.isArray\(raw\)\?raw:\[\]/);
   assert.match(coach, /!r\.isHold&&r\.classification!=="HOLD"/);
+  assert.match(coach, /if\(!player\)return\[\]/);
+  assert.match(coach, /if\(!player\)return\{direction:"stable"/);
 });

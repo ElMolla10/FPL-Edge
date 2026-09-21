@@ -168,3 +168,10 @@ test("priceProtectionAlerts: missing priceOutlook never crashes", () => {
   delete (player as { priceOutlook?: unknown }).priceOutlook;
   assert.deepEqual(priceProtectionAlerts([player]), []);
 });
+
+test("priceOutlookSignal / priceTimingSignal: nullish player no-ops safely", () => {
+  assert.deepEqual(priceOutlookSignal(undefined), []);
+  assert.deepEqual(priceOutlookSignal(null as unknown as FplPlayer), []);
+  assert.equal(priceTimingSignal(undefined).direction, "stable");
+  assert.equal(priceTimingSignal(null as unknown as FplPlayer).direction, "stable");
+});

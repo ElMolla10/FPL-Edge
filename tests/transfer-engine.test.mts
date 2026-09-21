@@ -471,6 +471,41 @@ test("diversifyRecommendations caps same outgoing / incoming families", () => {
   for (const c of inCounts.values()) assert.ok(c <= 1, `incoming cluster exceeded: ${c}`);
 });
 
+test("every ranked Transfer exposes array priceOutlook on out and incoming", () => {
+  const initial = squad();
+  const outlook3 = [
+    { offsetDays: 0, projectedPercent: 12, likelihood: 2 },
+    { offsetDays: 1, projectedPercent: 0, likelihood: 0 },
+    { offsetDays: 2, projectedPercent: 0, likelihood: 0 },
+  ];
+  const upgrade = makePlayer({
+    id: 100, name: "Upgrade", teamId: 99, teamName: "Up FC", teamShort: "UPG",
+    positionId: 3, position: "Midfielder", positionShort: "MID", price: 6.0,
+    epNext: 5.5, form: 5.0, pointsPerGame: 5.0, priorPointsPerGame: 5.0,
+    minutes: 2700, starts: 30, priorMinutes: 2500, chance: 100, status: "a",
+    priceOutlook: outlook3,
+  });
+  // data.players hold full outlook; squad clones deliberately omit it (partial / stale objects).
+  const data = dataFor([...initial, upgrade], 5);
+  const squadStripped = initial.map((p) => {
+    const clone = { ...p };
+    delete (clone as { priceOutlook?: unknown }).priceOutlook;
+    return clone;
+  });
+  const rows = bestTransfers(data, squadStripped, 1.0, 1, 20, new Map(initial.map((p) => [p.id, p.price])));
+  assert.ok(rows.length > 0, "expected ranked rows");
+  for (const row of rows) {
+    assert.ok(Array.isArray(row.out.priceOutlook), `out.priceOutlook non-array for ${row.out.name} (${row.classification})`);
+    assert.ok(Array.isArray(row.incoming.priceOutlook), `incoming.priceOutlook non-array for ${row.incoming.name} (${row.classification})`);
+    assert.doesNotThrow(() => [...row.out.priceOutlook, ...row.incoming.priceOutlook]);
+  }
+  // Real outs must be remapped to data.players (which always include priceOutlook: []).
+  const realOut = rows.find((r) => !r.isHold && r.classification !== "HOLD");
+  assert.ok(realOut, "expected at least one non-HOLD ranked move");
+  assert.ok(Object.prototype.hasOwnProperty.call(realOut!.out, "priceOutlook"), "out must carry priceOutlook after remap");
+  assert.notEqual(realOut!.out.priceOutlook, undefined);
+});
+
 test("HOLD adapter stub exposes iterable priceOutlook for UI PriceIntel", () => {
   const initial = squad();
   const mild = makePlayer({
