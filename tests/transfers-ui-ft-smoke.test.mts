@@ -24,3 +24,10 @@ test("team API exposes freeTransferLimit from live my-team", () => {
   const route = readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8");
   assert.match(route, /freeTransferLimit:\s*liveFinance \? liveFinance\.freeTransferLimit/);
 });
+
+test("Transfers UI: PriceIntel skips HOLD and priceOutlookSignal defaults missing arrays", () => {
+  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  assert.match(coach, /priceOutlookDays/);
+  assert.match(coach, /Array\.isArray\(raw\)\?raw:\[\]/);
+  assert.match(coach, /!r\.isHold&&r\.classification!=="HOLD"/);
+});

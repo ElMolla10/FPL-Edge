@@ -77,7 +77,17 @@ export function recommendationToTransfer(rec: TransferRecommendation): EngineTra
   const net = rec.net;
   if (!net.legs.length) {
     if (rec.classification !== "HOLD" && rec.classification !== "ROLL") return null;
-    const stub = { id: 0, name: "HOLD", positionShort: "MID", price: 0, teamShort: "—", teamId: 0 } as unknown as FplPlayer;
+    // Minimal UI-safe FplPlayer shape: PriceIntel / priceOutlookSignal iterate priceOutlook.
+    const stub = {
+      id: 0,
+      name: "HOLD",
+      positionShort: "MID",
+      price: 0,
+      teamShort: "—",
+      teamId: 0,
+      priceProjectionToday: 0,
+      priceOutlook: [],
+    } as unknown as FplPlayer;
     const stubIn = { ...stub, name: "NO TRANSFER" } as unknown as FplPlayer;
     return {
       out: stub,

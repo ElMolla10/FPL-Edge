@@ -470,3 +470,22 @@ test("diversifyRecommendations caps same outgoing / incoming families", () => {
   for (const c of outCounts.values()) assert.ok(c <= 1, `outgoing cluster exceeded: ${c}`);
   for (const c of inCounts.values()) assert.ok(c <= 1, `incoming cluster exceeded: ${c}`);
 });
+
+test("HOLD adapter stub exposes iterable priceOutlook for UI PriceIntel", () => {
+  const initial = squad();
+  const mild = makePlayer({
+    id: 99, name: "Mild", teamId: 99, teamName: "Mild FC", teamShort: "MIL",
+    positionId: 3, position: "Midfielder", positionShort: "MID", price: 6.2,
+    epNext: 3.4, form: 3.2, pointsPerGame: 3.2, priorPointsPerGame: 3.2,
+    minutes: 2700, starts: 30, priorMinutes: 2500, chance: 100, status: "a",
+  });
+  const data = dataFor([...initial, mild], 5);
+  const rows = bestTransfers(data, initial, 1.0, 0, 20, new Map([[21, 6]]));
+  const hold = rows.find((r) => r.isHold || r.classification === "HOLD");
+  assert.ok(hold, "expected HOLD row");
+  assert.ok(Array.isArray(hold!.incoming.priceOutlook), "incoming.priceOutlook must be iterable");
+  assert.ok(Array.isArray(hold!.out.priceOutlook), "out.priceOutlook must be iterable");
+  assert.equal(typeof hold!.incoming.priceProjectionToday, "number");
+  // Mimic PriceIntel: spreading must not throw
+  assert.doesNotThrow(() => [...hold!.incoming.priceOutlook]);
+});

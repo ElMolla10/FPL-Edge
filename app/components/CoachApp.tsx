@@ -18,7 +18,7 @@ import ReconnectFplPanel from "./ReconnectFplPanel";
 import { Chip, ChipPortfolioPanel, ChipScores, LiveChips, LiveHistory, chipScoresForEvent, useConnectedChipHistory } from "./LiveIntelligence";
 import { PlannedChip, computeChipInventory, plannedChipFor, readPlannedChips, removePlannedChip, writePlannedChips } from "../lib/chip-portfolio";
 import { CaptaincyResolution, resolveCaptainSwap, resolveCaptaincy } from "../lib/captaincy";
-import { FplData, FplEvent, FplFixture, FplPlayer, LiveMover, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, displayedGameweekAverage, fetchFplData, futureEvents, isCompleteSquad, liveScoringMovers, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
+import { FplData, FplEvent, FplFixture, FplPlayer, LiveMover, PROJECTION_MODEL_VERSION, PlayerCalibrationGroup, PriceOutlookDay, ProjectionMetrics, ROLE_SECURITY_FLOOR, bestXi, displayedGameweekAverage, fetchFplData, futureEvents, isCompleteSquad, liveScoringMovers, opponent, playerCalibrationProfile, playerProjection, projectionMetrics, savedSquad, simulateAutosubs, startPct } from "../lib/fpl";
 import { HorizonMode, RiskMode, SquadPhilosophy, createFiveWeekEvaluator, createOptimizer } from "../lib/optimizer";
 import { FiveGwGainBand } from "../lib/anomalies";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../lib/dgw";
@@ -1032,8 +1032,12 @@ export type PriceOutlookDaySignal={offsetDays:number;direction:"rise"|"fall"|"st
 // likelihood sign ever disagrees with its projectedPercent sign, that day classifies as "stable"
 // rather than trusting a possibly-inconsistent read -- never observed live, but not something to
 // assume either.
+function priceOutlookDays(player:FplPlayer):readonly PriceOutlookDay[]{
+  const raw=player.priceOutlook;
+  return Array.isArray(raw)?raw:[];
+}
 export function priceOutlookSignal(player:FplPlayer):readonly PriceOutlookDaySignal[]{
-  return[...player.priceOutlook].sort((a,b)=>a.offsetDays-b.offsetDays).map(day=>{
+  return[...priceOutlookDays(player)].sort((a,b)=>a.offsetDays-b.offsetDays).map(day=>{
     const disagreement=day.projectedPercent!==0&&day.likelihood!==0&&Math.sign(day.likelihood)!==Math.sign(day.projectedPercent);
     if(disagreement)return{offsetDays:day.offsetDays,direction:"stable" as const};
     if(day.projectedPercent>=MEANINGFUL_PRICE_PRESSURE)return{offsetDays:day.offsetDays,direction:"rise" as const};
@@ -1057,14 +1061,14 @@ export function priceProtectionAlerts(squad:readonly FplPlayer[]):readonly Price
     }
     const futureRisk=priceOutlookSignal(player).filter(d=>d.offsetDays>0&&d.direction==="fall").sort((a,b)=>a.offsetDays-b.offsetDays)[0];
     if(!futureRisk)return null;
-    const rawDay=player.priceOutlook.find(d=>d.offsetDays===futureRisk.offsetDays);
+    const rawDay=priceOutlookDays(player).find(d=>d.offsetDays===futureRisk.offsetDays);
     const pct=rawDay?Math.abs(rawDay.projectedPercent):0;
     return{player,offsetDays:futureRisk.offsetDays,pct,message:`is projected to fall in ${futureRisk.offsetDays} day${futureRisk.offsetDays>1?"s":""} — selling before then protects the standard £0.1m step.`};
   }).filter((x):x is PriceRiskAlert=>x!==null).sort((a,b)=>a.offsetDays-b.offsetDays||b.pct-a.pct);
 }
 
 const outlookDayLabel=(offsetDays:number)=>offsetDays===0?"Today":offsetDays===1?"Tomorrow":"Day after";
-function PriceIntel({rows}:{rows:Transfer[]}){return <section className="price-intel"><header><span>PRICE-CHANGE INTELLIGENCE</span><h2>Market pressure, without chasing it.</h2></header>{rows.slice(0,4).map(r=>{const timing=priceTimingSignal(r.incoming);const outlook=priceOutlookSignal(r.incoming);return <article key={r.incoming.id}><b>{r.incoming.name}<small>£{r.incoming.price.toFixed(1)}m</small></b><span className={timing.direction}>{timing.direction==="rise"?"Rise pressure":timing.direction==="fall"?"Fall pressure":"Stable"}</span><p>{timing.message}</p><div className="price-outlook-strip">{outlook.map(day=><span key={day.offsetDays} className={day.direction}>{outlookDayLabel(day.offsetDays)}</span>)}</div></article>})}</section>}
+function PriceIntel({rows}:{rows:Transfer[]}){const targets=rows.filter(r=>!r.isHold&&r.classification!=="HOLD"&&r.incoming?.id);if(!targets.length)return null;return <section className="price-intel"><header><span>PRICE-CHANGE INTELLIGENCE</span><h2>Market pressure, without chasing it.</h2></header>{targets.slice(0,4).map(r=>{const timing=priceTimingSignal(r.incoming);const outlook=priceOutlookSignal(r.incoming);return <article key={r.incoming.id}><b>{r.incoming.name}<small>£{r.incoming.price.toFixed(1)}m</small></b><span className={timing.direction}>{timing.direction==="rise"?"Rise pressure":timing.direction==="fall"?"Fall pressure":"Stable"}</span><p>{timing.message}</p><div className="price-outlook-strip">{outlook.map(day=><span key={day.offsetDays} className={day.direction}>{outlookDayLabel(day.offsetDays)}</span>)}</div></article>})}</section>}
 
 // Surfaces squad players at real risk of a price drop before it happens -- nothing today watches
 // your own squad for this, only transfer targets. Renders nothing when no squad player clears the
