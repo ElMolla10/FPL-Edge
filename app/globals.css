@@ -435,6 +435,58 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 @media(max-width:850px){.coach-shell.signed-out .coach-main{padding-bottom:88px}.signin-action{align-items:flex-start}.signin-action small{text-align:left}}
 
 
+
+
+/* === Phase 1 shell/chrome-strip (Kevin locked) ============================
+   Sticky shared chrome: Wordmark · compact GW countdown · Sign in/Account.
+   Page owns titles/subtabs/filters/CTAs. No planner/projection/engine changes.
+   ======================================================================== */
+.coach-header{
+  position:sticky;
+  top:0;
+  z-index:40;
+  background:var(--canvas, #0E1210);
+  align-items:center;
+  /* keep safe-area padding from phone rules; add a hairline so content doesn't bleed under */
+  border-bottom:1px solid transparent;
+  backdrop-filter:saturate(1.1) blur(8px);
+}
+/* Compact strip rhythm: wordmark · countdown · account — pages own titles below. */
+.coach-header .header-tools{align-items:center}
+.coach-header .deadline-chip{min-width:0}
+
+.coach-header.is-stuck,
+.coach-shell .coach-header{
+  border-bottom-color:rgba(255,255,255,.08);
+}
+/* Sticky strip owns the wordmark. Hide the sidebar duplicate so it does not double-appear on desktop. */
+@media (min-width:851px){
+  .coach-sidebar .sidebar-brand .fpl-wordmark{display:none}
+  .coach-sidebar .sidebar-brand{min-height:22px;margin-bottom:18px}
+}
+/* Season pass removed from header chrome (lives under More / account later). */
+.coach-header .pass-link{display:none !important}
+/* Floating FPL Coach pill removed from chrome in Phase 1. */
+.header-tools .coach-dock{display:none !important}
+
+/* Data freshness: one owner — sidebar note on desktop; slim line on phone. */
+@media (min-width:851px){
+  .freshness-strip{display:none}
+}
+@media (max-width:850px){
+  .freshness-strip{
+    min-height:0;
+    padding:6px 10px;
+    margin-bottom:10px;
+    gap:8px;
+    white-space:nowrap;
+    overflow:hidden;
+  }
+  .freshness-strip>span{display:none}
+  .freshness-strip strong{font-size:9px}
+  .freshness-strip button{padding:6px 10px;font-size:9px}
+}
+
 /* Season pass sits by the account as a text link, not a full-width bar or a lime button. */
 .pass-link{color:var(--text-muted);font-size:12px;font-weight:500;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
 .pass-link:hover{color:var(--text)}
