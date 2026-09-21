@@ -19,17 +19,12 @@ import { isLegalSingleTransfer, sellingPriceFor } from "./legality";
 import { buildRecommendationCard, classifyTransfer } from "./classify";
 import {
   applyLegsToState,
+  buildHoldBaseline,
+  discountedSquadEp,
   optimalSquadWeek,
 } from "./squad-ep";
-import {
-  bestFuturePlan,
-  summarizePlanPath,
-  waitOneGwThenTransferPlan,
-} from "./plan";
 import type {
-  BestDecision,
   HoldBaseline,
-  RiskDriver,
   TeamState,
   TransferEngineOptions,
   TransferEngineResult,
@@ -64,60 +59,6 @@ export function createTeamState(
 function riskMultiplier(startProbability: number, confidence: number): number {
   // Bounded 0.55–1.0 — same philosophy as the prior engine: never invert via over-discount.
   return clamp(0.55 + startProbability * 0.25 + confidence * 0.2, 0.55, 1);
-}
-
-function buildRiskDrivers(
-  out: FplPlayer,
-  incoming: FplPlayer,
-  om: ReturnType<typeof projectionMetrics>,
-  im: ReturnType<typeof projectionMetrics>,
-  hitCost: number,
-  shortTerm: number,
-): RiskDriver[] {
-  const drivers: RiskDriver[] = [];
-  if (im.startProbability < 0.8) {
-    drivers.push({
-      code: "start-prob",
-      label: "Start probability",
-      detail: `Incoming start chance ${Math.round(im.startProbability * 100)}% (outgoing ${Math.round(om.startProbability * 100)}%).`,
-    });
-  }
-  if (im.expectedMinutes < 70) {
-    drivers.push({
-      code: "minutes",
-      label: "Expected minutes",
-      detail: `Incoming expected minutes ${Math.round(im.expectedMinutes)} — rotation risk.`,
-    });
-  }
-  if (im.confidence < 0.55) {
-    drivers.push({
-      code: "evidence",
-      label: "Projection evidence",
-      detail: `Evidence strength ${Math.round(im.confidence * 100)}% (confidence ≠ risk).`,
-    });
-  }
-  if (hitCost > 0 && shortTerm < 0) {
-    drivers.push({
-      code: "hit-short-term",
-      label: "Hit vs short-term",
-      detail: `Paying −${hitCost} with negative modelled 3-GW NET.`,
-    });
-  }
-  if (im.startProbability < om.startProbability - 0.05) {
-    drivers.push({
-      code: "role-downgrade",
-      label: "Role security drop",
-      detail: `${incoming.name} has a weaker start profile than ${out.name}.`,
-    });
-  }
-  if (!drivers.length) {
-    drivers.push({
-      code: "low-risk",
-      label: "Low structural risk",
-      detail: "Start chance, minutes and evidence clear the comfortable band.",
-    });
-  }
-  return drivers;
 }
 
 function scoreCandidatePool(
@@ -164,14 +105,12 @@ function scoreCandidatePool(
 function evaluateSingleMove(
   data: FplData,
   state: TeamState,
-  holdPlan: ReturnType<typeof bestFuturePlan>,
   hold: HoldBaseline,
   out: FplPlayer,
   incoming: FplPlayer,
   events: { id: number }[],
   first: number,
   project: (p: FplPlayer, e: number) => number,
-  pools: Map<number, FplPlayer[]>,
   rules: TransferEngineRules,
 ): TransferNetEV | null {
   const legal = isLegalSingleTransfer(
@@ -195,18 +134,26 @@ function evaluateSingleMove(
     buyingPrice: incoming.price,
   };
   const nextState = applyLegsToState(state, [leg], hitCost, rules);
+  const ep = discountedSquadEp(
+    nextState.squad,
+    events,
+    data,
+    first,
+    rules.horizonDiscounts,
+    project,
+  );
 
-  // Type-B: NET = best future plan after transfer-now − best future plan after hold-now
-  const transferPlan = bestFuturePlan(state, data, events, first, pools, project, rules, [leg]);
-  const fiveGwNetVsHold = transferPlan.discountedTotal - holdPlan.discountedTotal;
+  const weeklyGrossDeltas = ep.weeklyGross.map((pts, i) => pts - hold.weeklyGross[i]);
+  const grossDelta1 = weeklyGrossDeltas[0] ?? 0;
+  const grossDelta3 = weeklyGrossDeltas.slice(0, 3).reduce((a, b) => a + b, 0);
+  const grossDelta5 = weeklyGrossDeltas.reduce((a, b) => a + b, 0);
 
-  // 3-GW slice of the same plans (hits fully in week 1 already inside discounted totals)
-  const transfer3 = transferPlan.steps.slice(0, 3).reduce((s, step, idx) => {
-    const disc = step.discountedEp - (idx === 0 ? step.hitCost : 0);
-    return s + disc;
-  }, 0);
-  const hold3 = holdPlan.steps.slice(0, 3).reduce((s, step) => s + step.discountedEp, 0);
-  const threeGwNetVsHold = transfer3 - hold3;
+  // Hit is charged in week 1 only (exact FPL). NET = discounted post-move EP − hit − HOLD.
+  const netEv5 = ep.discountedTotal - hitCost - hold.discountedTotal;
+  const discounted3 =
+    ep.weeklyDiscounted.slice(0, 3).reduce((a, b) => a + b, 0) -
+    hold.weeklyDiscounted.slice(0, 3).reduce((a, b) => a + b, 0);
+  const netEv3 = discounted3 - hitCost;
 
   const om = projectionMetrics(out, first, data.fixtures, first);
   const im = projectionMetrics(incoming, first, data.fixtures, first);
@@ -216,13 +163,9 @@ function evaluateSingleMove(
     (n === undefined ? arr : arr.slice(0, n)).reduce((a, b) => a + b, 0);
 
   const mult = riskMultiplier(im.startProbability, im.confidence);
-  const riskAdjustedFiveGwNetVsHold = fiveGwNetVsHold > 0 ? fiveGwNetVsHold * mult : fiveGwNetVsHold;
+  const riskAdjustedNet5 = (netEv5 > 0 ? netEv5 * mult : netEv5);
 
-  const confidence = clamp(
-    0.35 * im.startProbability + 0.35 * im.confidence + 0.3 * clamp(im.expectedMinutes / 90, 0, 1),
-    0,
-    1,
-  );
+  const confidence = clamp(0.35 * im.startProbability + 0.35 * im.confidence + 0.3 * clamp(im.expectedMinutes / 90, 0, 1), 0, 1);
   const risk: TransferNetEV["risk"] =
     im.startProbability > 0.8 && im.startProbability >= om.startProbability
       ? "Low"
@@ -231,23 +174,6 @@ function evaluateSingleMove(
         : "High";
 
   const nextGwGross = optimalSquadWeek(nextState.squad, first, data, first, project).grossEp;
-  const weeklyGrossDeltas = transferPlan.steps.map((step, i) => step.grossEp - (holdPlan.steps[i]?.grossEp ?? 0));
-  const grossDelta1 = weeklyGrossDeltas[0] ?? 0;
-  const grossDelta3 = weeklyGrossDeltas.slice(0, 3).reduce((a, b) => a + b, 0);
-  const grossDelta5 = weeklyGrossDeltas.reduce((a, b) => a + b, 0);
-
-  let timingEvVsWait: number | null = null;
-  if (hitCost > 0) {
-    const waitPlan = waitOneGwThenTransferPlan(
-      state, data, events, first, pools, project, rules, leg,
-    );
-    if (waitPlan) {
-      timingEvVsWait = transferPlan.discountedTotal - waitPlan.discountedTotal;
-    }
-  }
-
-  const ftUsed = Math.min(1, state.freeTransfers);
-  const riskDrivers = buildRiskDrivers(out, incoming, om, im, hitCost, threeGwNetVsHold);
 
   return {
     legs: [leg],
@@ -256,24 +182,15 @@ function evaluateSingleMove(
     hitLabel: hitLabel(hitCost, rules),
     bankAfter: nextState.bank,
     freeTransfersAfter: nextState.freeTransfers,
-    freeTransfersBefore: state.freeTransfers,
-    transfersRequired: 1,
-    freeTransfersUsed: ftUsed,
     nextGwGross,
-    holdNextGwGross: hold.weeklyGross[0] ?? 0,
     grossDelta1,
     grossDelta3,
     grossDelta5,
-    fiveGwNetVsHold,
-    threeGwNetVsHold,
-    riskAdjustedFiveGwNetVsHold,
-    netEv5: fiveGwNetVsHold,
-    netEv3: threeGwNetVsHold,
-    riskAdjustedNet5: riskAdjustedFiveGwNetVsHold,
-    riskAdjustment: mult,
+    netEv5,
+    netEv3,
+    riskAdjustedNet5,
     confidence,
     risk,
-    riskDrivers,
     weeklyGrossDeltas,
     outMetrics: om,
     inMetrics: im,
@@ -286,18 +203,14 @@ function evaluateSingleMove(
     inGw3: sum(inByEvent, 3),
     outGw5: sum(outByEvent),
     inGw5: sum(inByEvent),
-    transferNowPlanTotal: transferPlan.discountedTotal,
-    holdNowPlanTotal: holdPlan.discountedTotal,
-    timingEvVsWait,
-    transferNowPath: summarizePlanPath(transferPlan),
-    holdNowPath: summarizePlanPath(holdPlan),
-    reasonCodes: [],
   };
 }
 
+
 /**
  * Cap clusters that share the same outgoing or incoming player so one family
- * cannot dominate the top N. Already-sorted by riskAdjustedFiveGwNetVsHold desc.
+ * (e.g. O'Nien → Bogle/Mitchell/Mykolenko) cannot dominate the top N.
+ * Already-sorted by riskAdjustedNet5 descending.
  */
 export function diversifyRecommendations(
   rows: TransferRecommendation[],
@@ -325,84 +238,29 @@ export function diversifyRecommendations(
   return kept;
 }
 
-/** Group moves that share the same out or in into family clusters (for UI). */
-export function groupTransferFamilies(
-  rows: TransferRecommendation[],
-): { key: string; kind: "out" | "in"; playerId: number; playerName: string; members: TransferRecommendation[] }[] {
-  const byOut = new Map<number, TransferRecommendation[]>();
-  const byIn = new Map<number, TransferRecommendation[]>();
-  for (const row of rows) {
-    if (!row.net.legs.length) continue;
-    const out = row.net.legs[0].out;
-    const inn = row.net.legs[0].incoming;
-    if (!byOut.has(out.id)) byOut.set(out.id, []);
-    byOut.get(out.id)!.push(row);
-    if (!byIn.has(inn.id)) byIn.set(inn.id, []);
-    byIn.get(inn.id)!.push(row);
-  }
-  const families: { key: string; kind: "out" | "in"; playerId: number; playerName: string; members: TransferRecommendation[] }[] = [];
-  for (const [id, members] of byOut) {
-    if (members.length < 2) continue;
-    families.push({
-      key: `out-${id}`,
-      kind: "out",
-      playerId: id,
-      playerName: members[0].net.legs[0].out.name,
-      members,
-    });
-  }
-  for (const [id, members] of byIn) {
-    if (members.length < 2) continue;
-    families.push({
-      key: `in-${id}`,
-      kind: "in",
-      playerId: id,
-      playerName: members[0].net.legs[0].incoming.name,
-      members,
-    });
-  }
-  return families;
-}
-
 function buildHoldRecommendation(
   state: TeamState,
   hold: HoldBaseline,
-  holdPlan: ReturnType<typeof bestFuturePlan>,
   first: number,
   data: FplData,
 ): TransferRecommendation {
-  const { classification, reason, reasonCodes } = classifyTransfer({ isHold: true });
+  const { classification, reason } = classifyTransfer({ isHold: true });
   const net: TransferNetEV = {
     legs: [],
     transferCount: 0,
     hitCost: 0,
     hitLabel: "Free",
     bankAfter: state.bank,
-    freeTransfersAfter: hold.freeTransfersPath[0] ?? state.freeTransfers,
-    freeTransfersBefore: state.freeTransfers,
-    transfersRequired: 0,
-    freeTransfersUsed: 0,
+    freeTransfersAfter: state.freeTransfers,
     nextGwGross: hold.weeklyGross[0] ?? 0,
-    holdNextGwGross: hold.weeklyGross[0] ?? 0,
     grossDelta1: 0,
     grossDelta3: 0,
     grossDelta5: 0,
-    fiveGwNetVsHold: 0,
-    threeGwNetVsHold: 0,
-    riskAdjustedFiveGwNetVsHold: 0,
     netEv5: 0,
     netEv3: 0,
     riskAdjustedNet5: 0,
-    riskAdjustment: 1,
     confidence: 1,
     risk: "Low",
-    riskDrivers: [
-      {
-        code: "hold-option",
-        label: "Future free transfers",
-        detail: "Type-B HOLD banks FT and keeps later free upgrades available.",
-      },
-    ],
     weeklyGrossDeltas: hold.weeklyGross.map(() => 0),
     outMetrics: projectionMetrics(state.squad[0], first, data.fixtures, first),
     inMetrics: projectionMetrics(state.squad[0], first, data.fixtures, first),
@@ -415,12 +273,6 @@ function buildHoldRecommendation(
     inGw3: 0,
     outGw5: 0,
     inGw5: 0,
-    transferNowPlanTotal: holdPlan.discountedTotal,
-    holdNowPlanTotal: holdPlan.discountedTotal,
-    timingEvVsWait: null,
-    transferNowPath: hold.pathSummary,
-    holdNowPath: hold.pathSummary,
-    reasonCodes,
   };
   const card = buildRecommendationCard(classification, reason, net);
   return {
@@ -431,9 +283,6 @@ function buildHoldRecommendation(
       ...card,
       bankAfter: state.bank,
       nextGwGross: hold.weeklyGross[0] ?? 0,
-      threeGwNetVsHold: 0,
-      fiveGwNetVsHold: 0,
-      riskAdjustedFiveGwNetVsHold: 0,
       net3: 0,
       net5: 0,
       riskAdjustedNet5: 0,
@@ -442,70 +291,13 @@ function buildHoldRecommendation(
       outName: "HOLD",
       inName: "NO TRANSFER",
       reason,
-      holdNowPath: hold.pathSummary,
-      freeTransfersBefore: state.freeTransfers,
-      freeTransfersAfter: hold.freeTransfersPath[0] ?? state.freeTransfers,
     },
   };
 }
 
-function buildBestDecision(
-  primary: TransferRecommendation,
-  recommendations: TransferRecommendation[],
-): BestDecision {
-  const isHold = primary.classification === "HOLD" || primary.net.transferCount === 0;
-  const alternative = isHold
-    ? recommendations.find(
-        (r) =>
-          r.classification !== "HOLD" &&
-          r.classification !== "AVOID" &&
-          r.net.transferCount > 0,
-      ) ?? null
-    : recommendations.find(
-        (r) =>
-          r !== primary &&
-          (r.classification === "HOLD" || r.net.riskAdjustedFiveGwNetVsHold > 0),
-      ) ?? null;
-
-  const net = primary.net;
-  if (isHold) {
-    return {
-      action: "HOLD",
-      classification: "HOLD",
-      headline: "HOLD — do not transfer now",
-      reason: primary.reason,
-      confidence: 1,
-      risk: "Low",
-      hitLabel: "Free",
-      hitCost: 0,
-      threeGwNetVsHold: 0,
-      fiveGwNetVsHold: 0,
-      riskAdjustedFiveGwNetVsHold: 0,
-      alternative,
-      recommendation: primary,
-    };
-  }
-  return {
-    action: "MAKE",
-    classification: primary.classification,
-    headline: `${net.legs[0].out.name} → ${net.legs[0].incoming.name}`,
-    reason: primary.reason,
-    confidence: net.confidence,
-    risk: net.risk,
-    hitLabel: net.hitLabel,
-    hitCost: net.hitCost,
-    threeGwNetVsHold: net.threeGwNetVsHold,
-    fiveGwNetVsHold: net.fiveGwNetVsHold,
-    riskAdjustedFiveGwNetVsHold: net.riskAdjustedFiveGwNetVsHold,
-    alternative,
-    recommendation: primary,
-  };
-}
-
 /**
- * Full Mohamed transfer recommendation engine (type-B HOLD).
- * Ranks by risk-adjusted 5-GW NET vs HOLD (best future plan after transfer-now
- * minus best future plan after hold-now). Projection weights unchanged.
+ * Full Mohamed transfer recommendation engine.
+ * Ranks by risk-adjusted 5-GW NET vs HOLD (discounted squad EP, exact hits, selling prices).
  */
 export function recommendTransfers(
   data: FplData,
@@ -523,16 +315,13 @@ export function recommendTransfers(
       rules,
       hold: {
         kind: "HOLD",
-        planner: "type-B",
         weeklyGross: [],
         weeklyDiscounted: [],
         discountedTotal: 0,
         undiscountedTotal: 0,
         freeTransfersPath: [],
-        pathSummary: [],
       },
       primary: null,
-      bestDecision: null,
       recommendations: [],
       rollCard,
     };
@@ -564,37 +353,27 @@ export function recommendTransfers(
     return metricCache.get(key)!;
   };
 
+  const hold = buildHoldBaseline(state, data, rules, project);
+  if (!hold) return emptyRoll("No future gameweek to project against.");
+
   const pools = scoreCandidatePool(data, events, first, project, metrics, rules);
-
-  // Type-B HOLD baseline: no transfer NOW, bank FT, allow future free transfers.
-  const holdPlan = bestFuturePlan(state, data, events, first, pools, project, rules, []);
-  const hold: HoldBaseline = {
-    kind: "HOLD",
-    planner: "type-B",
-    weeklyGross: holdPlan.steps.map((s) => s.grossEp),
-    weeklyDiscounted: holdPlan.steps.map((s) => s.discountedEp),
-    discountedTotal: holdPlan.discountedTotal,
-    undiscountedTotal: holdPlan.undiscountedTotal,
-    freeTransfersPath: holdPlan.freeTransfersPath,
-    pathSummary: summarizePlanPath(holdPlan),
-  };
-
   const nets: TransferNetEV[] = [];
+
   for (const out of state.squad) {
     const pool = pools.get(out.positionId) ?? [];
     for (const incoming of pool) {
       if (incoming.id === out.id) continue;
-      const net = evaluateSingleMove(
-        data, state, holdPlan, hold, out, incoming, events, first, project, pools, rules,
-      );
+      const net = evaluateSingleMove(data, state, hold, out, incoming, events, first, project, rules);
       if (net) nets.push(net);
     }
   }
 
+  // Also allow affordable high-epNext players not in the role-security pool (caught as WATCH/AVOID).
+  // Keeps audit visibility without polluting MAKE rankings — classify() gates them.
+
   const moveRecs: TransferRecommendation[] = nets
     .map((net) => {
-      const { classification, reason, reasonCodes } = classifyTransfer({ net }, rules);
-      net.reasonCodes = reasonCodes;
+      const { classification, reason } = classifyTransfer({ net }, rules);
       return {
         classification,
         reason,
@@ -604,81 +383,63 @@ export function recommendTransfers(
     })
     .sort(
       (a, b) =>
-        b.net.riskAdjustedFiveGwNetVsHold - a.net.riskAdjustedFiveGwNetVsHold ||
-        b.net.fiveGwNetVsHold - a.net.fiveGwNetVsHold ||
+        b.net.riskAdjustedNet5 - a.net.riskAdjustedNet5 ||
+        b.net.netEv5 - a.net.netEv5 ||
         a.net.hitCost - b.net.hitCost ||
         b.net.bankAfter - a.net.bankAfter,
     );
 
-  const holdRec = buildHoldRecommendation(state, hold, holdPlan, first, data);
+  const holdRec = buildHoldRecommendation(state, hold, first, data);
   const includeHold = options.includeHold !== false;
+  // Rank HOLD (NET 0) alongside moves so hit-adjusted poor nets surface HOLD on top.
   const combined = includeHold ? [...moveRecs, holdRec] : [...moveRecs];
   combined.sort(
     (a, b) =>
-      b.net.riskAdjustedFiveGwNetVsHold - a.net.riskAdjustedFiveGwNetVsHold ||
-      b.net.fiveGwNetVsHold - a.net.fiveGwNetVsHold ||
+      b.net.riskAdjustedNet5 - a.net.riskAdjustedNet5 ||
+      b.net.netEv5 - a.net.netEv5 ||
       a.net.hitCost - b.net.hitCost ||
       (a.classification === "HOLD" ? -1 : 0) - (b.classification === "HOLD" ? -1 : 0) ||
       b.net.bankAfter - a.net.bankAfter,
   );
   const recommendations = diversifyRecommendations(combined, rules).slice(0, limit);
 
-  const rollCard: TransferRecommendationCard = { ...holdRec.card, reason: holdRec.reason };
+  const rollReason = holdRec.reason;
+  const rollCard: TransferRecommendationCard = {
+    ...holdRec.card,
+    reason: rollReason,
+  };
 
   const bestMakeOrLean = recommendations.find(
     (r) => r.classification === "MAKE" || r.classification === "LEAN",
   );
   const holdInRank = recommendations.find((r) => r.classification === "HOLD") ?? holdRec;
-  // Primary is MAKE/LEAN only when it beats HOLD on risk-adj NET; otherwise HOLD.
+  // Primary is MAKE/LEAN only when it beats HOLD on risk-adj NET; otherwise HOLD/NO TRANSFER.
   const primary =
-    bestMakeOrLean && bestMakeOrLean.net.riskAdjustedFiveGwNetVsHold > 0
+    bestMakeOrLean && bestMakeOrLean.net.riskAdjustedNet5 > 0
       ? bestMakeOrLean
       : holdInRank;
 
-  const bestDecision = buildBestDecision(primary, recommendations);
-
-  return { rules, hold, primary, bestDecision, recommendations, rollCard, holdPlan };
+  return { rules, hold, primary, recommendations, rollCard };
 }
 
 /** Structured JSON for UI / debugging. */
 export function recommendationsToJson(result: TransferEngineResult): object {
   return {
-    schema: "fpl-edge.transfer-engine.v2",
-    planner: "type-B",
+    schema: "fpl-edge.transfer-engine.v1",
     rules: {
       hitPointsPerTransfer: result.rules.hitPointsPerTransfer,
       freeTransferCap: result.rules.freeTransferCap,
       horizonDiscounts: [...result.rules.horizonDiscounts],
-      freeMakeNetThreshold: result.rules.freeMakeNetThreshold,
-      freeLeanNetThreshold: result.rules.freeLeanNetThreshold,
-      hitMakeNetThreshold: result.rules.hitMakeNetThreshold,
-      hitLeanNetThreshold: result.rules.hitLeanNetThreshold,
+      makeNetThreshold: result.rules.makeNetThreshold,
+      leanNetThreshold: result.rules.leanNetThreshold,
     },
     hold: {
-      planner: result.hold.planner,
       discountedTotal: result.hold.discountedTotal,
       undiscountedTotal: result.hold.undiscountedTotal,
       weeklyGross: result.hold.weeklyGross,
-      pathSummary: result.hold.pathSummary,
-      freeTransfersPath: result.hold.freeTransfersPath,
     },
     roll: result.rollCard,
     primary: result.primary?.card ?? result.rollCard,
-    bestDecision: result.bestDecision
-      ? {
-          action: result.bestDecision.action,
-          classification: result.bestDecision.classification,
-          headline: result.bestDecision.headline,
-          reason: result.bestDecision.reason,
-          hitLabel: result.bestDecision.hitLabel,
-          threeGwNetVsHold: result.bestDecision.threeGwNetVsHold,
-          fiveGwNetVsHold: result.bestDecision.fiveGwNetVsHold,
-          riskAdjustedFiveGwNetVsHold: result.bestDecision.riskAdjustedFiveGwNetVsHold,
-          confidence: result.bestDecision.confidence,
-          risk: result.bestDecision.risk,
-          alternative: result.bestDecision.alternative?.card ?? null,
-        }
-      : null,
     recommendations: result.recommendations.map((r) => r.card),
   };
 }

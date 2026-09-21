@@ -86,11 +86,7 @@ export function discountedSquadEp(
   };
 }
 
-/**
- * Lightweight HOLD FT-banking path (frozen squad EP + FT path).
- * Full type-B HOLD with future free transfers lives in plan.bestFuturePlan —
- * recommendTransfers uses that. This helper remains for unit tests of FT banking.
- */
+/** HOLD/ROLL baseline: keep current squad, bank FTs, no hits. */
 export function buildHoldBaseline(
   state: TeamState,
   data: FplData,
@@ -106,22 +102,17 @@ export function buildHoldBaseline(
   const ep = discountedSquadEp(state.squad, events, data, first, rules.horizonDiscounts, proj);
   const freeTransfersPath: number[] = [];
   let ft = clampFreeTransfers(state.freeTransfers, rules);
-  const pathSummary: string[] = [];
   for (let i = 0; i < events.length; i++) {
-    const before = ft;
     ft = freeTransfersAfterDeadline(ft, 0, rules);
     freeTransfersPath.push(ft);
-    pathSummary.push(`GW+${i}: HOLD (${before}→${ft} FT)`);
   }
   return {
     kind: "HOLD",
-    planner: "type-B",
     weeklyGross: ep.weeklyGross,
     weeklyDiscounted: ep.weeklyDiscounted,
     discountedTotal: ep.discountedTotal,
     undiscountedTotal: ep.undiscountedTotal,
     freeTransfersPath,
-    pathSummary,
   };
 }
 

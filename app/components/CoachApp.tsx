@@ -31,7 +31,7 @@ import { BenchOrderResult, modeledAppearanceProbability, optimizeBenchOrder } fr
 import { RouteTransfer, TransferRoute, solveTransferRoutes } from "../lib/transfer-routes";
 import { blankProbability, haulProbability, playerPointsDistribution, pointsRange } from "../lib/projection-distribution";
 import { TransferQualityStatus } from "../lib/transfer-quality";
-import { Transfer, bestTransfers, selectPrimaryTransfer, selectBestDecision, sortTransfersByQuality } from "../lib/transfers";
+import { Transfer, bestTransfers, selectPrimaryTransfer, sortTransfersByQuality } from "../lib/transfers";
 import { ManagerMeta, OfficialPick, evaluateSandbox, deriveSandboxFinancialContext, isRankingFinanceUnavailable, sellingPricesFor } from "../lib/squad-comparison";
 import { LOAD_PLAN_SIGNAL_KEY, MAX_PLANS, PersistedPlan, createPlan, hydratePlanSandbox, readPlans, writePlans } from "../lib/strategy-plans";
 import { DifferentialPosition, TemplatePosition, rawDifferentialsByPosition, templateByPosition } from "../lib/ownership-radar";
@@ -857,9 +857,6 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
   const rows=useMemo(()=>withModelUtilityChange(baseRows,squad,optimizer),[baseRows,squad,optimizer]);
   const routes=useMemo(()=>rankingBlocked?[]:solveTransferRoutes(data,squad,bank,{horizon:routeHorizon,freeTransfers:fts,maxWeeklyHit,sellingPrices,resultLimit:4,plannedChips:readPlannedChips()}),[data,squad,bank,fts,routeHorizon,maxWeeklyHit,sellingPrices,rankingBlocked]);
   const best=selectPrimaryTransfer(rows);const roll=!best;
-  const decision=selectBestDecision(rows);
-  const decisionHold=Boolean(!decision||decision.isHold||decision.classification==="HOLD");
-  const bestAlt=decisionHold?rows.find(r=>!r.isHold&&r.classification!=="HOLD"&&r.classification!=="AVOID")??null:null;
   const decisionConfidence=useTransferDecisionConfidence({data,squad,optimizer,primary:tab==="moves"?best:null,freeTransfers:fts,selectedRoute:`${tab}:${routeHorizon}`});
   const populationPercentiles=usePopulationPercentiles();
   const primaryMain=decisionConfidence.primaryKey?decisionConfidence.state.results[decisionConfidence.primaryKey]?.main:undefined;
@@ -901,31 +898,23 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
     {fullDesk&&<section className="transfer-tabs"><button className={tab==="routes"?"active":""} onClick={()=>setTab("routes")}>Route planner</button><button className={tab==="moves"?"active":""} onClick={()=>setTab("moves")}>Single moves</button><button className={tab==="watchlist"?"active":""} onClick={()=>setTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button><label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select>{liveFtKnown&&<small className="ft-live-hint"> live FPL · {meta?.transfersMade??0} made this GW</small>}</label></section>}
     {transferTab==="routes"?<TransferRoutePlanner routes={routes} horizon={routeHorizon} setHorizon={setRouteHorizon} maxWeeklyHit={maxWeeklyHit} setMaxWeeklyHit={setMaxWeeklyHit}/>:transferTab==="moves"?<>
       <section className="transfer-bank-strip" aria-label="Transfer bank used for rankings"><span>IN THE BANK</span><b>£{bank.toFixed(1)}m</b><small>{meta?.bankSource==="live-my-team"?"live FPL transfer bank":meta?.liveOverlayError?"live bank unavailable":meta?"official public data":"builder estimate"}</small><span>FREE TRANSFERS</span><b>{fts}</b><small>{liveFtKnown?`live · ${meta?.transfersMade??0} already made`:"manual / stored"}</small></section>
-      <section className="recommended-move best-decision-hero" aria-label="Best decision">
-        <div className="call-label"><span>BEST DECISION</span><b>{decisionHold?"HOLD":"MAKE"}</b></div>
-        <h2>{decisionHold?"HOLD — do not transfer now":`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
-        <p>{decisionHold
-          ?(fts<=0?"Should I transfer? No — with 0 FT, no move clears the hit-adjusted NET vs the type-B HOLD plan (bank FT, keep future free upgrades).":"Should I transfer? No — HOLD now, bank the free transfer, and keep future free upgrades available.")
-          :`Should I transfer? Yes — ${decision!.classification??"MAKE"} clears the risk-adjusted 5-GW NET vs HOLD bar. ${decision!.risk} risk (minutes/start) · ${Math.round(decision!.confidenceIn*100)}% confidence (evidence; confidence ≠ risk).`}</p>
-        <div>
-          <span><small>ACTION</small><b>{decisionHold?"HOLD":"TRANSFER"}</b></span>
-          <span><small>CLASSIFICATION</small><b>{decisionHold?"HOLD":(decision!.classification??"LEAN")}</b></span>
-          <span><small>HIT</small><b>{decisionHold?"Free":(decision!.hitLabel??(decision!.hitCost?`−${decision!.hitCost}`:"Free"))}</b></span>
-          {!decisionHold&&decision&&<>
-            <span><small>3-GW NET vs HOLD</small><b>{(decision.threeGwNetVsHold??decision.netEv3??decision.netDifference)>=0?"+":""}{(decision.threeGwNetVsHold??decision.netEv3??decision.netDifference).toFixed(1)}</b></span>
-            <span><small>5-GW NET vs HOLD</small><b>{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference)>=0?"+":""}{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference).toFixed(1)}</b></span>
-            <span><small>RISK-ADJ 5-GW vs HOLD</small><b>{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore)>=0?"+":""}{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore).toFixed(1)}</b></span>
-            <span><small>CONFIDENCE · RISK</small><b>{Math.round(decision.confidenceIn*100)}% · {decision.risk}</b></span>
-          </>}
-          {decisionHold&&<>
-            <span><small>FT NOW → NEXT</small><b>{fts} → {Math.min(5,fts+1)}</b></span>
-            <span><small>NET vs HOLD</small><b>0.0</b></span>
-          </>}
-        </div>
-        <p className="engine-reason-hero">{decisionHold?(decision?.engineReason??"Type-B HOLD: no transfer now; future free transfers stay available."):(decision?.engineReason??"")}</p>
-        {decisionHold&&bestAlt&&<aside className="best-decision-alt"><span>BEST ALTERNATIVE</span><b>{bestAlt.out.name} → {bestAlt.incoming.name}</b><small>{bestAlt.classification??"WATCH"} · {bestAlt.hitLabel??(bestAlt.hitCost?`−${bestAlt.hitCost}`:"Free")} · 5-GW NET vs HOLD {(bestAlt.fiveGwNetVsHold??bestAlt.netEv5??0)>=0?"+":""}{(bestAlt.fiveGwNetVsHold??bestAlt.netEv5??0).toFixed(1)} · risk-adj {(bestAlt.riskAdjustedFiveGwNetVsHold??bestAlt.riskAdjustedNet5??0)>=0?"+":""}{(bestAlt.riskAdjustedFiveGwNetVsHold??bestAlt.riskAdjustedNet5??0).toFixed(1)}</small><p>{bestAlt.engineReason??""}</p></aside>}
-        <strong>{decisionHold?"Recommendation: HOLD / NO TRANSFER":"Recommendation: MOVE NOW"}</strong>
-        {!decisionHold&&a&&decision&&<PersonalTransferPlace elementOut={decision.out.id} elementIn={decision.incoming.id} event={a.first} purchasePrice={decision.incoming.price} outName={decision.out.name} inName={decision.incoming.name} note="Shortcut for the best decision — expand any ranked route below, or use Draft Lab sandbox, to place a different transfer."/>}
+      <section className="recommended-move">
+        <div className="call-label"><span>RECOMMENDED MOVE</span><b>{roll?"HOLD":"QUALITY-GATED EDGE"}</b></div>
+        <h2>{roll?"HOLD / NO TRANSFER":`${best.out.name} → ${best.incoming.name}`}</h2>
+        <p>{roll?(fts<=0?"No transfer clears the hit-adjusted 5-GW NET vs HOLD bar — HOLD with 0 free transfers remaining.":"No transfer clears the risk-adjusted 5-GW NET vs HOLD bar — HOLD and bank the free transfer."):`Highest risk-adjusted 5-GW NET vs HOLD among legal MAKE/LEAN moves. ${best.risk} minutes risk.`}</p>
+        {!roll&&<div>
+          <span><small>CLASSIFICATION</small><b>{best.classification??"LEAN"}</b></span>
+          <span><small>HIT</small><b>{best.hitLabel??(best.hitCost?`−${best.hitCost}`:"Free")}</b></span>
+          <span><small>BANK AFTER</small><b>£{(best.bankAfter??0).toFixed(1)}m</b></span>
+          <span><small>NEXT GW GROSS</small><b>{(best.nextGwGross??best.gain1).toFixed(1)}</b></span>
+          <span><small>3-GW NET</small><b>{(best.netEv3??best.netDifference)>=0?"+":""}{(best.netEv3??best.netDifference).toFixed(1)}</b></span>
+          <span><small>5-GW NET</small><b>{(best.netEv5??best.netDifference)>=0?"+":""}{(best.netEv5??best.netDifference).toFixed(1)}</b></span>
+          <span><small>RISK-ADJ 5-GW NET</small><b>{(best.riskAdjustedNet5??best.rankScore)>=0?"+":""}{(best.riskAdjustedNet5??best.rankScore).toFixed(1)}</b></span>
+          <span><small>CONFIDENCE</small><b>{Math.round(best.confidenceIn*100)}%</b></span>
+        </div>}
+        {!roll&&best.engineReason&&<p className="engine-reason-hero">{best.engineReason}</p>}
+        <strong>{roll?"Recommendation: HOLD / NO TRANSFER":best.gain1-best.hitCost>0?"Recommendation: MOVE NOW":"Recommendation: WAIT / RECHECK"}</strong>
+        {!roll&&a&&<PersonalTransferPlace elementOut={best.out.id} elementIn={best.incoming.id} event={a.first} purchasePrice={best.incoming.price} outName={best.out.name} inName={best.incoming.name} note="Shortcut for the top recommended move — expand any ranked route below, or use Draft Lab sandbox, to place a different transfer."/>}
       </section>
       {!roll&&fullDesk&&<section className="primary-transfer-confidence" aria-label="Primary transfer Decision Confidence">
         <header><span>DECISION CONFIDENCE</span><h2>Primary transfer scenario analysis</h2><p>This analysis is separate from the Actionable / Watchlist / Blocked quality gate and does not change transfer ordering.</p></header>
@@ -934,10 +923,10 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
         <RankEstimatePanel title="Estimated rank if this transfer plays out" result={primaryRankEstimate} />
       </section>}
       {fullDesk&&holdNote&&<p className="transfer-hold-note">{holdNote}</p>}
-      {fullDesk&&<section className="quality-gate-summary engine-class-summary"><header><span>NET VS HOLD · CLASSIFICATION</span><h2>Risk-adjusted 5-GW NET vs type-B HOLD decides MAKE / LEAN / HOLD / WATCH / AVOID. Confidence ≠ risk.</h2></header><div><article><b>{makeRows.length}</b><span>MAKE</span><small>Clear NET edge after hit</small></article><article><b>{leanRows.length}</b><span>LEAN</span><small>Positive but thinner edge</small></article><article><b>{holdRows.length}</b><span>HOLD</span><small>No transfer / NET 0</small></article><article><b>{watchlistRows.length}</b><span>WATCH</span><small>Incomplete evidence or timing</small></article><article><b>{blockedRows.length}</b><span>AVOID</span><small>Negative NET or weak role</small></article></div></section>}
-      {fullDesk&&<TransferRouteList title="MAKE & LEAN" eyebrow="SERIOUS MOVES" rows={actionableRows.slice(0,10)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
-      {fullDesk&&<TransferRouteList title="WATCH" eyebrow="WATCH · IMPORTANT" rows={watchlistRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
-      {fullDesk&&<TransferRouteList title="AVOID" eyebrow="AVOID · COLLAPSED" rows={blockedRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
+      {fullDesk&&<section className="quality-gate-summary engine-class-summary"><header><span>NET VS HOLD · CLASSIFICATION</span><h2>Risk-adjusted 5-GW NET decides MAKE / LEAN / HOLD / WATCH / AVOID.</h2></header><div><article><b>{makeRows.length}</b><span>MAKE</span><small>Clear NET edge after hit</small></article><article><b>{leanRows.length}</b><span>LEAN</span><small>Positive but thinner edge</small></article><article><b>{holdRows.length}</b><span>HOLD</span><small>No transfer / NET 0</small></article><article><b>{watchlistRows.length}</b><span>WATCH</span><small>Incomplete evidence or timing</small></article><article><b>{blockedRows.length}</b><span>AVOID</span><small>Negative NET or weak role</small></article></div></section>}
+      {fullDesk&&<TransferRouteList title="MAKE & LEAN" eyebrow="PRIMARY RANKING" rows={actionableRows.slice(0,10)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
+      {fullDesk&&<TransferRouteList title="WATCH" eyebrow="MONITOR · NOT PRIMARY" rows={watchlistRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
+      {fullDesk&&<TransferRouteList title="AVOID" eyebrow="AUDIT ONLY · NEVER #1" rows={blockedRows.slice(0,6)} expanded={expanded} toggleExpand={toggleExpand} watchIds={watchIds} setWatch={setWatch} confidence={decisionConfidence} event={a.first}/>}
       {fullDesk&&<PriceIntel rows={rows}/>}
       {fullDesk&&process.env.NODE_ENV!=="production"&&<TransferDebugTable rows={rows.slice(0,10)}/>}
       {!fullDesk&&<SeasonLocked feature="Safe and aggressive alternatives, and multi-week routes, are part of the season pass." onUpgrade={onUpgrade}/>}
@@ -1004,36 +993,14 @@ function TransferRouteList({title,eyebrow,rows,expanded,toggleExpand,watchIds,se
       <div>{isHold?<><span>HOLD</span><b>→ NO TRANSFER</b><small>Keep current squad · £{(r.bankAfter??0).toFixed(1)}m bank</small></>:<><span>{r.out.name}</span><b>→ {r.incoming.name}</b><small>{r.incoming.teamShort} · £{r.incoming.price.toFixed(1)}m · bank after £{(r.bankAfter??0).toFixed(1)}m</small></>}</div>
       <p><b>{hit}</b><small>Hit</small></p>
       <p><b>{(r.nextGwGross??r.gain1)>=0&&r.nextGwGross!==undefined?r.nextGwGross.toFixed(1):(r.gain1>=0?"+":"")+r.gain1.toFixed(1)}</b><small>Next GW gross</small></p>
-      <p><b>{(r.threeGwNetVsHold??net3)>=0?"+":""}{(r.threeGwNetVsHold??net3).toFixed(1)}</b><small>3-GW NET vs HOLD</small></p>
-      <p><b>{(r.fiveGwNetVsHold??net5)>=0?"+":""}{(r.fiveGwNetVsHold??net5).toFixed(1)}</b><small>5-GW NET vs HOLD</small></p>
+      <p><b>{net3>=0?"+":""}{net3.toFixed(1)}</b><small>3-GW NET</small></p>
+      <p><b>{net5>=0?"+":""}{net5.toFixed(1)}</b><small>5-GW NET</small></p>
       <em className={`quality-badge engine-badge ${String(cls).toLowerCase()}`}>{cls}</em>
       <em className={r.risk.toLowerCase()}>{Math.round((r.confidenceIn??0)*100)}% confidence · {r.risk} risk</em>
       <button onClick={()=>toggleExpand(key)}>{isOpen?"Hide detail":"Show detail"}</button>
       <button onClick={()=>setWatch(r.incoming.id)}>{watchIds.includes(r.incoming.id)?"Watching ✓":"Watch"}</button>
       {isOpen&&<>
         <p className="engine-reason">{r.engineReason??r.qualityReasons[0]?.message??""}</p>
-        <p className="confidence-risk-note"><small>Confidence is projection evidence strength; risk is minutes/start volatility — they are not the same.</small></p>
-        {!isHold&&<section className="engine-net-detail">
-          <header><span>NET VS HOLD · DETAIL</span></header>
-          <p><span>5-GW raw NET vs HOLD</span><b>{(r.fiveGwNetVsHold??net5)>=0?"+":""}{(r.fiveGwNetVsHold??net5).toFixed(1)}</b></p>
-          <p><span>Risk adjustment</span><b>×{(r.riskAdjustment??1).toFixed(2)}</b></p>
-          <p><span>Risk-adj 5-GW NET vs HOLD</span><b>{(r.riskAdjustedFiveGwNetVsHold??r.riskAdjustedNet5??net5)>=0?"+":""}{(r.riskAdjustedFiveGwNetVsHold??r.riskAdjustedNet5??net5).toFixed(1)}</b></p>
-          {r.hitCost>0&&<div className="hit-detail-breakdown">
-            <span>HIT BREAKDOWN</span>
-            <p><span>FT available</span><b>{r.freeTransfersBefore??0}</b></p>
-            <p><span>Transfers required</span><b>1</b></p>
-            <p><span>FT used / paid hit</span><b>{r.freeTransfersUsed??0} / −{r.hitCost}</b></p>
-            <p><span>Next GW hold proj</span><b>{(r.holdNextGwGross??0).toFixed(1)}</b></p>
-            <p><span>Next GW transfer proj</span><b>{(r.nextGwGross??0).toFixed(1)}</b></p>
-            <p><span>Immediate net (gross−hit)</span><b>{((r.nextGwGross??0)-(r.holdNextGwGross??0)-r.hitCost)>=0?"+":""}{((r.nextGwGross??0)-(r.holdNextGwGross??0)-r.hitCost).toFixed(1)}</b></p>
-            <p><span>3-GW NET vs HOLD</span><b>{(r.threeGwNetVsHold??net3)>=0?"+":""}{(r.threeGwNetVsHold??net3).toFixed(1)}</b></p>
-            <p><span>5-GW NET vs HOLD</span><b>{(r.fiveGwNetVsHold??net5)>=0?"+":""}{(r.fiveGwNetVsHold??net5).toFixed(1)}</b></p>
-            {r.timingEvVsWait!=null&&<p><span>Act-now vs wait 1 GW</span><b>{r.timingEvVsWait>=0?"+":""}{r.timingEvVsWait.toFixed(1)}</b><small>{r.timingEvVsWait>0?"Acting now modelled better than waiting one GW for a free move.":"Waiting one GW for a free move is modelled at least as good."}</small></p>}
-          </div>}
-          {!!r.riskDrivers?.length&&<div className="risk-drivers"><span>RISK DRIVERS</span>{r.riskDrivers.map(d=><p key={d.code}><b>{d.label}</b> {d.detail}</p>)}</div>}
-          {!!r.transferNowPath?.length&&<div className="future-paths"><span>TRANSFER-NOW PATH</span><ol>{r.transferNowPath.map(s=><li key={s}>{s}</li>)}</ol></div>}
-          {!!r.holdNowPath?.length&&<div className="future-paths"><span>HOLD-NOW PATH</span><ol>{r.holdNowPath.map(s=><li key={s}>{s}</li>)}</ol></div>}
-        </section>}
         <TransferBreakdown r={r} decision={confidence.state.results[confidence.keyFor(r)]} analysisActive={confidence.state.activeKey===confidence.keyFor(r)} analysisBusy={confidence.state.activeKey!==null} onAnalyze={()=>confidence.analyzeAlternative(r)}/>
         {!isHold&&<PersonalTransferPlace elementOut={r.out.id} elementIn={r.incoming.id} event={event} purchasePrice={r.incoming.price} outName={r.out.name} inName={r.incoming.name} note="Places this ranked route — not limited to the top recommendation."/>}
       </>}

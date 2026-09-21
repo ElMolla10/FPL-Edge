@@ -6,7 +6,6 @@ import {
   bestTransfersFromEngine,
   isLegalSingleTransfer,
   selectPrimaryEngineTransfer,
-  selectBestDecisionTransfer,
   type TransferClassification,
 } from "./transfer-engine";
 
@@ -38,19 +37,6 @@ export type Transfer={
   hitLabel?:string;
   nextGwGross?:number;
   isHold?:boolean;
-  threeGwNetVsHold?:number;
-  fiveGwNetVsHold?:number;
-  riskAdjustedFiveGwNetVsHold?:number;
-  riskAdjustment?:number;
-  riskDrivers?:{code:string;label:string;detail:string}[];
-  transferNowPath?:string[];
-  holdNowPath?:string[];
-  timingEvVsWait?:number|null;
-  freeTransfersBefore?:number;
-  freeTransfersAfter?:number;
-  freeTransfersUsed?:number;
-  holdNextGwGross?:number;
-  reasonCodes?:string[];
 };
 
 const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
@@ -70,13 +56,6 @@ export function selectPrimaryTransfer(rows:Transfer[],threshold=TRANSFER_ACTION_
   if(enginePrimary)return enginePrimary;
   // Legacy fallback when rows lack classification (e.g. evaluateTransfer ad-hoc pairs).
   return sortTransfersByQuality(rows).find(row=>row.qualityStatus==="actionable"&&row.rankScore>=threshold)??null;
-}
-
-/** BEST DECISION hero: HOLD when nothing clears MAKE/LEAN, else the actionable move. */
-export function selectBestDecision(rows:Transfer[]):Transfer|null{
-  const fromEngine=selectBestDecisionTransfer(rows as Parameters<typeof selectBestDecisionTransfer>[0]);
-  if(fromEngine)return fromEngine as Transfer;
-  return selectPrimaryTransfer(rows);
 }
 
 type TransferBaseline={
