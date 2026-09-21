@@ -87,17 +87,6 @@ export type TransferEngineRules = {
   maxSameIncomingInResults: number;
   /** Minimum remaining-horizon gain to take a future free transfer in type-B plans. */
   futureTransferMargin: number;
-  /** Max week-0 pairs that get a full type-B plan eval (cheap-prefiltered). */
-  maxEvalCandidates: number;
-  /** Hard cap on plan search nodes across one recommendTransfers call. */
-  maxPlanNodes: number;
-  /** Wall-clock soft budget (ms); remaining work is skipped when exceeded. */
-  planTimeBudgetMs: number;
-  /**
-   * Future-GW free-transfer beam. 0 = skip deep future search (Overview first-paint)
-   * while still banking FT on HOLD (type-B FT path preserved).
-   */
-  futureBeamWidth: number;
 
   // --- Legacy aliases (kept for older callers / JSON) ---
   /** @deprecated use freeMakeNetThreshold */
@@ -141,36 +130,18 @@ export const DEFAULT_TRANSFER_RULES_2026_27: TransferEngineRules = Object.freeze
   watchStartProbability: 0.55,
   watchExpectedMinutes: 45,
   watchConfidence: 0.35,
-  beamWidth: 12,
-  candidatePoolPerPosition: 12,
+  beamWidth: 36,
+  candidatePoolPerPosition: 18,
   resultLimit: 24,
   maxWeek1Hit: 8,
   maxSameOutgoingInResults: 2,
   maxSameIncomingInResults: 2,
   futureTransferMargin: 0.35,
-  maxEvalCandidates: 40,
-  maxPlanNodes: 6000,
-  planTimeBudgetMs: 180,
-  futureBeamWidth: 8,
 
   // Legacy mirrors of FREE thresholds
   makeNetThreshold: 2.0,
   leanNetThreshold: 0.75,
   avoidNetCeiling: -0.25,
-});
-
-/**
- * Overview / first-paint profile: type-B HOLD still banks FT, but skips deep
- * future free-transfer beam so Live Overview cannot hang Chrome (RESULT_CODE_HUNG).
- */
-export const OVERVIEW_TRANSFER_RULES: Partial<TransferEngineRules> = Object.freeze({
-  candidatePoolPerPosition: 6,
-  beamWidth: 0,
-  futureBeamWidth: 0,
-  maxEvalCandidates: 8,
-  maxPlanNodes: 800,
-  planTimeBudgetMs: 45,
-  resultLimit: 1,
 });
 
 export function mergeTransferRules(

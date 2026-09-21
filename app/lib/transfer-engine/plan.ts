@@ -2,9 +2,6 @@
  * Type-B future planner: HOLD/transfer-now allows later free transfers.
  * TransferNetEV = bestFuturePlan(transfer-now) − bestFuturePlan(hold-now).
  * Future weeks never take hits (wait for FT) so week-1 hit timing stays honest.
- *
- * Hotfix budgets (post #53/#54 hang): node + wall-clock caps, memoized remaining EP,
- * futureBeamWidth pruning. futureBeamWidth === 0 skips deep future search (Overview).
  */
 import type { FplData, FplPlayer } from "../fpl";
 import { exactHitCost, freeTransfersAfterDeadline, hitLabel, type TransferEngineRules } from "./rules";
@@ -37,54 +34,6 @@ export type FuturePlan = {
 
 export type CandidatePool = Map<number, FplPlayer[]>;
 
-/** Shared search budget for one recommendTransfers / bestFuturePlan tree. */
-export type PlanBudget = {
-  nodes: number;
-  maxNodes: number;
-  deadlineMs: number;
-  exhausted: boolean;
-};
-
-function nowMs(): number {
-  return typeof performance !== "undefined" && typeof performance.now === "function"
-    ? performance.now()
-    : Date.now();
-}
-
-export function createPlanBudget(rules: TransferEngineRules, startedAt = nowMs()): PlanBudget {
-  return {
-    nodes: 0,
-    maxNodes: Math.max(64, rules.maxPlanNodes),
-    deadlineMs: startedAt + Math.max(8, rules.planTimeBudgetMs),
-    exhausted: false,
-  };
-}
-
-export function budgetOk(budget: PlanBudget | undefined): boolean {
-  if (!budget) return true;
-  if (budget.exhausted) return false;
-  if (budget.nodes >= budget.maxNodes || nowMs() >= budget.deadlineMs) {
-    budget.exhausted = true;
-    return false;
-  }
-  return true;
-}
-
-export function chargeBudget(budget: PlanBudget | undefined, cost = 1): boolean {
-  if (!budget) return true;
-  budget.nodes += cost;
-  return budgetOk(budget);
-}
-
-function squadKey(squad: FplPlayer[]): string {
-  let key = "";
-  for (let i = 0; i < squad.length; i++) {
-    if (i) key += ",";
-    key += squad[i].id;
-  }
-  return key;
-}
-
 function remainingDiscountedEp(
   squad: FplPlayer[],
   events: { id: number }[],
@@ -93,32 +42,11 @@ function remainingDiscountedEp(
   first: number,
   discounts: readonly number[],
   project: (p: FplPlayer, e: number) => number,
-  cache?: Map<string, number>,
 ): number {
   const slice = events.slice(fromIndex);
   if (!slice.length) return 0;
-  const key = `${squadKey(squad)}|${fromIndex}`;
-  if (cache?.has(key)) return cache.get(key)!;
   const localDiscounts = discounts.slice(fromIndex);
-  const total = discountedSquadEp(squad, slice, data, first, localDiscounts, project).discountedTotal;
-  cache?.set(key, total);
-  return total;
-}
-
-function cheapIndividualRemaining(
-  out: FplPlayer,
-  incoming: FplPlayer,
-  events: { id: number }[],
-  fromIndex: number,
-  discounts: readonly number[],
-  project: (p: FplPlayer, e: number) => number,
-): number {
-  let gain = 0;
-  for (let i = fromIndex; i < events.length; i++) {
-    const d = discounts[i] ?? discounts[discounts.length - 1] ?? 1;
-    gain += (project(incoming, events[i].id) - project(out, events[i].id)) * d;
-  }
-  return gain;
+  return discountedSquadEp(squad, slice, data, first, localDiscounts, project).discountedTotal;
 }
 
 /**
@@ -134,7 +62,6 @@ export function bestFuturePlan(
   project: (p: FplPlayer, e: number) => number,
   rules: TransferEngineRules,
   week0Legs: TransferLeg[] = [],
-  budget?: PlanBudget,
 ): FuturePlan {
   if (!events.length) {
     return { steps: [], discountedTotal: 0, undiscountedTotal: 0, hitCostTotal: 0, freeTransfersPath: [] };
@@ -147,8 +74,6 @@ export function bestFuturePlan(
   let hitCostTotal = 0;
   const freeTransfersPath: number[] = [];
   const margin = Math.max(0, rules.futureTransferMargin);
-  const epCache = new Map<string, number>();
-  const futureBeam = Math.max(0, rules.futureBeamWidth ?? rules.beamWidth ?? 0);
 
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
@@ -172,54 +97,40 @@ export function bestFuturePlan(
       outId = week0Legs[0].out.id;
       inId = week0Legs[0].incoming.id;
       hitCostTotal += hitCost;
-    } else if (i > 0 && cur.freeTransfers >= 1 && futureBeam > 0 && budgetOk(budget)) {
+    } else if (i > 0 && cur.freeTransfers >= 1) {
       // Greedy best free transfer for remaining horizon (including this week).
       const rollRemaining = remainingDiscountedEp(
-        cur.squad, events, i, data, first, rules.horizonDiscounts, project, epCache,
+        cur.squad, events, i, data, first, rules.horizonDiscounts, project,
       );
-      type Cand = { leg: TransferLeg; cheap: number };
-      const cheapList: Cand[] = [];
+      let bestGain = 0;
+      let bestLeg: TransferLeg | null = null;
       for (const out of cur.squad) {
-        if (!budgetOk(budget)) break;
         const pool = pools.get(out.positionId) ?? [];
         for (const incoming of pool) {
           if (incoming.id === out.id) continue;
-          if (!chargeBudget(budget, 1)) break;
           const legal = isLegalSingleTransfer(
             data, cur.squad, out, incoming, cur.bank, cur.sellingPrices, rules,
           );
           if (!legal.legal) continue;
+          // Free only — never take future hits in the type-B continuation.
           if (exactHitCost(1, cur.freeTransfers, rules) > 0) continue;
-          const cheap = cheapIndividualRemaining(
-            out, incoming, events, i, rules.horizonDiscounts, project,
+          const leg: TransferLeg = {
+            out,
+            incoming,
+            sellingPrice: legal.sellingPrice,
+            buyingPrice: incoming.price,
+          };
+          const next = applyLegsToState(cur, [leg], 0, rules);
+          // Revert FT advance for EP compare: we want EP of next.squad from this week onward
+          // with discounts aligned to absolute week index.
+          const moveRemaining = remainingDiscountedEp(
+            next.squad, events, i, data, first, rules.horizonDiscounts, project,
           );
-          if (cheap <= margin) continue;
-          cheapList.push({
-            leg: {
-              out,
-              incoming,
-              sellingPrice: legal.sellingPrice,
-              buyingPrice: incoming.price,
-            },
-            cheap,
-          });
-        }
-      }
-      cheapList.sort((a, b) => b.cheap - a.cheap);
-      const beamed = cheapList.slice(0, futureBeam);
-
-      let bestGain = 0;
-      let bestLeg: TransferLeg | null = null;
-      for (const cand of beamed) {
-        if (!chargeBudget(budget, 2)) break;
-        const next = applyLegsToState(cur, [cand.leg], 0, rules);
-        const moveRemaining = remainingDiscountedEp(
-          next.squad, events, i, data, first, rules.horizonDiscounts, project, epCache,
-        );
-        const gain = moveRemaining - rollRemaining;
-        if (gain > bestGain + margin) {
-          bestGain = gain;
-          bestLeg = cand.leg;
+          const gain = moveRemaining - rollRemaining;
+          if (gain > bestGain + margin) {
+            bestGain = gain;
+            bestLeg = leg;
+          }
         }
       }
       if (bestLeg) {
@@ -256,7 +167,6 @@ export function bestFuturePlan(
     const ftAfter = cur.freeTransfers;
     freeTransfersPath.push(ftAfter);
 
-    chargeBudget(budget, 1);
     const grossEp = optimalSquadWeek(cur.squad, event.id, data, first, project).grossEp;
     const discount = rules.horizonDiscounts[i] ?? rules.horizonDiscounts[rules.horizonDiscounts.length - 1] ?? 1;
     const discountedEp = grossEp * discount;
@@ -293,10 +203,8 @@ export function waitOneGwThenTransferPlan(
   project: (p: FplPlayer, e: number) => number,
   rules: TransferEngineRules,
   leg: TransferLeg,
-  budget?: PlanBudget,
 ): FuturePlan | null {
   if (events.length < 2) return null;
-  if (!budgetOk(budget)) return null;
   // HOLD week 0
   const afterHold: TeamState = {
     ...state,
@@ -328,7 +236,7 @@ export function waitOneGwThenTransferPlan(
   const restDiscounts = rules.horizonDiscounts.slice(1);
   const restRules = { ...rules, horizonDiscounts: restDiscounts };
   const rest = bestFuturePlan(
-    afterHold, data, restEvents, first, pools, project, restRules, [forcedLeg], budget,
+    afterHold, data, restEvents, first, pools, project, restRules, [forcedLeg],
   );
 
   const steps: FuturePlanStep[] = [

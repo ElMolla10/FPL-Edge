@@ -4,7 +4,6 @@ import { TRANSFER_ACTION_THRESHOLD, TransferQualityReason, TransferQualityStatus
 import { plannedChipFor, readPlannedChips } from "./chip-portfolio";
 import {
   bestTransfersFromEngine,
-  OVERVIEW_TRANSFER_RULES,
   isLegalSingleTransfer,
   selectPrimaryEngineTransfer,
   selectBestDecisionTransfer,
@@ -163,9 +162,7 @@ export function isPlaceableTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer
  * discounted multi-GW squad EP, MAKE/LEAN/ROLL/WATCH/AVOID).
  * isPlaceableTransfer / live selling prices remain the legality gate inside the engine.
  */
-export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTransfers=1,limit=12,sellingPrices=new Map<number,number>(),options?:{rules?:Partial<import("./transfer-engine").TransferEngineRules>;profile?:"overview"|"full"}):Transfer[]{
+export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTransfers=1,limit=12,sellingPrices=new Map<number,number>()):Transfer[]{
   if(!isCompleteSquad(squad,data))return[];
-  const profileRules=options?.profile==="overview"?OVERVIEW_TRANSFER_RULES:undefined;
-  const rules={...(profileRules??{}),...(options?.rules??{})};
-  return bestTransfersFromEngine(data,squad,bank,freeTransfers,limit,sellingPrices,{rules:Object.keys(rules).length?rules:undefined}) as Transfer[];
+  return bestTransfersFromEngine(data,squad,bank,freeTransfers,limit,sellingPrices) as Transfer[];
 }
