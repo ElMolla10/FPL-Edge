@@ -36,11 +36,12 @@ export type Transfer={
   bankAfter?:number;
   hitLabel?:string;
   nextGwGross?:number;
+  isHold?:boolean;
 };
 
 const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
 const qualityOrder:Record<TransferQualityStatus,number>={actionable:0,watchlist:1,blocked:2};
-const classificationOrder:Record<TransferClassification,number>={MAKE:0,LEAN:1,WATCH:2,ROLL:3,AVOID:4};
+const classificationOrder:Record<TransferClassification,number>={MAKE:0,LEAN:1,HOLD:2,WATCH:3,ROLL:4,AVOID:5};
 
 export function sortTransfersByQuality(rows:Transfer[]):Transfer[]{
   return [...rows].sort((a,b)=>{

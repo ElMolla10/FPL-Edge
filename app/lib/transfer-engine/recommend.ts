@@ -206,6 +206,95 @@ function evaluateSingleMove(
   };
 }
 
+
+/**
+ * Cap clusters that share the same outgoing or incoming player so one family
+ * (e.g. O'Nien → Bogle/Mitchell/Mykolenko) cannot dominate the top N.
+ * Already-sorted by riskAdjustedNet5 descending.
+ */
+export function diversifyRecommendations(
+  rows: TransferRecommendation[],
+  rules: TransferEngineRules,
+): TransferRecommendation[] {
+  const maxOut = Math.max(1, rules.maxSameOutgoingInResults);
+  const maxIn = Math.max(1, rules.maxSameIncomingInResults);
+  const outCount = new Map<number, number>();
+  const inCount = new Map<number, number>();
+  const kept: TransferRecommendation[] = [];
+  for (const row of rows) {
+    if (row.classification === "HOLD" || row.net.transferCount === 0 || !row.net.legs.length) {
+      kept.push(row);
+      continue;
+    }
+    const outId = row.net.legs[0].out.id;
+    const inId = row.net.legs[0].incoming.id;
+    const o = outCount.get(outId) ?? 0;
+    const i = inCount.get(inId) ?? 0;
+    if (o >= maxOut || i >= maxIn) continue;
+    outCount.set(outId, o + 1);
+    inCount.set(inId, i + 1);
+    kept.push(row);
+  }
+  return kept;
+}
+
+function buildHoldRecommendation(
+  state: TeamState,
+  hold: HoldBaseline,
+  first: number,
+  data: FplData,
+): TransferRecommendation {
+  const { classification, reason } = classifyTransfer({ isHold: true });
+  const net: TransferNetEV = {
+    legs: [],
+    transferCount: 0,
+    hitCost: 0,
+    hitLabel: "Free",
+    bankAfter: state.bank,
+    freeTransfersAfter: state.freeTransfers,
+    nextGwGross: hold.weeklyGross[0] ?? 0,
+    grossDelta1: 0,
+    grossDelta3: 0,
+    grossDelta5: 0,
+    netEv5: 0,
+    netEv3: 0,
+    riskAdjustedNet5: 0,
+    confidence: 1,
+    risk: "Low",
+    weeklyGrossDeltas: hold.weeklyGross.map(() => 0),
+    outMetrics: projectionMetrics(state.squad[0], first, data.fixtures, first),
+    inMetrics: projectionMetrics(state.squad[0], first, data.fixtures, first),
+    individualGain1: 0,
+    individualGain3: 0,
+    individualGain5: 0,
+    outGw1: 0,
+    inGw1: 0,
+    outGw3: 0,
+    inGw3: 0,
+    outGw5: 0,
+    inGw5: 0,
+  };
+  const card = buildRecommendationCard(classification, reason, net);
+  return {
+    classification,
+    reason,
+    net,
+    card: {
+      ...card,
+      bankAfter: state.bank,
+      nextGwGross: hold.weeklyGross[0] ?? 0,
+      net3: 0,
+      net5: 0,
+      riskAdjustedNet5: 0,
+      confidence: 1,
+      risk: "Low",
+      outName: "HOLD",
+      inName: "NO TRANSFER",
+      reason,
+    },
+  };
+}
+
 /**
  * Full Mohamed transfer recommendation engine.
  * Ranks by risk-adjusted 5-GW NET vs HOLD (discounted squad EP, exact hits, selling prices).
@@ -221,7 +310,7 @@ export function recommendTransfers(
   const rules = mergeTransferRules(options.rules);
   const limit = Math.max(1, options.limit ?? rules.resultLimit);
   const emptyRoll = (reason: string): TransferEngineResult => {
-    const rollCard = buildRecommendationCard("ROLL", reason, null);
+    const rollCard = buildRecommendationCard("HOLD", reason, null);
     return {
       rules,
       hold: {
@@ -282,7 +371,7 @@ export function recommendTransfers(
   // Also allow affordable high-epNext players not in the role-security pool (caught as WATCH/AVOID).
   // Keeps audit visibility without polluting MAKE rankings — classify() gates them.
 
-  const recommendations: TransferRecommendation[] = nets
+  const moveRecs: TransferRecommendation[] = nets
     .map((net) => {
       const { classification, reason } = classifyTransfer({ net }, rules);
       return {
@@ -298,62 +387,37 @@ export function recommendTransfers(
         b.net.netEv5 - a.net.netEv5 ||
         a.net.hitCost - b.net.hitCost ||
         b.net.bankAfter - a.net.bankAfter,
-    )
-    .slice(0, limit);
+    );
 
-  const rollReason =
-    "HOLD/ROLL baseline: keep the current squad, use optimal XI/C each week, bank free transfers. No hit cost.";
+  const holdRec = buildHoldRecommendation(state, hold, first, data);
+  const includeHold = options.includeHold !== false;
+  // Rank HOLD (NET 0) alongside moves so hit-adjusted poor nets surface HOLD on top.
+  const combined = includeHold ? [...moveRecs, holdRec] : [...moveRecs];
+  combined.sort(
+    (a, b) =>
+      b.net.riskAdjustedNet5 - a.net.riskAdjustedNet5 ||
+      b.net.netEv5 - a.net.netEv5 ||
+      a.net.hitCost - b.net.hitCost ||
+      (a.classification === "HOLD" ? -1 : 0) - (b.classification === "HOLD" ? -1 : 0) ||
+      b.net.bankAfter - a.net.bankAfter,
+  );
+  const recommendations = diversifyRecommendations(combined, rules).slice(0, limit);
+
+  const rollReason = holdRec.reason;
   const rollCard: TransferRecommendationCard = {
-    ...buildRecommendationCard("ROLL", rollReason, null),
-    bankAfter: state.bank,
-    nextGwGross: hold.weeklyGross[0] ?? 0,
-    net3: 0,
-    net5: 0,
-    riskAdjustedNet5: 0,
-    confidence: 1,
-    risk: "Low",
+    ...holdRec.card,
     reason: rollReason,
   };
 
   const bestMakeOrLean = recommendations.find(
     (r) => r.classification === "MAKE" || r.classification === "LEAN",
   );
+  const holdInRank = recommendations.find((r) => r.classification === "HOLD") ?? holdRec;
+  // Primary is MAKE/LEAN only when it beats HOLD on risk-adj NET; otherwise HOLD/NO TRANSFER.
   const primary =
-    bestMakeOrLean ??
-    ({
-      classification: "ROLL" as const,
-      reason: rollReason,
-      net: {
-        legs: [],
-        transferCount: 0,
-        hitCost: 0,
-        hitLabel: "Free",
-        bankAfter: state.bank,
-        freeTransfersAfter: state.freeTransfers,
-        nextGwGross: hold.weeklyGross[0] ?? 0,
-        grossDelta1: 0,
-        grossDelta3: 0,
-        grossDelta5: 0,
-        netEv5: 0,
-        netEv3: 0,
-        riskAdjustedNet5: 0,
-        confidence: 1,
-        risk: "Low" as const,
-        weeklyGrossDeltas: hold.weeklyGross.map(() => 0),
-        outMetrics: projectionMetrics(state.squad[0], first, data.fixtures, first),
-        inMetrics: projectionMetrics(state.squad[0], first, data.fixtures, first),
-        individualGain1: 0,
-        individualGain3: 0,
-        individualGain5: 0,
-        outGw1: 0,
-        inGw1: 0,
-        outGw3: 0,
-        inGw3: 0,
-        outGw5: 0,
-        inGw5: 0,
-      },
-      card: rollCard,
-    } satisfies TransferRecommendation);
+    bestMakeOrLean && bestMakeOrLean.net.riskAdjustedNet5 > 0
+      ? bestMakeOrLean
+      : holdInRank;
 
   return { rules, hold, primary, recommendations, rollCard };
 }

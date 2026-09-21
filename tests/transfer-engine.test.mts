@@ -177,7 +177,7 @@ test("case5: HOLD baseline has zero transfer NET and banks FTs", () => {
   assert.ok(hold.discountedTotal > 0);
   assert.deepEqual(hold.freeTransfersPath, [2, 3, 4, 5, 5]);
   const result = recommendTransfers(data, initial, 1.0, 1);
-  assert.equal(result.rollCard.classification, "ROLL");
+  assert.equal(result.rollCard.classification, "HOLD");
   assert.equal(result.rollCard.net5, 0);
   assert.equal(result.rollCard.hitCost, 0);
 });
@@ -337,7 +337,7 @@ test("case13: classifyTransfer maps NET + role into MAKE/LEAN/WATCH/AVOID/ROLL",
     outGw5: 10,
     inGw5: 13,
   });
-  assert.equal(classifyTransfer({ isHold: true }).classification, "ROLL");
+  assert.equal(classifyTransfer({ isHold: true }).classification, "HOLD");
   assert.equal(classifyTransfer({ net: mkNet(3.5) }).classification, "MAKE");
   assert.equal(classifyTransfer({ net: mkNet(1.5) }).classification, "LEAN");
   assert.equal(classifyTransfer({ net: mkNet(0.4) }).classification, "WATCH");
@@ -346,11 +346,12 @@ test("case13: classifyTransfer maps NET + role into MAKE/LEAN/WATCH/AVOID/ROLL",
 });
 
 // --- Case 14: primary is ROLL when nothing clears MAKE/LEAN ---
-test("case14: when no upgrade exists, primary classification is ROLL", () => {
+test("case14: when no upgrade exists, primary classification is HOLD", () => {
   const initial = squad();
   const data = dataFor(initial, 5);
   const result = recommendTransfers(data, initial, 0.5, 1);
-  assert.equal(result.primary?.classification, "ROLL");
+  assert.equal(result.primary?.classification, "HOLD");
+  assert.ok(result.recommendations.some((r) => r.classification === "HOLD"));
   assert.equal(selectPrimaryTransfer(bestTransfers(data, initial, 0.5, 1, 20)), null);
 });
 
@@ -410,4 +411,62 @@ test("wiring: bestTransfers returns classification + NET fields from the engine"
     assert.ok(row.hitLabel);
     assert.equal(row.out.positionId, row.incoming.positionId);
   }
+});
+
+test("FT=0 never labels a one-leg move Free; nets subtract the hit", () => {
+  const initial = squad();
+  const upgrade = starMid(99, 6.5);
+  const data = dataFor([...initial, upgrade], 5);
+  const result = recommendTransfers(data, initial, 2.0, 0, new Map([[21, 6]]));
+  const moves = result.recommendations.filter((r) => r.net.transferCount === 1);
+  assert.ok(moves.length > 0);
+  for (const move of moves) {
+    assert.equal(move.net.hitCost, 4);
+    assert.equal(move.net.hitLabel, "-4");
+    assert.notEqual(move.net.hitLabel, "Free");
+  }
+  const freeLabeled = bestTransfers(data, initial, 2.0, 0, 30, new Map([[21, 6]]))
+    .filter((r) => !r.isHold && r.hitLabel === "Free");
+  assert.equal(freeLabeled.length, 0);
+});
+
+test("HOLD appears in ranked results and tops the list when hit-adjusted nets are poor", () => {
+  const initial = squad();
+  // Mild upgrade that cannot clear a -4 hit vs HOLD
+  const mild = makePlayer({
+    id: 99, name: "Mild", teamId: 99, teamName: "Mild FC", teamShort: "MIL",
+    positionId: 3, position: "Midfielder", positionShort: "MID", price: 6.2,
+    epNext: 3.4, form: 3.2, pointsPerGame: 3.2, priorPointsPerGame: 3.2,
+    minutes: 2700, starts: 30, priorMinutes: 2500, chance: 100, status: "a",
+  });
+  const data = dataFor([...initial, mild], 5);
+  const result = recommendTransfers(data, initial, 1.0, 0, new Map([[21, 6]]));
+  const hold = result.recommendations.find((r) => r.classification === "HOLD");
+  assert.ok(hold, "HOLD must appear in ranked recommendations");
+  assert.equal(result.primary?.classification, "HOLD");
+  // First recommendation by NET should be HOLD (0) over negative hit moves
+  assert.equal(result.recommendations[0]?.classification, "HOLD");
+  const rows = bestTransfers(data, initial, 1.0, 0, 20, new Map([[21, 6]]));
+  assert.ok(rows.some((r) => r.isHold || r.classification === "HOLD"));
+});
+
+test("diversifyRecommendations caps same outgoing / incoming families", () => {
+  const initial = squad();
+  const outs = [11, 12, 13];
+  const stars = [90, 91, 92, 93, 94, 95].map((id) => starMid(id, 5.5));
+  const data = dataFor([...initial, ...stars], 5);
+  const result = recommendTransfers(data, initial, 5.0, 1, new Map(), {
+    rules: { maxSameOutgoingInResults: 1, maxSameIncomingInResults: 1, candidatePoolPerPosition: 30, resultLimit: 12 },
+  });
+  const moves = result.recommendations.filter((r) => r.net.transferCount === 1);
+  const outCounts = new Map<number, number>();
+  const inCounts = new Map<number, number>();
+  for (const m of moves) {
+    const o = m.net.legs[0].out.id;
+    const i = m.net.legs[0].incoming.id;
+    outCounts.set(o, (outCounts.get(o) ?? 0) + 1);
+    inCounts.set(i, (inCounts.get(i) ?? 0) + 1);
+  }
+  for (const c of outCounts.values()) assert.ok(c <= 1, `outgoing cluster exceeded: ${c}`);
+  for (const c of inCounts.values()) assert.ok(c <= 1, `incoming cluster exceeded: ${c}`);
 });

@@ -9,6 +9,8 @@ import {
   isPersonalTransferExecEnabled,
   liveTeamFinanceFromMyTeam,
   parseRefreshTokenInput,
+  remainingFreeTransfers,
+  resolveAuthoritativeFreeTransfers,
   resolveTransferBankMillions,
 } from "../app/lib/personal-fpl-transfer/index.ts";
 import {
@@ -245,4 +247,33 @@ test("README documents reconnect path and cron keep-alive", () => {
   const panel = readFileSync(new URL("../app/components/ReconnectFplPanel.tsx", import.meta.url), "utf8");
   assert.match(panel, /fpl_rt|bookmarklet|Send FPL session to Edge/);
   assert.doesNotMatch(panel, /DevTools/);
+});
+
+test("remainingFreeTransfers: limit − made; null limit is unlimited chip", () => {
+  assert.equal(remainingFreeTransfers({ freeTransferLimit: 1, transfersMade: 0 }), 1);
+  assert.equal(remainingFreeTransfers({ freeTransferLimit: 1, transfersMade: 1 }), 0);
+  assert.equal(remainingFreeTransfers({ freeTransferLimit: 2, transfersMade: 3 }), 0);
+  assert.equal(remainingFreeTransfers({ freeTransferLimit: null, transfersMade: 5 }), 5);
+  assert.equal(remainingFreeTransfers({ freeTransferLimit: undefined, transfersMade: 0 }), null);
+});
+
+test("resolveAuthoritativeFreeTransfers: live bankSource wins over local fallback", () => {
+  assert.equal(
+    resolveAuthoritativeFreeTransfers({
+      bankSource: "live-my-team",
+      freeTransferLimit: 1,
+      transfersMade: 1,
+      fallbackFreeTransfers: 2,
+    }),
+    0,
+  );
+  assert.equal(
+    resolveAuthoritativeFreeTransfers({
+      bankSource: "entry-history",
+      freeTransferLimit: 1,
+      transfersMade: 1,
+      fallbackFreeTransfers: 2,
+    }),
+    2,
+  );
 });

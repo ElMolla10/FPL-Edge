@@ -170,6 +170,8 @@ export async function GET(request: Request) {
             liveOverlayError: liveOverlayError ?? null,
             transfersMade: liveFinance ? liveFinance.transfersMade : Number(history.event_transfers) || 0,
             transferCost: liveFinance ? liveFinance.transferCost : Number(history.event_transfers_cost) || 0,
+            // Official my-team FT allotment (null = WC/FH unlimited). Public history has no limit.
+            freeTransferLimit: liveFinance ? liveFinance.freeTransferLimit : null,
             captainId: liveCaptain ?? captain?.element ?? null,
             viceCaptainId: liveVice ?? viceCaptain?.element ?? null,
             chip: picks.active_chip || null,

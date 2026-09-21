@@ -2,7 +2,7 @@ import type { FplPlayer, ProjectionMetrics } from "../fpl";
 import type { TransferEngineRules } from "./rules";
 
 /** Classification for NET-first recommendation cards. */
-export type TransferClassification = "MAKE" | "LEAN" | "ROLL" | "WATCH" | "AVOID";
+export type TransferClassification = "MAKE" | "LEAN" | "HOLD" | "ROLL" | "WATCH" | "AVOID";
 
 export type TeamState = {
   squad: FplPlayer[];
@@ -118,4 +118,6 @@ export type TransferEngineOptions = {
   limit?: number;
   /** Max transfers in the week-1 action being scored (1 or 2). */
   maxTransfersWeek1?: 1 | 2;
+  /** When true (default), insert an explicit HOLD row into ranked recommendations. */
+  includeHold?: boolean;
 };
