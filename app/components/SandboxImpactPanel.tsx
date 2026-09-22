@@ -88,9 +88,10 @@ function SandboxDecisionConfidenceBlocks({ input, comparison, freeTransfers, man
   </section>;
 }
 
-export default function SandboxImpactPanel({ comparison, latestTransfer, freeTransfers, onUndo, onReset, confidenceInput, managerMeta = null }: {
+export default function SandboxImpactPanel({ comparison, latestTransfer, data, freeTransfers, onUndo, onReset, confidenceInput, managerMeta = null }: {
   comparison: SandboxComparisonResult;
   latestTransfer: Transfer;
+  data: FplData;
   freeTransfers: number;
   onUndo: () => void;
   onReset: () => void;
@@ -166,6 +167,6 @@ export default function SandboxImpactPanel({ comparison, latestTransfer, freeTra
     <section className="sandbox-reasoning"><span>WHY THE LATEST TRANSFER CHANGED THE SQUAD</span>{reasoning.map(reason => <p key={reason}>• {reason}</p>)}</section>
 
     <button type="button" className="swap-detail-toggle" onClick={() => setBreakdownOpen(open => !open)}>{breakdownOpen ? "Hide full transfer breakdown" : "Show full transfer breakdown"}</button>
-    {breakdownOpen && <TransferBreakdown r={latestTransfer} />}
+    {breakdownOpen && <TransferBreakdown r={latestTransfer} data={data} />}
   </section>;
 }

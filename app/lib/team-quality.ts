@@ -67,3 +67,30 @@ export function buildTeamQualityProfiles(inputs:TeamQualityInput[]):TeamQualityP
     return{id:input.id,attackHome,attackAway,defenceHome,defenceAway,effectiveAttackHome:effective(attackHome,confidence),effectiveAttackAway:effective(attackAway,confidence),effectiveDefenceHome:effective(defenceHome,confidence),effectiveDefenceAway:effective(defenceAway,confidence),confidence,matches:input.matches,currentWeight,plPriorCoverage:input.plPriorCoverage,lowPlContinuity:input.lowPlContinuity,source:input.matches?"official-prior+current-pl":"official-prior",modelVersion:TEAM_QUALITY_MODEL_VERSION};
   });
 }
+
+// 0-10 "higher is better" display score for a raw quality multiplier (Source A), scaled against
+// the real range of the SAME dimension+venue across every currently-loaded club -- not a fixed
+// constant, so it reflects this season's actual spread and updates automatically as ratings blend
+// in more real results. Min-max scaling guarantees some club reads 0/10 and some reads 10/10 every
+// week, however tight the real underlying spread is -- callers must disclose that next to the
+// score (see the "relative to this season's 20 clubs" copy at each render site), not just print
+// the number unexplained.
+export function qualityScoreOutOf10(value:number,populationValues:readonly number[]):number{
+  const min=Math.min(...populationValues),max=Math.max(...populationValues);
+  if(!Number.isFinite(min)||!Number.isFinite(max)||max<=min)return 5;
+  return clamp((value-min)/(max-min)*10,0,10);
+}
+
+// The population a displayed value should be compared against. "home"/"away" match the TEAM
+// QUALITY MODEL panel's own home/away columns exactly, so each column's 0/10-every-week guarantee
+// holds independently. "overall" (home+away averaged per club) is for values that already blend
+// multiple fixtures' home/away mix -- e.g. a transfer candidate's multi-gameweek fixture context --
+// where no single club's home-only or away-only number is the right comparison.
+export function qualityPopulation(teams:readonly{quality?:TeamQualityProfile}[],dimension:"attack"|"defence",venue:"home"|"away"|"overall"):number[]{
+  return teams.flatMap(team=>{
+    const q=team.quality;if(!q)return[];
+    if(venue==="overall")return[dimension==="attack"?(q.effectiveAttackHome+q.effectiveAttackAway)/2:(q.effectiveDefenceHome+q.effectiveDefenceAway)/2];
+    if(dimension==="attack")return[venue==="home"?q.effectiveAttackHome:q.effectiveAttackAway];
+    return[venue==="home"?q.effectiveDefenceHome:q.effectiveDefenceAway];
+  });
+}

@@ -2,19 +2,27 @@
 
 import { useState } from "react";
 import { Transfer } from "../lib/transfers";
+import type { FplData } from "../lib/fpl";
 import { blankProbability, haulProbability, playerPointsDistribution, pointsRange } from "../lib/projection-distribution";
 import type { TransferAnalysisEntry } from "../lib/transfer-decision-ui";
 import DecisionConfidencePanel from "./DecisionConfidencePanel";
 import TransferSensitivityPanel from "./TransferSensitivityPanel";
+import { qualityPopulation, qualityScoreOutOf10 } from "../lib/team-quality";
+import { difficultyScoreOutOf10 } from "../lib/fixture-difficulty";
 
 // Extracted from CoachApp.tsx so LiveDraftBuilder.tsx's pitch-click swap can reuse the same full
 // breakdown the Transfers page already shows for its ranked candidates -- CoachApp.tsx already
 // imports LiveDraftBuilder, so LiveDraftBuilder importing this back from CoachApp.tsx would cycle.
 // Same pattern as the Pitch.tsx extraction. Behavior and markup are unchanged from the original;
 // the Transfers page's own usage is untouched (just imported from here instead of defined inline).
-export default function TransferBreakdown({r,decision,onAnalyze,analysisActive=false,analysisBusy=false,developerMode=false}:{r:Transfer;decision?:TransferAnalysisEntry;onAnalyze?:()=>void;analysisActive?:boolean;analysisBusy?:boolean;developerMode?:boolean}){
+export default function TransferBreakdown({r,data,decision,onAnalyze,analysisActive=false,analysisBusy=false,developerMode=false}:{r:Transfer;data:FplData;decision?:TransferAnalysisEntry;onAnalyze?:()=>void;analysisActive?:boolean;analysisBusy?:boolean;developerMode?:boolean}){
   const [openLeg,setOpenLeg]=useState<number|null>(null);
   const [showAdvanced,setShowAdvanced]=useState(false);
+  // teamAttackIn/teamDefenceIn/opponentAttackIn/opponentDefenceIn are each averaged across the
+  // incoming player's own upcoming fixtures (a mix of home and away games), so no single club's
+  // home-only or away-only number is the right comparison -- "overall" (home+away averaged per
+  // club) is the one population that fairly represents all four.
+  const attackPopulation=qualityPopulation(data.teams,"attack","overall"),defencePopulation=qualityPopulation(data.teams,"defence","overall");
   const horizons=[
     {label:"NEXT GAMEWEEK",out:r.outGw1,incoming:r.inGw1,gain:r.gain1,individual:r.individualGain1},
     {label:"NEXT 3 GWs",out:r.outGw3,incoming:r.inGw3,gain:r.gain3,individual:r.individualGain3},
@@ -61,9 +69,9 @@ export default function TransferBreakdown({r,decision,onAnalyze,analysisActive=f
       </section>
 
       <section className="fixture-context-card">
-        <header><span>INCOMING PLAYER CONTEXT</span><small>1.00 = league average</small></header>
-        <div><p><span>Team attack</span><b>×{r.teamAttackIn.toFixed(2)}</b></p><p><span>Opponent defence</span><b>×{r.opponentDefenceIn.toFixed(2)}</b></p><p className="accent"><span>Attack matchup</span><b>×{r.fixtureAttackMultiplierIn.toFixed(2)}</b></p><p><span>Team defence</span><b>×{r.teamDefenceIn.toFixed(2)}</b></p><p><span>Opponent attack</span><b>×{r.opponentAttackIn.toFixed(2)}</b></p><p className="accent"><span>Defence matchup</span><b>×{r.fixtureDefenceMultiplierIn.toFixed(2)}</b></p></div>
-        <footer><span>Average fixture difficulty</span><b>{r.fixtureAdjustmentIn.toFixed(1)} / 5</b></footer>
+        <header><span>INCOMING PLAYER CONTEXT</span><small>0-10, 10 = best, relative to the 20 clubs modeled this season</small></header>
+        <div><p><span>Team attack</span><b>{qualityScoreOutOf10(r.teamAttackIn,attackPopulation).toFixed(1)}/10</b></p><p><span>Opponent defence</span><b>{qualityScoreOutOf10(r.opponentDefenceIn,defencePopulation).toFixed(1)}/10</b></p><p className="accent"><span>Attack matchup</span><b>×{r.fixtureAttackMultiplierIn.toFixed(2)}</b></p><p><span>Team defence</span><b>{qualityScoreOutOf10(r.teamDefenceIn,defencePopulation).toFixed(1)}/10</b></p><p><span>Opponent attack</span><b>{qualityScoreOutOf10(r.opponentAttackIn,attackPopulation).toFixed(1)}/10</b></p><p className="accent"><span>Defence matchup</span><b>×{r.fixtureDefenceMultiplierIn.toFixed(2)}</b></p></div>
+        <footer><span>Average fixture difficulty</span><b>{difficultyScoreOutOf10(r.fixtureAdjustmentIn).toFixed(1)}/10</b></footer>
       </section>
     </div>
 

@@ -41,3 +41,12 @@ export function computeClubFixtureRows(data: FplData, horizon: number): readonly
     return { team, cells, attack: average(cell => cell.attack), defence: average(cell => cell.defence), swing: early - later };
   });
 }
+
+// Exact linear rescale, not a fitted/empirical formula: `difficulty()` above always clamps its
+// output to [1,5], so every `attack`/`defence` value this file produces (per-cell or per-row
+// averaged) is already guaranteed inside that range. This just maps that guaranteed range onto
+// 0-10 with 10 = easiest/best -- no per-season data needed to derive it, unlike the Source-A
+// quality scores in team-quality.ts.
+export function difficultyScoreOutOf10(value: number): number {
+  return clamp((5 - value) / 4 * 10, 0, 10);
+}

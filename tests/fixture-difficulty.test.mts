@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplData, FplEvent, FplFixture } from "../app/lib/fpl.ts";
-import { computeClubFixtureRows } from "../app/lib/fixture-difficulty.ts";
+import { computeClubFixtureRows, difficultyScoreOutOf10 } from "../app/lib/fixture-difficulty.ts";
 import type { TeamQualityProfile } from "../app/lib/team-quality.ts";
 
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
@@ -107,4 +107,29 @@ test("computeClubFixtureRows: a finished event is real-excluded from the window,
   const teamA = { id: 1, name: "Team A", short: "TMA", quality: makeQuality() };
   const data = makeData({ teams: [teamA], events: [makeEvent(1, -3, true), makeEvent(2, 3)], fixtures: [] });
   assert.equal(computeClubFixtureRows(data, 8)[0].cells.length, 1);
+});
+
+// --- difficultyScoreOutOf10 ---
+
+test("difficultyScoreOutOf10: exact linear rescale of the guaranteed [1,5] range onto [0,10], 1=best", () => {
+  assert.equal(difficultyScoreOutOf10(1), 10, "the easiest possible fixture (difficulty 1) must read 10/10");
+  assert.equal(difficultyScoreOutOf10(5), 0, "the hardest possible fixture (difficulty 5) must read 0/10");
+  assert.equal(difficultyScoreOutOf10(3), 5, "the exact midpoint of the difficulty scale must read 5/10");
+});
+
+test("difficultyScoreOutOf10: matches computeClubFixtureRows' own real attack/defence output, not a hardcoded fixture", () => {
+  const teamA = { id: 1, name: "Team A", short: "TMA", quality: makeQuality() };
+  const teamB = { id: 2, name: "Team B", short: "TMB", quality: makeQuality() };
+  const fixtures: FplFixture[] = [
+    { id: 1, event: 1, teamH: 1, teamA: 2, teamHDifficulty: 3, teamADifficulty: 3, finished: false, kickoff: null, started: false, teamHScore: null, teamAScore: null },
+  ];
+  const data = makeData({ teams: [teamA, teamB], events: [makeEvent(1, 3)], fixtures });
+  const rowA = computeClubFixtureRows(data, 8).find(r => r.team.id === 1)!;
+  assert.ok(close(difficultyScoreOutOf10(rowA.attack), (5 - rowA.attack) / 4 * 10));
+  assert.ok(rowA.attack >= 1 && rowA.attack <= 5, "precondition: the real computed value stays inside the structurally-guaranteed range");
+});
+
+test("difficultyScoreOutOf10: input is clamped defensively even though callers should never exceed [1,5]", () => {
+  assert.equal(difficultyScoreOutOf10(0), 10);
+  assert.equal(difficultyScoreOutOf10(6), 0);
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplFixture, FplPlayer, projectionMetrics } from "../app/lib/fpl.ts";
-import { TeamQualityInput, buildTeamQualityProfiles } from "../app/lib/team-quality.ts";
+import { TeamQualityInput, TeamQualityProfile, buildTeamQualityProfiles, qualityPopulation, qualityScoreOutOf10 } from "../app/lib/team-quality.ts";
 
 const input=(overrides:Partial<TeamQualityInput>={}):TeamQualityInput=>({
   id:1,name:"Average",short:"AVG",
@@ -95,4 +95,50 @@ test("projection uses own defence and opponent attack independently at equal FDR
 test("team-quality profiles are deterministic",()=>{
   const inputs=[input({id:1}),input({id:2,lowPlContinuity:true,plPriorCoverage:0})];
   assert.deepEqual(buildTeamQualityProfiles(inputs),buildTeamQualityProfiles(inputs));
+});
+
+// --- qualityScoreOutOf10 / qualityPopulation ---
+
+const quality=(overrides:Partial<TeamQualityProfile>={}):TeamQualityProfile=>({
+  id:1,attackHome:1,attackAway:1,defenceHome:1,defenceAway:1,
+  effectiveAttackHome:1,effectiveAttackAway:1,effectiveDefenceHome:1,effectiveDefenceAway:1,
+  confidence:1,matches:38,currentWeight:1,plPriorCoverage:1,lowPlContinuity:false,
+  source:"official-prior+current-pl",modelVersion:"test",
+  ...overrides,
+});
+
+test("qualityScoreOutOf10: min-max scales the real population, guaranteeing 0/10 and 10/10 every week",()=>{
+  const population=[0.8,0.9,1,1.1,1.2];
+  assert.equal(qualityScoreOutOf10(0.8,population),0,"the weakest club in the real population must read 0/10");
+  assert.equal(qualityScoreOutOf10(1.2,population),10,"the strongest club in the real population must read 10/10");
+  assert.equal(qualityScoreOutOf10(1,population),5,"the exact midpoint of a symmetric population must read 5/10");
+});
+
+test("qualityScoreOutOf10: a degenerate zero-spread population (every club identical) parks every club at the midpoint, not NaN or a divide-by-zero artifact",()=>{
+  assert.equal(qualityScoreOutOf10(1,[1,1,1]),5);
+});
+
+test("qualityScoreOutOf10: never fabricates a value outside 0-10 even if a caller passes a value outside the population's own range",()=>{
+  const population=[0.9,1,1.1];
+  assert.equal(qualityScoreOutOf10(2,population),10);
+  assert.equal(qualityScoreOutOf10(-1,population),0);
+});
+
+test("qualityPopulation: home/away pull each club's real home or away effective rating, not a mixed or fabricated value",()=>{
+  const teams=[
+    {quality:quality({id:1,effectiveAttackHome:1.2,effectiveAttackAway:0.9})},
+    {quality:quality({id:2,effectiveAttackHome:0.8,effectiveAttackAway:1.1})},
+  ];
+  assert.deepEqual(qualityPopulation(teams,"attack","home"),[1.2,0.8]);
+  assert.deepEqual(qualityPopulation(teams,"attack","away"),[0.9,1.1]);
+});
+
+test("qualityPopulation: overall averages each club's own home and away rating, for values that already blend multiple fixtures",()=>{
+  const teams=[{quality:quality({effectiveDefenceHome:1.2,effectiveDefenceAway:1})}];
+  assert.deepEqual(qualityPopulation(teams,"defence","overall"),[1.1]);
+});
+
+test("qualityPopulation: a club with no quality profile yet (no PL data resolved) is excluded, not defaulted to a fabricated 1.0",()=>{
+  const teams=[{quality:quality({effectiveAttackHome:1.3})},{}];
+  assert.deepEqual(qualityPopulation(teams,"attack","home"),[1.3]);
 });

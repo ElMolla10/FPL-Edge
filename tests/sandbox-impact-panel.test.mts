@@ -6,6 +6,9 @@ import SandboxImpactPanel, * as sandboxPanel from "../app/components/SandboxImpa
 import { compareSquads } from "../app/lib/squad-comparison.ts";
 import { SquadEvaluation } from "../app/lib/optimizer.ts";
 import { Transfer } from "../app/lib/transfers.ts";
+import { FplData } from "../app/lib/fpl.ts";
+
+const emptyData = { teams: [] } as unknown as FplData;
 
 function evaluation(objective: number, overall: number): SquadEvaluation {
   const captain = { id: 1, name: "Captain" } as never;
@@ -42,6 +45,7 @@ test("impact panel displays scores.overall as team rating and labels objective s
   const html = renderToStaticMarkup(createElement(SandboxImpactPanel, {
     comparison: { latest: comparison, cumulative: comparison, sandboxActionCount: 1, requiredTransferCount: 1, previousRequiredTransferCount: 0 },
     latestTransfer: transfer,
+    data: emptyData,
     freeTransfers: 1,
     onUndo: () => {},
     onReset: () => {},
@@ -77,6 +81,7 @@ test("impact panel distinguishes sandbox actions, required transfers and an avoi
   const html = renderToStaticMarkup(createElement(SandboxImpactPanel, {
     comparison: { latest: comparison, cumulative: comparison, sandboxActionCount: 3, requiredTransferCount: 1, previousRequiredTransferCount: 2 },
     latestTransfer: transfer,
+    data: emptyData,
     freeTransfers: 1,
     onUndo: () => {},
     onReset: () => {},
@@ -115,6 +120,7 @@ test("impact panel labels official FPL bank and selling prices and renders the d
       },
     },
     latestTransfer: transfer,
+    data: emptyData,
     freeTransfers: 1,
     onUndo: () => {},
     onReset: () => {},
