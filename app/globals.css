@@ -1093,7 +1093,8 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .season-table article>strong{color:var(--success-text)}
 .season-table.sticky-head{max-height:min(70vh,720px)}
 .season-table.player-grid>header,.season-table.player-grid>article{min-width:620px;grid-template-columns:170px 70px 70px 70px 80px}
-.season-table.player-grid.wide>header,.season-table.player-grid.wide>article{min-width:1300px;grid-template-columns:170px 70px 80px 65px 65px 60px 60px 65px 90px 60px 130px 75px}
+.season-table.player-grid.wide>header,.season-table.player-grid.wide>article{min-width:1430px;grid-template-columns:170px 70px 80px 65px 65px 60px 60px 65px 90px 60px 130px 75px 130px}
+.season-table .season-stat-recent{font-style:italic;color:var(--info-text)}
 .season-table.team-grid>header,.season-table.team-grid>article{min-width:720px;grid-template-columns:170px 80px 90px 100px 90px 80px 80px 100px}
 .season-stats-sort-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
 .season-stats-sort-row select,.season-stats-sort-row button{border:1px solid var(--line);background:var(--surface-card);color:var(--text);padding:9px 12px;font-size:13px;font-weight:700;border-radius:7px}

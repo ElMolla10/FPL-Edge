@@ -1499,8 +1499,13 @@ function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;r
 }
 function CoachAnswerCard({label,children}:{label:string;children:ReactNode}){return <section className="coach-answer-card"><span>{label.toUpperCase()}</span>{children}</section>}
 
-type SeasonStatSort=keyof Pick<FplPlayer,"totalPoints"|"pointsPerGame"|"goals"|"assists"|"expectedGoals"|"expectedAssists"|"expectedGoalInvolvements"|"cleanSheets"|"bonus"|"defensiveContribution"|"minutes">;
-const SEASON_STAT_SORTS:[SeasonStatSort,string][]=[["totalPoints","Total points"],["pointsPerGame","Points per match"],["goals","Goals"],["assists","Assists"],["expectedGoals","xG"],["expectedAssists","xA"],["expectedGoalInvolvements","xGI"],["cleanSheets","Clean sheets"],["bonus","Bonus"],["defensiveContribution","Defensive contribution"],["minutes","Minutes"]];
+type SeasonStatSort=keyof Pick<FplPlayer,"totalPoints"|"pointsPerGame"|"goals"|"assists"|"expectedGoals"|"expectedAssists"|"expectedGoalInvolvements"|"cleanSheets"|"bonus"|"defensiveContribution"|"minutes"|"form">;
+// "form" is FPL's own official field (bootstrap-static's raw player.form, already fetched and
+// mapped in app/api/fpl/route.ts) -- average points per match over roughly the player's last 30
+// days, a genuinely different window from every other column here (season-to-date totals through
+// data.seasonStatsThrough). Sorted last and labeled explicitly as a recent-window stat so it never
+// reads as just another cumulative number.
+const SEASON_STAT_SORTS:[SeasonStatSort,string][]=[["totalPoints","Total points"],["pointsPerGame","Points per match"],["goals","Goals"],["assists","Assists"],["expectedGoals","xG"],["expectedAssists","xA"],["expectedGoalInvolvements","xGI"],["cleanSheets","Clean sheets"],["bonus","Bonus"],["defensiveContribution","Defensive contribution"],["minutes","Minutes"],["form","Form (last 30 days)"]];
 type TeamStatSort="goalsFor"|"goalsAgainst"|"goalDifference"|"expectedGoalsFor"|"expectedGoalsAgainst"|"cleanSheets"|"matches";
 const TEAM_STAT_SORTS:[TeamStatSort,string][]=[["goalsFor","Goals for"],["goalsAgainst","Goals against"],["goalDifference","Goal difference"],["expectedGoalsFor","xG for"],["expectedGoalsAgainst","xG against"],["cleanSheets","Clean sheets"],["matches","Matches played"]];
 // Pure past-performance leaderboards -- unlike the Players research page (which defaults to and
@@ -1526,8 +1531,8 @@ function SeasonStats({data}:{data:FplData}){
       <button type="button" onClick={()=>setMore(x=>!x)}>{more?"Fewer columns":"More columns"}</button>
     </section>
     <section className={more?"season-table player-grid wide sticky-head":"season-table player-grid sticky-head"}>
-      <header>{(more?["Player","Points","Per match","Goals","Assists","xG","xA","xGI","Clean sheets","Bonus","Def. contribution","Minutes"]:["Player","Points","Goals","Assists","Minutes"]).map(x=><span key={x}>{x}</span>)}</header>
-      {rows.slice(0,150).map(p=><article key={p.id}><b>{p.name}<small>{p.teamShort} · {p.positionShort}</small></b><strong>{p.totalPoints}</strong>{more&&<span>{p.pointsPerGame.toFixed(1)}</span>}<span>{p.goals}</span><span>{p.assists}</span>{more&&<><span>{p.expectedGoals.toFixed(2)}</span><span>{p.expectedAssists.toFixed(2)}</span><span>{p.expectedGoalInvolvements.toFixed(2)}</span><span>{p.cleanSheets}</span><span>{p.bonus}</span><span>{p.defensiveContribution}</span></>}<span>{p.minutes}</span></article>)}
+      <header>{(more?["Player","Points","Per match","Goals","Assists","xG","xA","xGI","Clean sheets","Bonus","Def. contribution","Minutes","Form (last 30 days)"]:["Player","Points","Goals","Assists","Minutes"]).map(x=><span key={x}>{x}</span>)}</header>
+      {rows.slice(0,150).map(p=><article key={p.id}><b>{p.name}<small>{p.teamShort} · {p.positionShort}</small></b><strong>{p.totalPoints}</strong>{more&&<span>{p.pointsPerGame.toFixed(1)}</span>}<span>{p.goals}</span><span>{p.assists}</span>{more&&<><span>{p.expectedGoals.toFixed(2)}</span><span>{p.expectedAssists.toFixed(2)}</span><span>{p.expectedGoalInvolvements.toFixed(2)}</span><span>{p.cleanSheets}</span><span>{p.bonus}</span><span>{p.defensiveContribution}</span></>}<span>{p.minutes}</span>{more&&<em className="season-stat-recent">{p.form.toFixed(1)}</em>}</article>)}
     </section>
     <section className="season-stats-section-intro"><span>CLUBS · SEASON TOTALS</span><h2>Team season stats</h2><p>Real goals, expected goals and clean sheets from completed fixtures this season — separate from the Team Quality model's 0-10 relative rating shown on the Fixtures and Points model pages.</p></section>
     <div className="season-stats-sort-row"><select value={teamSort} onChange={e=>setTeamSort(e.target.value as TeamStatSort)}>{TEAM_STAT_SORTS.map(([value,label])=><option value={value} key={value}>Sort: {label}</option>)}</select><button onClick={()=>setTeamDirection(x=>x==="desc"?"asc":"desc")}>{teamDirection==="desc"?"High → low":"Low → high"}</button></div>
