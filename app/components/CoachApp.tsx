@@ -1204,11 +1204,18 @@ function SquadValueAlert({squad}:{squad:FplPlayer[]}){
 // close: true when the ONLY blocking factor is a small gap on that same metric — this is the
 // single source the priority badge is derived from, so the badge can never disagree with the message.
 export type BuyTrigger={message:string;ready:boolean;close:boolean;budgetNote:string|null};
-export function buyTriggerMessage(target:FplPlayer,natural:FplPlayer|undefined,targetMetrics:ProjectionMetrics,naturalMetrics:ProjectionMetrics|undefined,targetFiveGw:number,naturalFiveGw:number,bank:number):BuyTrigger{
+// comparisonOwned distinguishes a REAL prospective sale (natural is actually in the squad -- the
+// default, matching every existing call site/test) from a manually-picked reference player who
+// isn't owned. In the second case there is no sale to fund the purchase from, so the shortfall
+// must be target's own price against the bank alone, never target-minus-natural's price -- doing
+// the old subtraction here would silently credit "sale proceeds" from a player never actually being
+// sold, understating how much budget buying target outright would really need.
+export function buyTriggerMessage(target:FplPlayer,natural:FplPlayer|undefined,targetMetrics:ProjectionMetrics,naturalMetrics:ProjectionMetrics|undefined,targetFiveGw:number,naturalFiveGw:number,bank:number,comparisonOwned=true):BuyTrigger{
   if(!natural)return{message:"No same-position squad player to swap out yet — build your squad first.",ready:false,close:false,budgetNote:null};
-  const priceDiff=target.price-natural.price;
-  const shortfall=Math.max(0,priceDiff-bank);
-  const budgetNote=shortfall>.001?`This route is currently £${shortfall.toFixed(1)}m outside your budget. That affects execution, not the player's football trigger.`:null;
+  const shortfall=comparisonOwned?Math.max(0,target.price-natural.price-bank):Math.max(0,target.price-bank);
+  const budgetNote=shortfall<=.001?null:comparisonOwned
+    ?`This route is currently £${shortfall.toFixed(1)}m outside your budget. That affects execution, not the player's football trigger.`
+    :`You'd need £${shortfall.toFixed(1)}m more in the bank to buy ${target.name} outright — this comparison doesn't assume selling ${natural.name}.`;
   const naturalStart=Math.round((naturalMetrics?.startProbability??0)*100),targetStart=Math.round(targetMetrics.startProbability*100);
   if(targetMetrics.startProbability<.7||targetMetrics.expectedMinutes<60){
     return{message:`Wait for a secure role: ${target.name} is at ${targetStart}% start probability and ${Math.round(targetMetrics.expectedMinutes)} expected minutes versus ${natural.name} at ${naturalStart}%.`,ready:false,close:targetMetrics.startProbability>=.6&&targetMetrics.expectedMinutes>=50,budgetNote};
@@ -1236,26 +1243,60 @@ export function watchlistCandidatePool(players:FplPlayer[],ownedIds:number[],wat
   return players.filter(player=>!owned.has(player.id)&&!watched.has(player.id)&&player.status!=="u"&&(position==="ALL"||player.positionShort===position)&&(!needle||`${player.name} ${player.teamName} ${player.teamShort}`.toLowerCase().includes(needle))).sort((a,b)=>a.positionId-b.positionId||a.name.localeCompare(b.name));
 }
 
+// Manual comparison overrides are a display/analysis preference, not squad state -- kept plain
+// client-local (matching fpl-edge-locks/fpl-edge-captain-* elsewhere in this file), not routed
+// through persist()/collectSyncPayload's cross-device sync, which only knows a fixed, explicit set
+// of keys (squadIds/watchlist/entry/manager/plans/plannedChips) that this was never added to.
+const WATCHLIST_COMPARE_KEY="fpl-edge-watchlist-compare";
+const readCompareOverrides=():Record<number,number>=>{try{return JSON.parse(localStorage.getItem(WATCHLIST_COMPARE_KEY)||"{}")}catch{return{}}};
+
 function Watchlist({data,squad,ids,remove,bank}:{data:FplData;squad:FplPlayer[];ids:number[];remove:(id:number)=>void;bank:number}){
   const events=futureEvents(data,5),first=events[0]?.id;
   const players=ids.map(id=>data.players.find(p=>p.id===id)).filter(Boolean) as FplPlayer[];
   const[add,setAdd]=useState(""),[search,setSearch]=useState(""),[position,setPosition]=useState("ALL");
   const[expanded,setExpanded]=useState<Set<number>>(new Set());
+  const[compareOverrides,setCompareOverrides]=useState<Record<number,number>>(readCompareOverrides);
+  const squadIds=useMemo(()=>new Set(squad.map(player=>player.id)),[squad]);
+  // Grouped once per render (not once per watchlisted player) -- squad players float to the top of
+  // each position's list since they're the only real, budget-real "route" option; anyone else is a
+  // free stats-only comparison, per the explicit design decision that the picker is not restricted
+  // to the squad.
+  const playersByPosition=useMemo(()=>{
+    const map=new Map<number,FplPlayer[]>();
+    data.players.forEach(player=>{if(player.status!=="u")map.set(player.positionId,[...(map.get(player.positionId)??[]),player])});
+    for(const list of map.values())list.sort((a,b)=>(squadIds.has(b.id)?1:0)-(squadIds.has(a.id)?1:0)||a.name.localeCompare(b.name));
+    return map;
+  },[data.players,squadIds]);
+  const setCompareOverride=(targetId:number,comparisonId:number|null)=>setCompareOverrides(current=>{
+    const next={...current};
+    if(comparisonId)next[targetId]=comparisonId;else delete next[targetId];
+    localStorage.setItem(WATCHLIST_COMPARE_KEY,JSON.stringify(next));
+    return next;
+  });
   const candidates=useMemo(()=>watchlistCandidatePool(data.players,squad.map(player=>player.id),ids,search,position),[data.players,squad,ids,search,position]);
   const addPlayer=()=>{const id=Number(add);if(id)remove(id);setAdd("")};
   const toggleExpand=(id:number)=>setExpanded(x=>{const next=new Set(x);next.has(id)?next.delete(id):next.add(id);return next});
   return <><section className="watchlist-add"><div><span>PERMANENT WATCHLIST</span><h2>Search every official FPL player.</h2><p>{candidates.length} eligible player{candidates.length===1?"":"s"} match your filters.</p></div><div className="watchlist-player-search"><input value={search} onChange={event=>{setSearch(event.target.value);setAdd("")}} placeholder="Search player or club…"/><select value={position} onChange={event=>{setPosition(event.target.value);setAdd("")}}><option value="ALL">All positions</option>{data.rules.positions.map(rule=><option value={rule.short} key={rule.id}>{rule.short}</option>)}</select><select value={add} onChange={e=>setAdd(e.target.value)}><option value="">Choose from {candidates.length} players…</option>{candidates.map(p=><option key={p.id} value={p.id}>{p.name} · {p.teamShort} · {p.positionShort} · £{p.price.toFixed(1)}m</option>)}</select></div><button onClick={addPlayer} disabled={!add}>Add to watchlist</button></section>
   <section className="watchlist-grid">{players.length?players.map(p=>{
     const m=projectionMetrics(p,first,data.fixtures,first);
-    const samePosition=squad.filter(player=>player.positionId===p.positionId).map(player=>({player,fiveGw:events.reduce((sum,event)=>sum+playerProjection(player,event.id,data.fixtures,first),0),shortfall:Math.max(0,p.price-player.price-bank)}));
-    const naturalRoute=[...samePosition].sort((a,b)=>(a.shortfall===0?0:1)-(b.shortfall===0?0:1)||a.shortfall-b.shortfall||a.fiveGw-b.fiveGw)[0];
-    const natural=naturalRoute?.player,naturalMetrics=natural?projectionMetrics(natural,first,data.fixtures,first):undefined;
+    // Auto pick: among your OWN squad at this position, the affordable-first, weakest-projected
+    // player -- i.e. who you'd actually drop. Always computed (feeds the select's "Auto" option and
+    // is the fallback when no override is set or the stored override no longer resolves).
+    const samePositionSquad=squad.filter(player=>player.positionId===p.positionId).map(player=>({player,fiveGw:events.reduce((sum,event)=>sum+playerProjection(player,event.id,data.fixtures,first),0),shortfall:Math.max(0,p.price-player.price-bank)}));
+    const autoNaturalRoute=[...samePositionSquad].sort((a,b)=>(a.shortfall===0?0:1)-(b.shortfall===0?0:1)||a.shortfall-b.shortfall||a.fiveGw-b.fiveGw)[0];
+    const autoNatural=autoNaturalRoute?.player;
+    const overrideId=compareOverrides[p.id];
+    const overridePlayer=overrideId?data.players.find(player=>player.id===overrideId&&player.positionId===p.positionId):undefined;
+    const natural=overridePlayer??autoNatural;
+    const comparisonOwned=natural?squadIds.has(natural.id):true;
+    const naturalMetrics=natural?projectionMetrics(natural,first,data.fixtures,first):undefined;
     const gw1=playerProjection(p,first,data.fixtures,first);
     const threeGw=events.slice(0,3).reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0);
     const fiveGw=events.reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0);
-    const naturalFiveGw=naturalRoute?.fiveGw??0;
-    const trigger=buyTriggerMessage(p,natural,m,naturalMetrics,fiveGw,naturalFiveGw,bank);
+    const naturalFiveGw=natural?events.reduce((sum,event)=>sum+playerProjection(natural,event.id,data.fixtures,first),0):0;
+    const trigger=buyTriggerMessage(p,natural,m,naturalMetrics,fiveGw,naturalFiveGw,bank,comparisonOwned);
     const priority=trigger.ready?"BUY":trigger.close?"BUILDING":"WATCH";
+    const compareOptions=(playersByPosition.get(p.positionId)??[]).filter(player=>player.id!==p.id);
     const isOpen=expanded.has(p.id);
     const dist=isOpen?playerPointsDistribution(m,p.positionShort):null;
     const range=dist?pointsRange(dist):null;
@@ -1275,7 +1316,13 @@ function Watchlist({data,squad,ids,remove,bank}:{data:FplData;squad:FplPlayer[];
       <p><b>Role:</b> {p.positionShort}{m.penaltyRole?" · first-choice penalties":""}{m.setPieceRole?" · set-piece role":""}{!m.penaltyRole&&!m.setPieceRole?" · no confirmed set-piece role":""}</p>
       <p className={trigger.ready?"trigger-ready":""}><b>Performance trigger:</b> {trigger.message}</p>
       {trigger.budgetNote&&<p className="watch-budget-note"><b>Budget:</b> {trigger.budgetNote}</p>}
-      <small>Compared route: {natural?`${natural.name} → ${p.name}`:"No same-position route yet"}</small>
+      <div className="watch-compare-control">
+        <small>{natural?comparisonOwned?`Compared route: ${natural.name} → ${p.name}`:`Comparing against: ${natural.name}`:"No same-position player to compare yet"}</small>
+        <select aria-label={`Choose who to compare ${p.name} against`} value={overridePlayer?String(overridePlayer.id):""} onChange={e=>setCompareOverride(p.id,e.target.value?Number(e.target.value):null)}>
+          <option value="">{autoNatural?`Auto (${autoNatural.name})`:"Auto (no squad option)"}</option>
+          {compareOptions.map(player=><option key={player.id} value={player.id}>{player.name} · {player.teamShort}{squadIds.has(player.id)?" · Squad":""}</option>)}
+        </select>
+      </div>
       {isOpen&&dist&&range&&<div className="watch-distribution">
         <span><small>FLOOR</small><b>{range.floor}</b></span>
         <span><small>MEDIAN</small><b>{range.median}</b></span>

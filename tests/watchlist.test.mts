@@ -64,3 +64,42 @@ test("secure role, confirmed performance, projection edge and affordability prod
   const result=buyTriggerMessage(target,natural,makeMetrics({startProbability:.92}),makeMetrics({startProbability:.78}),20,10,0);
   assert.equal(result.ready,true);assert.equal(result.close,false);assert.equal(result.budgetNote,null);assert.match(result.message,/Performance case met/);assert.match(result.message,/\+10\.0-point five-GW edge/);
 });
+
+// --- comparisonOwned=false: a manually-picked reference player who is NOT actually in the squad ---
+// (Mohamed's watchlist "compare against anyone" request) -- there is no real sale to fund the
+// purchase from, so the budget math must never credit the non-owned player's price as if it were
+// sale proceeds.
+
+test("comparisonOwned=false: a non-owned reference player's high price is never credited as sale proceeds", () => {
+  // With comparisonOwned=true (the old, only behavior), target(£5m) - natural(£12m) - bank(£1m)
+  // would be deeply negative, i.e. "you have loads of room" -- but natural was never actually sold,
+  // so that headroom is fictional. comparisonOwned=false must check target's price against the bank
+  // alone.
+  const target=makePlayer({price:5,pointsPerGame:5}),expensiveReference=makePlayer({id:2,name:"Reference",price:12,pointsPerGame:3});
+  const asOwned=buyTriggerMessage(target,expensiveReference,makeMetrics({startProbability:.92}),makeMetrics({startProbability:.78}),20,10,1,true);
+  const asNotOwned=buyTriggerMessage(target,expensiveReference,makeMetrics({startProbability:.92}),makeMetrics({startProbability:.78}),20,10,1,false);
+  assert.equal(asOwned.budgetNote,null,"sanity check: the old (owned) math treats this as fully affordable via fictional sale proceeds");
+  assert.match(asNotOwned.budgetNote??"",/£4\.0m more in the bank/,"the real question -- £5m target against a £1m bank -- needs a real £4.0m shortfall, not a fictional discount");
+  assert.match(asNotOwned.budgetNote??"",/doesn't assume selling Reference/);
+  assert.equal(asNotOwned.ready,false);
+});
+
+test("comparisonOwned=false: still reaches BUY when the target is genuinely affordable from the bank alone", () => {
+  const target=makePlayer({price:5,pointsPerGame:5}),reference=makePlayer({id:2,name:"Reference",price:12,pointsPerGame:3});
+  const result=buyTriggerMessage(target,reference,makeMetrics({startProbability:.92}),makeMetrics({startProbability:.78}),20,10,6,false);
+  assert.equal(result.ready,true);assert.equal(result.budgetNote,null);assert.match(result.message,/Performance case met/);
+});
+
+test("comparisonOwned=false: the performance-comparison wording is unaffected -- only the budget math changes", () => {
+  const target=makePlayer({pointsPerGame:2.5}),reference=makePlayer({id:2,name:"Reference",pointsPerGame:4.5});
+  const owned=buyTriggerMessage(target,reference,makeMetrics(),makeMetrics(),20,10,5,true);
+  const notOwned=buyTriggerMessage(target,reference,makeMetrics(),makeMetrics(),20,10,5,false);
+  assert.equal(owned.message,notOwned.message,"the football-case message never mentions ownership, so it must be identical either way");
+});
+
+test("comparisonOwned defaults to true when omitted, matching every pre-existing call site", () => {
+  const target=makePlayer({price:6,pointsPerGame:5}),natural=makePlayer({id:2,name:"Incumbent",price:6,pointsPerGame:3});
+  const withDefault=buyTriggerMessage(target,natural,makeMetrics({startProbability:.92}),makeMetrics({startProbability:.78}),20,10,0);
+  const explicitTrue=buyTriggerMessage(target,natural,makeMetrics({startProbability:.92}),makeMetrics({startProbability:.78}),20,10,0,true);
+  assert.deepEqual(withDefault,explicitTrue);
+});
