@@ -1121,7 +1121,17 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .players-filter-row{display:flex;flex-wrap:wrap;align-items:stretch;border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);margin:0 0 18px}
 .players-filter-row>*{display:flex;align-items:center;border-right:1px solid var(--hairline)}
 .players-filter-row>*:last-child{border-right:0}
-.players-select{min-height:40px;padding:0 14px;border:0;border-radius:0;background:transparent;color:var(--text);font-family:var(--font-ui);font-size:13px;cursor:pointer}
+/* background MUST be an explicit opaque color, never transparent -- a native <select>'s open
+   option-list popup is rendered by the browser using the element's own background/color pair, not
+   inherited from its parent in the page; leaving background transparent while setting an explicit
+   light `color` here (needed for dark mode) made Chromium fall back to its own default (light)
+   popup background, producing near-invisible light-on-white option text in dark mode. Confirmed via
+   computed styles (background was rgba(0,0,0,0)) and a real open-dropdown screenshot before this
+   fix. var(--canvas) matches every other select in the app, which already does this correctly
+   (.research-filters select, .watch-compare-control select, .season-stats-sort-row select all use
+   an opaque background, never transparent) -- this was the one selector in the codebase that broke
+   that established pattern. */
+.players-select{min-height:40px;padding:0 14px;border:0;border-radius:0;background:var(--canvas);color:var(--text);font-family:var(--font-ui);font-size:13px;cursor:pointer}
 .players-range{flex-direction:column;align-items:flex-start;justify-content:center;gap:4px;min-width:140px;padding:6px 14px;font-size:11px;font-weight:800;letter-spacing:.04em;color:var(--text-muted);text-transform:uppercase}
 .players-range input[type=range]{width:100%;accent-color:var(--pitch)}
 .players-direction,.players-more-toggle{min-height:40px;padding:0 16px;border:0;border-radius:0;background:transparent;color:var(--text);font-family:var(--font-ui);font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap}
