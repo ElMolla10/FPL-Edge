@@ -23,7 +23,10 @@ export type FplPlayer = {
 export type FplFixture = { id:number; event:number|null; teamH:number; teamA:number; teamHDifficulty:number; teamADifficulty:number; finished:boolean; kickoff:string|null; started:boolean; teamHScore:number|null; teamAScore:number|null;teamHAttackQuality?:number;teamHDefenceQuality?:number;teamAAttackQuality?:number;teamADefenceQuality?:number };
 export type FplEvent = { id:number; name:string; deadline:string; current:boolean; next:boolean; finished:boolean; dataChecked:boolean; averageEntryScore?:number|null };
 export type PositionRule = { id:number; name:string; short:string; squad:number; minPlay:number; maxPlay:number };
-export type FplData = { updatedAt:string; source:string; seasonStatsThrough:number; players:FplPlayer[]; fixtures:FplFixture[]; events:FplEvent[]; teams:{id:number;name:string;short:string;strengthHome?:number;strengthAway?:number;attackHome?:number|null;attackAway?:number|null;defenceHome?:number|null;defenceAway?:number|null;plPriorCoverage?:number;lowPlContinuity?:boolean;quality?:TeamQualityProfile}[]; rules:{budget:number;squadSize:number;teamLimit:number;positions:PositionRule[]}; dataIntegrityWarnings?:string[] };
+// matches/goalsForHome/Away/goalsAgainstHome/Away/expectedGoalsFor/cleanSheets are real
+// season-to-date raw totals from completed fixtures -- separate from `quality`, which is a
+// derived 0-10 relative rating, not a raw count.
+export type FplData = { updatedAt:string; source:string; seasonStatsThrough:number; players:FplPlayer[]; fixtures:FplFixture[]; events:FplEvent[]; teams:{id:number;name:string;short:string;strengthHome?:number;strengthAway?:number;attackHome?:number|null;attackAway?:number|null;defenceHome?:number|null;defenceAway?:number|null;plPriorCoverage?:number;lowPlContinuity?:boolean;quality?:TeamQualityProfile;matches?:number;goalsForHome?:number;goalsForAway?:number;goalsAgainstHome?:number;goalsAgainstAway?:number;expectedGoalsFor?:number;cleanSheets?:number}[]; rules:{budget:number;squadSize:number;teamLimit:number;positions:PositionRule[]}; dataIntegrityWarnings?:string[] };
 
 // Bump whenever projection or ranking semantics change. Deadline receipts persist this value so
 // later accuracy reports never compare outcomes from different model generations as one system.

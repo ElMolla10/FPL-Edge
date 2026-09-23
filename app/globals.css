@@ -1081,3 +1081,28 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .mobile-sheet-list>button.sheet-refresh{flex-wrap:wrap}
   .mobile-sheet-list>button.sheet-refresh .sheet-hint{width:100%;text-align:left;margin-top:2px}
 }
+
+/* Season Stats page. Own grid-template-columns per table (distinct column counts from
+   .research-table's fixed 20-column layout), same visual language via the shared CSS tokens. */
+.season-table{background:var(--surface-card);border-radius:9px;overflow:auto;margin-bottom:22px}
+.season-table>header,.season-table>article{display:grid;align-items:center;padding:11px 14px;gap:8px}
+.season-table>header{position:sticky;top:0;z-index:4;font-size:13px;font-weight:800;letter-spacing:.02em;background:var(--surface-card);color:var(--text);box-shadow:0 1px 0 var(--line)}
+.season-table>article{border-top:1px solid var(--line);font-size:13px}
+.season-table article>b{font-size:14px;display:flex;flex-direction:column}
+.season-table article>b small{font-size:12px;color:var(--text-muted)}
+.season-table article>strong{color:var(--success-text)}
+.season-table.sticky-head{max-height:min(70vh,720px)}
+.season-table.player-grid>header,.season-table.player-grid>article{min-width:620px;grid-template-columns:170px 70px 70px 70px 80px}
+.season-table.player-grid.wide>header,.season-table.player-grid.wide>article{min-width:1300px;grid-template-columns:170px 70px 80px 65px 65px 60px 60px 65px 90px 60px 130px 75px}
+.season-table.team-grid>header,.season-table.team-grid>article{min-width:640px;grid-template-columns:170px 80px 90px 100px 90px 80px 100px}
+.season-stats-sort-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.season-stats-sort-row select,.season-stats-sort-row button{border:1px solid var(--line);background:var(--surface-card);color:var(--text);padding:9px 12px;font-size:13px;font-weight:700;border-radius:7px}
+.season-stats-section-intro{margin:26px 0 14px}
+.season-stats-section-intro span{font-size:13px;color:var(--success-text);font-weight:900;letter-spacing:.13em}
+.season-stats-section-intro h2{margin:6px 0 4px}
+.season-stats-section-intro p{font-size:14px;color:var(--text-muted);line-height:1.55;max-width:800px;margin:0}
+@media(max-width:720px){
+  .season-table.player-grid>header,.season-table.player-grid>article{grid-template-columns:150px 60px 60px 60px 70px;min-width:0}
+  .season-table.player-grid.wide>header,.season-table.player-grid.wide>article{min-width:1180px}
+  .season-table.team-grid>header,.season-table.team-grid>article{min-width:0;grid-template-columns:140px 64px 74px 84px 74px 64px 84px}
+}

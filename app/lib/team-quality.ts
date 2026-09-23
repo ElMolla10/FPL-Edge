@@ -17,6 +17,16 @@ export type TeamQualityProfile={
   source:"official-prior"|"official-prior+current-pl";modelVersion:string;
 };
 
+// Clean sheet = the opponent was held scoreless in a finished fixture. Takes the same row shape
+// bootstrap-static's /fixtures/ endpoint returns (raw snake_case fields) since this runs directly
+// against that payload in app/api/fpl/route.ts, before any camelCase mapping -- a real season
+// total, not part of the 0-10 quality rating this file otherwise builds.
+export function teamCleanSheetsFromFixtures(fixtures:readonly{team_h:number;team_a:number;team_h_score:number|null;team_a_score:number|null;finished:boolean}[],teamId:number):number{
+  const home=fixtures.filter(f=>f.finished&&f.team_h===teamId);
+  const away=fixtures.filter(f=>f.finished&&f.team_a===teamId);
+  return home.filter(f=>(f.team_a_score??0)===0).length+away.filter(f=>(f.team_h_score??0)===0).length;
+}
+
 const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
 const mean=(values:number[])=>values.length?values.reduce((sum,value)=>sum+value,0)/values.length:1;
 

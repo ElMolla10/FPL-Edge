@@ -45,7 +45,7 @@ import { qualityPopulation, qualityScoreOutOf10 } from "../lib/team-quality";
 // View name map (Kevin IA lock): Home=overview, My Squad=team, Final check=deadline,
 // Players=players, Coach=coach. Desktop primary includes Transfers + Final check; phone nests
 // Transfers under My Squad (see ia/phone-squad-transfers).
-type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures";
+type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures"|"season-stats";
 type Desk="unknown"|"visitor"|"free"|"season";
 // Signed-in users without an active season pass see these views as the full desk, not the free move.
 const PRO_VIEWS: ReadonlySet<View> = new Set(["news", "draft", "board", "chips", "history"]);
@@ -68,7 +68,7 @@ const navGroups:readonly NavGroup[]=[
   // Desktop primary owns deadline/Final check; My Fixtures lives under Research disclosure.
   {label:"My Squad",items:[["team","My team","◫"],["news","News","●"]]},
   {label:"Plan",items:[["transfers","Transfers","⇄"],["draft","Draft lab","◇"],["board","Strategy board","⊞"],["chips","Chips","★"]]},
-  {label:"Research",items:[["players","Players","⌕"],["squad-fixtures","My Fixtures","▤"],["ownership","Ownership","◈"],["model","Points model","∑"],["fixtures","Fixtures","▦"]]},
+  {label:"Research",items:[["players","Players","⌕"],["season-stats","Season Stats","▥"],["squad-fixtures","My Fixtures","▤"],["ownership","Ownership","◈"],["model","Points model","∑"],["fixtures","Fixtures","▦"]]},
   {label:"League & History",items:[["league","Mini-League","◎"],["history","History","↗"]]},
 ];
 const fmt=(n:number|null|undefined)=>n?Math.round(n).toLocaleString():"—";
@@ -113,6 +113,7 @@ function NavIcon({id}:{id:string}){
     case "board":return <svg {...stroke}><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 16h16M10 4v16M16 4v16"/></svg>;
     case "chips":return <svg {...stroke}><path d="m12 3.8 2.2 5.2 5.5.4-4.3 3.6 1.4 5.3L12 15.6 7.2 18.3 8.6 13 4.3 9.4 9.8 9z"/></svg>;
     case "ownership":return <svg {...stroke}><circle cx="12" cy="12" r="8"/><path d="M12 4v8h8"/></svg>;
+    case "season-stats":return <svg {...stroke}><path d="M5 20V11M11 20V6M17 20v-7"/><path d="M3 20h18"/></svg>;
     case "model":return <svg {...stroke}><path d="m4 16.5 5-5.5 3.2 3.2L20 6.5M15 6.5h5v5"/></svg>;
     case "league":return <svg {...stroke}><circle cx="8" cy="9" r="2.3"/><circle cx="16" cy="9" r="2.3"/><path d="M3.6 17.6c.7-2.2 2.3-3.4 4.4-3.4s3.7 1.2 4.4 3.4M12.4 14.5c1-.4 2.1-.5 3.1-.2 1.7.4 2.8 1.5 3.3 3.3"/></svg>;
     case "history":return <svg {...stroke}><circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 2"/></svg>;
@@ -213,6 +214,7 @@ function Page({view,data,go,revision,onTeamChange,desk,onUpgrade}:{view:View;dat
   if(view==="board")return <StrategyBoard data={data} go={go} revision={revision}/>;
   if(view==="players")return <Players data={data} go={go} revision={revision}/>;
   if(view==="ownership")return <OwnershipRadar data={data}/>;
+  if(view==="season-stats")return <SeasonStats data={data}/>;
   if(view==="coach")return <Coach data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="squad-fixtures")return <MyFixtures data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="fixtures")return <div className="coach-page"><TeamQualityPanel data={data}/><TeamQualityFixtures data={data}/><LineupIntelligencePanel data={data}/></div>;
@@ -1496,6 +1498,45 @@ function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;r
   </div>;
 }
 function CoachAnswerCard({label,children}:{label:string;children:ReactNode}){return <section className="coach-answer-card"><span>{label.toUpperCase()}</span>{children}</section>}
+
+type SeasonStatSort=keyof Pick<FplPlayer,"totalPoints"|"pointsPerGame"|"goals"|"assists"|"expectedGoals"|"expectedAssists"|"expectedGoalInvolvements"|"cleanSheets"|"bonus"|"defensiveContribution"|"minutes">;
+const SEASON_STAT_SORTS:[SeasonStatSort,string][]=[["totalPoints","Total points"],["pointsPerGame","Points per match"],["goals","Goals"],["assists","Assists"],["expectedGoals","xG"],["expectedAssists","xA"],["expectedGoalInvolvements","xGI"],["cleanSheets","Clean sheets"],["bonus","Bonus"],["defensiveContribution","Defensive contribution"],["minutes","Minutes"]];
+type TeamStatSort="goalsFor"|"goalsAgainst"|"goalDifference"|"expectedGoalsFor"|"cleanSheets"|"matches";
+const TEAM_STAT_SORTS:[TeamStatSort,string][]=[["goalsFor","Goals for"],["goalsAgainst","Goals against"],["goalDifference","Goal difference"],["expectedGoalsFor","xG for"],["cleanSheets","Clean sheets"],["matches","Matches played"]];
+// Pure past-performance leaderboards -- unlike the Players research page (which defaults to and
+// mixes in 3/5-GW xPts), nothing here is a projection: every column is a real season-to-date total
+// already on FplPlayer (players) or newly exposed on FplData's teams array (clubs -- see
+// app/api/fpl/route.ts, previously computed there only as team-quality's own input and dropped
+// before the response left the server). Default sort is Total points, the least ambiguous
+// "already happened" number in FPL's own vocabulary.
+function SeasonStats({data}:{data:FplData}){
+  const[query,setQuery]=useState("");const[pos,setPos]=useState("ALL");const[club,setClub]=useState("ALL");const[sort,setSort]=useState<SeasonStatSort>("totalPoints");const[direction,setDirection]=useState<"desc"|"asc">("desc");const[more,setMore]=useState(false);const[showFilters,setShowFilters]=useState(false);
+  const[teamSort,setTeamSort]=useState<TeamStatSort>("goalsFor");const[teamDirection,setTeamDirection]=useState<"desc"|"asc">("desc");
+  const rows=useMemo(()=>data.players.filter(p=>(pos==="ALL"||p.positionShort===pos)&&(club==="ALL"||String(p.teamId)===club)&&(`${p.name} ${p.teamName}`).toLowerCase().includes(query.toLowerCase())).sort((a,b)=>{const value=(p:FplPlayer)=>Number(p[sort])||0;return direction==="desc"?value(b)-value(a):value(a)-value(b)}),[data,pos,club,query,sort,direction]);
+  const teamRows=useMemo(()=>data.teams.map(team=>{const goalsFor=(team.goalsForHome??0)+(team.goalsForAway??0);const goalsAgainst=(team.goalsAgainstHome??0)+(team.goalsAgainstAway??0);return{team,matches:team.matches??0,goalsFor,goalsAgainst,goalDifference:goalsFor-goalsAgainst,expectedGoalsFor:team.expectedGoalsFor??0,cleanSheets:team.cleanSheets??0}}).sort((a,b)=>{const value=(r:typeof a)=>r[teamSort];return teamDirection==="desc"?value(b)-value(a):value(a)-value(b)}),[data,teamSort,teamDirection]);
+  return <div className="coach-page season-stats">
+    <section className="research-intro player-count"><div><span>SEASON 2026/27 · PAST PERFORMANCE</span><h2>Season Stats</h2><p>{data.seasonStatsThrough?`Pure season-to-date totals through GW${data.seasonStatsThrough} — real results only, no projections or xPts.`:`No 2026/27 gameweek has finished yet, so season totals correctly start at zero.`}</p></div><strong>{rows.length}<small>players shown</small></strong></section>
+    <button type="button" className="filter-toggle" aria-expanded={showFilters} onClick={()=>setShowFilters(v=>!v)}>{showFilters?"Hide filters":"Show filters"}</button>
+    <section className={showFilters?"research-filters is-open":"research-filters"} hidden={!showFilters}>
+      <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search player or club…"/>
+      <select value={pos} onChange={e=>setPos(e.target.value)}><option value="ALL">All positions</option>{data.rules.positions.map(p=><option key={p.id}>{p.short}</option>)}</select>
+      <select value={club} onChange={e=>setClub(e.target.value)}><option value="ALL">All clubs</option>{data.teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
+      <select value={sort} onChange={e=>setSort(e.target.value as SeasonStatSort)}>{SEASON_STAT_SORTS.map(([value,label])=><option value={value} key={value}>Sort: {label}</option>)}</select>
+      <button onClick={()=>setDirection(x=>x==="desc"?"asc":"desc")}>{direction==="desc"?"High → low":"Low → high"}</button>
+      <button type="button" onClick={()=>setMore(x=>!x)}>{more?"Fewer columns":"More columns"}</button>
+    </section>
+    <section className={more?"season-table player-grid wide sticky-head":"season-table player-grid sticky-head"}>
+      <header>{(more?["Player","Points","Per match","Goals","Assists","xG","xA","xGI","Clean sheets","Bonus","Def. contribution","Minutes"]:["Player","Points","Goals","Assists","Minutes"]).map(x=><span key={x}>{x}</span>)}</header>
+      {rows.slice(0,150).map(p=><article key={p.id}><b>{p.name}<small>{p.teamShort} · {p.positionShort}</small></b><strong>{p.totalPoints}</strong>{more&&<span>{p.pointsPerGame.toFixed(1)}</span>}<span>{p.goals}</span><span>{p.assists}</span>{more&&<><span>{p.expectedGoals.toFixed(2)}</span><span>{p.expectedAssists.toFixed(2)}</span><span>{p.expectedGoalInvolvements.toFixed(2)}</span><span>{p.cleanSheets}</span><span>{p.bonus}</span><span>{p.defensiveContribution}</span></>}<span>{p.minutes}</span></article>)}
+    </section>
+    <section className="season-stats-section-intro"><span>CLUBS · SEASON TOTALS</span><h2>Team season stats</h2><p>Real goals, expected goals and clean sheets from completed fixtures this season — separate from the Team Quality model's 0-10 relative rating shown on the Fixtures and Points model pages.</p></section>
+    <div className="season-stats-sort-row"><select value={teamSort} onChange={e=>setTeamSort(e.target.value as TeamStatSort)}>{TEAM_STAT_SORTS.map(([value,label])=><option value={value} key={value}>Sort: {label}</option>)}</select><button onClick={()=>setTeamDirection(x=>x==="desc"?"asc":"desc")}>{teamDirection==="desc"?"High → low":"Low → high"}</button></div>
+    <section className="season-table team-grid sticky-head">
+      <header><span>Club</span><span>Matches</span><span>Goals for</span><span>Goals against</span><span>Goal diff</span><span>xG for</span><span>Clean sheets</span></header>
+      {teamRows.map(r=><article key={r.team.id}><b>{r.team.name}<small>{r.team.short}</small></b><span>{r.matches}</span><span>{r.goalsFor}</span><span>{r.goalsAgainst}</span><strong>{r.goalDifference>=0?"+":""}{r.goalDifference}</strong><span>{r.expectedGoalsFor.toFixed(1)}</span><span>{r.cleanSheets}</span></article>)}
+    </section>
+  </div>;
+}
 
 function Compare({data,ids,close}:{data:FplData;ids:number[];close:()=>void}){const players=ids.map(id=>data.players.find(p=>p.id===id)).filter(Boolean) as FplPlayer[],events=futureEvents(data,5),first=events[0]?.id;const best=[...players].sort((a,b)=>events.reduce((s,e)=>s+playerProjection(b,e.id,data.fixtures,first),0)-events.reduce((s,e)=>s+playerProjection(a,e.id,data.fixtures,first),0))[0];const secure=[...players].sort((a,b)=>projectionMetrics(b,first,data.fixtures,first).startProbability-projectionMetrics(a,first,data.fixtures,first).startProbability)[0];return <section className="compare-drawer"><header><div><span>PLAYER COMPARISON</span><h2>{players.map(p=>p.name).join(" vs ")}</h2></div><button onClick={close}>Close</button></header><div>{players.map(p=>{const m=projectionMetrics(p,first,data.fixtures,first),xgi90=p.minutes?p.expectedGoalInvolvements/p.minutes*90:0;return <article key={p.id}><h3>{p.name}<small>{p.teamShort} · £{p.price.toFixed(1)}m</small></h3><p><span>Next 5</span><b>{events.map(e=>opponent(p,e.id,data)).join(" · ")}</b></p><p><span>5-GW xPts</span><b>{events.reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0).toFixed(1)}</b></p><p><span>xMins / start</span><b>{Math.round(m.expectedMinutes)} / {Math.round(m.startProbability*100)}%</b></p><p><span>xG90 / xA90</span><b>{p.minutes?(p.expectedGoals/p.minutes*90).toFixed(2):"—"} / {p.minutes?(p.expectedAssists/p.minutes*90).toFixed(2):"—"}</b></p><p><span>xGI/90</span><b>{xgi90.toFixed(2)}</b></p><p><span>Roles</span><b>{m.penaltyRole?"Pens · ":""}{m.setPieceRole?"Set pieces":"No confirmed role"}</b></p><p><span>Ownership / rotation</span><b>{p.selectedBy.toFixed(1)}% / {Math.round(m.rotationRisk*100)}%</b></p></article>})}</div><footer><span>MODEL VERDICT</span><p><b>{best.name}</b> has the highest five-gameweek projection. <b>{secure.name}</b> has the safest minutes profile. Choose upside only if its minutes uncertainty fits your risk tolerance.</p></footer></section>}
 

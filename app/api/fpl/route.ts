@@ -1,5 +1,5 @@
 import { accumulateLiveStats, attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile, seasonStatsThroughEvent, type FplEvent } from "../../lib/fpl";
-import { buildTeamQualityProfiles } from "../../lib/team-quality";
+import { buildTeamQualityProfiles, teamCleanSheetsFromFixtures } from "../../lib/team-quality";
 import priorSeasonSnapshot from "../../data/prior-season-2025-26.json";
 
 const BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/";
@@ -68,12 +68,17 @@ export async function GET() {
       teamPriorProfiles.set(teamId, { coverage, low: isLowPlContinuity(coverage) });
     }
     const completedFixtures=fixtures.filter((fixture:any)=>fixture.finished);
+    // Clean sheet = the OPPONENT was held scoreless in a finished fixture -- the same real
+    // completedFixtures home/away split team-quality already computes below, just counting a
+    // different condition (opponent score === 0) rather than summing goals.
     const teamQualityInputs=bootstrap.teams.map((team:any)=>{
       const home=completedFixtures.filter((fixture:any)=>fixture.team_h===team.id),away=completedFixtures.filter((fixture:any)=>fixture.team_a===team.id);
       const expectedGoalsFor=bootstrap.elements.filter((player:any)=>player.team===team.id).reduce((sum:number,player:any)=>sum+number(seasonStats.get(player.id)?.expected_goals),0);
       const profile=teamPriorProfiles.get(team.id)??{coverage:0,low:true};
-      return{id:team.id,name:team.name,short:team.short_name,officialAttackHome:number(team.strength_attack_home),officialAttackAway:number(team.strength_attack_away),officialDefenceHome:number(team.strength_defence_home),officialDefenceAway:number(team.strength_defence_away),plPriorCoverage:profile.coverage,lowPlContinuity:profile.low,matches:home.length+away.length,homeMatches:home.length,awayMatches:away.length,goalsForHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),goalsForAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),expectedGoalsFor};
+      const cleanSheets=teamCleanSheetsFromFixtures(fixtures,team.id);
+      return{id:team.id,name:team.name,short:team.short_name,officialAttackHome:number(team.strength_attack_home),officialAttackAway:number(team.strength_attack_away),officialDefenceHome:number(team.strength_defence_home),officialDefenceAway:number(team.strength_defence_away),plPriorCoverage:profile.coverage,lowPlContinuity:profile.low,matches:home.length+away.length,homeMatches:home.length,awayMatches:away.length,goalsForHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),goalsForAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),expectedGoalsFor,cleanSheets};
     });
+    const teamSeasonStatsById=new Map<number,any>(teamQualityInputs.map((input:any)=>[input.id,input]));
     const teamQualityProfiles=new Map(buildTeamQualityProfiles(teamQualityInputs).map(profile=>[profile.id,profile]));
 
     const payload = {
@@ -109,6 +114,16 @@ export async function GET() {
         plPriorCoverage: teamPriorProfiles.get(team.id)?.coverage ?? 0,
         lowPlContinuity: teamPriorProfiles.get(team.id)?.low ?? true,
         quality: teamQualityProfiles.get(team.id),
+        // Real season-to-date raw totals -- previously computed here only as team-quality's own
+        // input and then dropped before the response was built. Exposed now for the Season Stats
+        // team leaderboard; team-quality's 0-10 relative rating above is a separate, derived thing.
+        matches: teamSeasonStatsById.get(team.id)?.matches ?? 0,
+        goalsForHome: teamSeasonStatsById.get(team.id)?.goalsForHome ?? 0,
+        goalsForAway: teamSeasonStatsById.get(team.id)?.goalsForAway ?? 0,
+        goalsAgainstHome: teamSeasonStatsById.get(team.id)?.goalsAgainstHome ?? 0,
+        goalsAgainstAway: teamSeasonStatsById.get(team.id)?.goalsAgainstAway ?? 0,
+        expectedGoalsFor: teamSeasonStatsById.get(team.id)?.expectedGoalsFor ?? 0,
+        cleanSheets: teamSeasonStatsById.get(team.id)?.cleanSheets ?? 0,
       })),
       players: bootstrap.elements.map((player: any) => {
         const team: any = teams.get(player.team);
