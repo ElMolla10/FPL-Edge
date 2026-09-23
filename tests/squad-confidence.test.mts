@@ -38,13 +38,14 @@ function squad(offset = 0): FplPlayer[] {
 function evaluation(players: FplPlayer[], eventIds = [1]): SquadEvaluation {
   const weeks: WeekPlan[] = eventIds.map(eventId => ({
     eventId, xi: players.slice(0, 11), bench: players.slice(11), captain: players[0], vice: players[1],
-    formation: "3-5-2", points: 0, captainPoints: 0,
+    formation: "3-5-2", points: 0, captainPoints: 0, vicePoints: 0,
   }));
   return {
     objective: 0, weightedPoints: 0, fiveWeekPoints: 0, weeks, flexibility: 0, benchUtility: 0, deadSlots: 0,
     riskPenalty: 0, bank: 0,
     scores: { projectedPoints: 0, captaincy: 0, fixtures: 0, minutesSecurity: 0, bench: 0, flexibility: 0, value: 0, risk: 0, overall: 20 },
     warnings: [], strategy: { formation: "3-5-2", premiums: [], captain: players[0].name, budget: {}, benchSpend: 0, targets: [], risk: "Balanced" },
+    wildcardBreakdown: { weightedPoints: 0, benchUtility: 0, captaincyEdge: 0, gkStructure: 0, defensiveCorrelation: 0, attackingCorrelation: 0, benchOpportunityCost: 0, overperformance: 0, priceFlexibility: 0, riskPenalty: 0, philosophyBonus: 0, objective: 0 },
   };
 }
 

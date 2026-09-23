@@ -66,6 +66,7 @@ function evaluation(overrides: {
       formation: overrides.formation ?? "3-5-2",
       points,
       captainPoints: 10,
+      vicePoints: 8,
     })),
     flexibility: scores.flexibility,
     benchUtility: 5,
@@ -75,6 +76,7 @@ function evaluation(overrides: {
     scores,
     warnings: overrides.warnings ?? [],
     strategy: { formation: overrides.formation ?? "3-5-2", premiums: [], captain: captain.name, budget: {}, benchSpend: 18, targets: [], risk: "Balanced" },
+    wildcardBreakdown: { weightedPoints: 200, benchUtility: 5, captaincyEdge: 0, gkStructure: 0, defensiveCorrelation: 0, attackingCorrelation: 0, benchOpportunityCost: 0, overperformance: 0, priceFlexibility: 0, riskPenalty: -1, philosophyBonus: 0, objective: overrides.objective ?? 100 },
   };
 }
 

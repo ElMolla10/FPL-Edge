@@ -17,7 +17,7 @@ function evaluation(objective: number, overall: number): SquadEvaluation {
     objective,
     weightedPoints: 50,
     fiveWeekPoints: 50,
-    weeks: [{ eventId: 38, xi: [captain], bench: [], captain, vice: captain, formation: "3-5-2", points: 50, captainPoints: 10 }],
+    weeks: [{ eventId: 38, xi: [captain], bench: [], captain, vice: captain, formation: "3-5-2", points: 50, captainPoints: 10, vicePoints: 10 }],
     flexibility: 70,
     benchUtility: 0,
     deadSlots: 0,
@@ -26,6 +26,7 @@ function evaluation(objective: number, overall: number): SquadEvaluation {
     scores,
     warnings: [],
     strategy: { formation: "3-5-2", premiums: [], captain: "Captain", budget: {}, benchSpend: 0, targets: [], risk: "Balanced" },
+    wildcardBreakdown: { weightedPoints: 50, benchUtility: 0, captaincyEdge: 0, gkStructure: 0, defensiveCorrelation: 0, attackingCorrelation: 0, benchOpportunityCost: 0, overperformance: 0, priceFlexibility: 0, riskPenalty: 0, philosophyBonus: 0, objective },
   };
 }
 
