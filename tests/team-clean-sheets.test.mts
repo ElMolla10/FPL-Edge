@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { teamCleanSheetsFromFixtures } from "../app/lib/team-quality.ts";
+import { teamCleanSheetsFromFixtures, teamSeasonStatSum } from "../app/lib/team-quality.ts";
 
 type RawFixture = { team_h: number; team_a: number; team_h_score: number | null; team_a_score: number | null; finished: boolean };
 const fx = (overrides: Partial<RawFixture> = {}): RawFixture => ({ team_h: 1, team_a: 2, team_h_score: 1, team_a_score: 1, finished: true, ...overrides });
@@ -50,4 +50,34 @@ test("teamCleanSheetsFromFixtures: null scores on a finished fixture are treated
 
 test("teamCleanSheetsFromFixtures: a team with no fixtures at all returns zero, not NaN or undefined", () => {
   assert.equal(teamCleanSheetsFromFixtures([], 99), 0);
+});
+
+// --- teamSeasonStatSum: shared derivation behind both expectedGoalsFor and expectedGoalsAgainst ---
+
+const seasonStatsMap = (rows: [number, Record<string, number>][]) => new Map(rows);
+
+test("teamSeasonStatSum: sums a named season-stat field across every player on the given team, ignoring other teams", () => {
+  const elements = [{ id: 1, team: 10 }, { id: 2, team: 10 }, { id: 3, team: 20 }];
+  const seasonStats = seasonStatsMap([[1, { expected_goals: 4.2 }], [2, { expected_goals: 2.8 }], [3, { expected_goals: 9 }]]);
+  assert.equal(teamSeasonStatSum(elements, 10, seasonStats, "expected_goals"), 7);
+});
+
+test("teamSeasonStatSum: expectedGoalsFor and expectedGoalsAgainst read different fields off the same roster, independently", () => {
+  const elements = [{ id: 1, team: 10 }, { id: 2, team: 10 }];
+  const seasonStats = seasonStatsMap([
+    [1, { expected_goals: 3, expected_goals_conceded: 1 }],
+    [2, { expected_goals: 2, expected_goals_conceded: 1.5 }],
+  ]);
+  assert.equal(teamSeasonStatSum(elements, 10, seasonStats, "expected_goals"), 5, "expectedGoalsFor reads expected_goals");
+  assert.equal(teamSeasonStatSum(elements, 10, seasonStats, "expected_goals_conceded"), 2.5, "expectedGoalsAgainst reads expected_goals_conceded, not the same number");
+});
+
+test("teamSeasonStatSum: a player missing from seasonStats (no minutes yet) contributes zero, not NaN", () => {
+  const elements = [{ id: 1, team: 10 }, { id: 2, team: 10 }];
+  const seasonStats = seasonStatsMap([[1, { expected_goals: 3 }]]);
+  assert.equal(teamSeasonStatSum(elements, 10, seasonStats, "expected_goals"), 3);
+});
+
+test("teamSeasonStatSum: a team with no roster entries at all returns zero", () => {
+  assert.equal(teamSeasonStatSum([], 10, seasonStatsMap([]), "expected_goals"), 0);
 });

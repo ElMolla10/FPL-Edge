@@ -17,6 +17,15 @@ export type TeamQualityProfile={
   source:"official-prior"|"official-prior+current-pl";modelVersion:string;
 };
 
+// Sums an already-fetched season-cumulative per-player stat (bootstrap-static's seasonStats map,
+// keyed by player id) across every player on one club's roster this season -- expectedGoalsFor and
+// expectedGoalsAgainst both derive from this, one field apart ("expected_goals" vs
+// "expected_goals_conceded"), so the two stay a single, testable derivation rather than two
+// hand-copied reduce blocks that could quietly drift apart.
+export function teamSeasonStatSum(elements:readonly{id:number;team:number}[],teamId:number,seasonStats:ReadonlyMap<number,Record<string,unknown>>,field:string):number{
+  return elements.filter(e=>e.team===teamId).reduce((sum,e)=>sum+(Number(seasonStats.get(e.id)?.[field])||0),0);
+}
+
 // Clean sheet = the opponent was held scoreless in a finished fixture. Takes the same row shape
 // bootstrap-static's /fixtures/ endpoint returns (raw snake_case fields) since this runs directly
 // against that payload in app/api/fpl/route.ts, before any camelCase mapping -- a real season

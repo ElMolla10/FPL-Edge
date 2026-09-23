@@ -1,5 +1,5 @@
 import { accumulateLiveStats, attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile, seasonStatsThroughEvent, type FplEvent } from "../../lib/fpl";
-import { buildTeamQualityProfiles, teamCleanSheetsFromFixtures } from "../../lib/team-quality";
+import { buildTeamQualityProfiles, teamCleanSheetsFromFixtures, teamSeasonStatSum } from "../../lib/team-quality";
 import priorSeasonSnapshot from "../../data/prior-season-2025-26.json";
 
 const BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/";
@@ -73,10 +73,11 @@ export async function GET() {
     // different condition (opponent score === 0) rather than summing goals.
     const teamQualityInputs=bootstrap.teams.map((team:any)=>{
       const home=completedFixtures.filter((fixture:any)=>fixture.team_h===team.id),away=completedFixtures.filter((fixture:any)=>fixture.team_a===team.id);
-      const expectedGoalsFor=bootstrap.elements.filter((player:any)=>player.team===team.id).reduce((sum:number,player:any)=>sum+number(seasonStats.get(player.id)?.expected_goals),0);
+      const expectedGoalsFor=teamSeasonStatSum(bootstrap.elements,team.id,seasonStats,"expected_goals");
+      const expectedGoalsAgainst=teamSeasonStatSum(bootstrap.elements,team.id,seasonStats,"expected_goals_conceded");
       const profile=teamPriorProfiles.get(team.id)??{coverage:0,low:true};
       const cleanSheets=teamCleanSheetsFromFixtures(fixtures,team.id);
-      return{id:team.id,name:team.name,short:team.short_name,officialAttackHome:number(team.strength_attack_home),officialAttackAway:number(team.strength_attack_away),officialDefenceHome:number(team.strength_defence_home),officialDefenceAway:number(team.strength_defence_away),plPriorCoverage:profile.coverage,lowPlContinuity:profile.low,matches:home.length+away.length,homeMatches:home.length,awayMatches:away.length,goalsForHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),goalsForAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),expectedGoalsFor,cleanSheets};
+      return{id:team.id,name:team.name,short:team.short_name,officialAttackHome:number(team.strength_attack_home),officialAttackAway:number(team.strength_attack_away),officialDefenceHome:number(team.strength_defence_home),officialDefenceAway:number(team.strength_defence_away),plPriorCoverage:profile.coverage,lowPlContinuity:profile.low,matches:home.length+away.length,homeMatches:home.length,awayMatches:away.length,goalsForHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),goalsForAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstHome:home.reduce((sum:number,fixture:any)=>sum+number(fixture.team_a_score),0),goalsAgainstAway:away.reduce((sum:number,fixture:any)=>sum+number(fixture.team_h_score),0),expectedGoalsFor,expectedGoalsAgainst,cleanSheets};
     });
     const teamSeasonStatsById=new Map<number,any>(teamQualityInputs.map((input:any)=>[input.id,input]));
     const teamQualityProfiles=new Map(buildTeamQualityProfiles(teamQualityInputs).map(profile=>[profile.id,profile]));
@@ -123,6 +124,7 @@ export async function GET() {
         goalsAgainstHome: teamSeasonStatsById.get(team.id)?.goalsAgainstHome ?? 0,
         goalsAgainstAway: teamSeasonStatsById.get(team.id)?.goalsAgainstAway ?? 0,
         expectedGoalsFor: teamSeasonStatsById.get(team.id)?.expectedGoalsFor ?? 0,
+        expectedGoalsAgainst: teamSeasonStatsById.get(team.id)?.expectedGoalsAgainst ?? 0,
         cleanSheets: teamSeasonStatsById.get(team.id)?.cleanSheets ?? 0,
       })),
       players: bootstrap.elements.map((player: any) => {
