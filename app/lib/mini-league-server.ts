@@ -130,7 +130,9 @@ function upstreamError(kind: "entry" | "bootstrap" | "standings", status: number
 }
 
 export function createMiniLeagueGateway(options: GatewayOptions = {}) {
-  const fetcher = options.fetcher ?? fetch;
+  // Cloudflare Workers: storing `fetch` and calling it later throws Illegal invocation
+  // (lost `this`). Wrap so the call always goes through the global. Tests pass a fetcher.
+  const fetcher: FetchLike = options.fetcher ?? ((input, init) => fetch(input, init));
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? MINI_LEAGUE_TIMEOUT_MS;
   const standingsTtlMs = options.standingsTtlMs ?? MINI_LEAGUE_STANDINGS_TTL_MS;
