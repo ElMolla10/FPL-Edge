@@ -62,7 +62,8 @@ export function makeD1PercentileRepo(): PercentileCacheRepo {
 // pattern) so this parsing/validation logic is directly testable with a fake fetcher, not just
 // exercised indirectly through a real network call.
 export function makeLiveDependencies(options: { fetcher?: FetchLike; limiter?: ConcurrencyLimiter; timeoutMs?: number } = {}) {
-  const fetcher = options.fetcher ?? fetch;
+  // Cloudflare Workers: unbound `fetch` reference → Illegal invocation. Wrap the global.
+  const fetcher: FetchLike = options.fetcher ?? ((input, init) => fetch(input, init));
   const limiter = options.limiter ?? createConcurrencyLimiter(MAX_CONCURRENCY);
   const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
   return {
