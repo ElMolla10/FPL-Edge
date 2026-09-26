@@ -31,11 +31,18 @@ export class GatewayTimeoutError extends Error {
   }
 }
 
+// Next.js / vinext on Cloudflare only reliably performs outbound FPL fetches when the call
+// carries `next: { revalidate }` (see app/api/fpl/team/route.ts). Without it, Mini-League's
+// Worker path rejects in ~40ms with a generic upstream error while the same host works for
+// every revalidate-tagged route. Keep this optional so unit tests with a plain fetcher stay clean.
+export type FetchCacheOptions = { next?: { revalidate?: number | false } };
+
 export type FetchWithTimeoutOptions = {
   fetcher: FetchLike;
   limiter: ConcurrencyLimiter;
   timeoutMs: number;
   headers?: Record<string, string>;
+  cache?: FetchCacheOptions;
 };
 
 // Shared by every gateway that calls a real, rate-sensitive upstream (Mini-League's official-FPL
@@ -47,19 +54,27 @@ export type FetchWithTimeoutOptions = {
 // is thrown, so this stays correct regardless of which of the two raced promises settles first.
 export async function fetchWithTimeout(url: string, options: FetchWithTimeoutOptions): Promise<Response> {
   return options.limiter.run(async () => {
-    const controller = new AbortController();
+    const useNextCache = Boolean(options.cache?.next);
+    // AbortSignal + vinext's cached `next.revalidate` fetch rejects immediately on Workers.
+    // Working FPL routes (team/history/bootstrap) never pass a signal; mirror that when caching.
+    const controller = useNextCache ? null : new AbortController();
     let timedOut = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
         timedOut = true;
-        controller.abort(new Error("Request timed out."));
+        controller?.abort(new Error("Request timed out."));
         reject(new GatewayTimeoutError(`Request timed out after ${options.timeoutMs}ms.`));
       }, options.timeoutMs);
     });
     try {
+      const init = {
+        headers: options.headers ?? { Accept: "application/json", "User-Agent": "FPL-Edge/1.0" },
+        ...(controller ? { signal: controller.signal } : {}),
+        ...(useNextCache ? { next: options.cache!.next } : {}),
+      } as RequestInit;
       return await Promise.race([
-        options.fetcher(url, { headers: options.headers ?? { Accept: "application/json", "User-Agent": "FPL-Edge/1.0" }, signal: controller.signal }),
+        options.fetcher(url, init),
         timeoutPromise,
       ]);
     } catch (error) {

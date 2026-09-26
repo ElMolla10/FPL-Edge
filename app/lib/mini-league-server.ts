@@ -22,6 +22,7 @@ export class MiniLeagueGatewayError extends Error {
     message: string,
     public readonly code: string,
     public readonly retryable = false,
+    public readonly detail?: string,
   ) {
     super(message);
     this.name = "MiniLeagueGatewayError";
@@ -142,7 +143,13 @@ export function createMiniLeagueGateway(options: GatewayOptions = {}) {
     const cached = cache.get(url, now(), ttlMs, staleIfErrorMs);
     if (cached?.state === "fresh") return { data: cached.value, stale: false };
     try {
-      const response = await fetchWithTimeout(url, { fetcher, limiter, timeoutMs });
+      // Match working FPL routes: vinext Workers need next.revalidate on outbound fetch.
+      const response = await fetchWithTimeout(url, {
+        fetcher,
+        limiter,
+        timeoutMs,
+        cache: { next: { revalidate: Math.max(1, Math.floor(ttlMs / 1000)) } },
+      });
       if (!response.ok) throw upstreamError(kind, response.status);
       let data: unknown;
       try { data = await response.json(); }
@@ -154,7 +161,13 @@ export function createMiniLeagueGateway(options: GatewayOptions = {}) {
         ? error
         : error instanceof GatewayTimeoutError
         ? new MiniLeagueGatewayError(504, "The Official FPL Mini-League request timed out after eight seconds.", "fpl-timeout", true)
-        : new MiniLeagueGatewayError(502, "Official FPL could not provide the Mini-League data.", "fpl-upstream", true);
+        : new MiniLeagueGatewayError(
+          502,
+          "Official FPL could not provide the Mini-League data.",
+          "fpl-upstream",
+          true,
+          error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+        );
       if (cached?.state === "stale" && normalized.retryable) return { data: cached.value, stale: true };
       throw normalized;
     }
