@@ -72,7 +72,12 @@ export function makeLiveDependencies(options: { fetcher?: FetchLike; limiter?: C
       totalPlayers: number;
       recentAverageGameweekScore: number | null;
     }> {
-      const response = await fetchWithTimeout(`${FPL}/bootstrap-static/`, { fetcher, limiter, timeoutMs });
+      const response = await fetchWithTimeout(`${FPL}/bootstrap-static/`, {
+        fetcher,
+        limiter,
+        timeoutMs,
+        cache: { next: { revalidate: 300 } },
+      });
       if (!response.ok) throw new Error(`Official FPL bootstrap-static request failed with status ${response.status}.`);
       const data: unknown = await response.json();
       if (!isRecord(data) || !Array.isArray(data.events) || typeof data.total_players !== "number") {
@@ -99,7 +104,7 @@ export function makeLiveDependencies(options: { fetcher?: FetchLike; limiter?: C
       try {
         const response = await fetchWithTimeout(
           `${FPL}/leagues-classic/${OVERALL_LEAGUE_ID}/standings/?page_standings=${page}`,
-          { fetcher, limiter, timeoutMs },
+          { fetcher, limiter, timeoutMs, cache: { next: { revalidate: 300 } } },
         );
         if (!response.ok) return null;
         const data: unknown = await response.json();

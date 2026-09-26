@@ -20,7 +20,12 @@ export function createMiniLeagueRoute(service: LeagueGateway) {
     } catch (error) {
       if (error instanceof MiniLeagueGatewayError) {
         return Response.json(
-          { error: error.message, code: error.code, retryable: error.retryable },
+          {
+            error: error.message,
+            code: error.code,
+            retryable: error.retryable,
+            ...(error.detail ? { detail: error.detail } : {}),
+          },
           { status: error.status, headers: { "Cache-Control": "no-store" } },
         );
       }
