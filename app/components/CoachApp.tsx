@@ -129,6 +129,26 @@ function PhoneSquadNav({active,go}:{active:"team"|"transfers"|"squad-fixtures";g
   return <nav className="phone-squad-nav" aria-label="My Squad"><button type="button" className={active==="team"?"active":""} onClick={()=>go("team")}>My team</button><button type="button" className={active==="transfers"?"active":""} onClick={()=>go("transfers")}>Transfers</button><button type="button" className={active==="squad-fixtures"?"active":""} onClick={()=>go("squad-fixtures")}>My Fixtures</button></nav>;
 }
 
+const MORE_VIEW_LABELS:Partial<Record<View,string>>={
+  deadline:"Final check",
+  players:"Players",
+  "season-stats":"Season Stats",
+  ownership:"Ownership",
+  model:"Points model",
+  fixtures:"Fixtures",
+  league:"Mini-league",
+  history:"History",
+  news:"News",
+  draft:"Draft lab",
+  board:"Strategy board",
+  chips:"Chips",
+};
+
+function PhoneMoreCrumb({view,onOpenMore}:{view:View;onOpenMore:()=>void}){
+  const label=MORE_VIEW_LABELS[view]??String(view);
+  return <nav className="phone-more-crumb" aria-label="More destination"><button type="button" onClick={onOpenMore}>More</button><span aria-hidden="true">›</span><strong>{label}</strong></nav>;
+}
+
 function freshness(updatedAt:string){const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(updatedAt))/60000));return{minutes,label:minutes<2?"just now":`${minutes}m ago`,tone:minutes<=10?"fresh":minutes<=30?"aging":"stale"}}
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
 
@@ -176,24 +196,26 @@ export default function CoachApp({onBack,startAuth=false}:{onBack:()=>void;start
   const phoneMoreResearch=researchRest.filter(([key])=>key!=="squad-fixtures");
   const phoneMoreViews=new Set<View>(["deadline","players",...phoneMoreResearch.map(([key])=>key)]);
   // Exactly one bottom tab active: sheet open → that sheet's tab only; else content partition.
+  // More-routed child pages (Players, Final check, …) clear More lime and show PhoneMoreCrumb instead.
   const phoneHomeActive=!mobileOverlay&&view==="overview";
   const phoneSquadActive=mobileOverlay==="My Squad"||(!mobileOverlay&&phoneSquadViews.has(view));
   const phoneProActive=mobileOverlay==="PRO"||(!mobileOverlay&&phoneProViews.has(view));
   const phoneCoachActive=!mobileOverlay&&view==="coach";
-  const phoneMoreActive=mobileOverlay==="More"||(!mobileOverlay&&phoneMoreViews.has(view));
+  const phoneMoreActive=mobileOverlay==="More";
+  const phoneMoreChild=!mobileOverlay&&phoneMoreViews.has(view);
   // Phase 1 chrome-strip: sticky header = Wordmark · GW countdown · Sign in/Account only.
   // Season pass lives under More; floating Coach pill removed; freshness owned by sidebar (desktop) / slim line (phone).
   return <TeamLinkAuthProvider value={teamAuth}><main className={desk==="visitor"?"coach-shell signed-out":"coach-shell"}>
     <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" className={researchRest.some(([key])=>key===view)?"active":sidebarMenu==="research"?"open":""} onClick={()=>setSidebarMenu(m=>m==="research"?null:"research")}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" className={proItems.some(([key])=>key===view)?"sidebar-pro-btn active":sidebarMenu==="pro"?"sidebar-pro-btn open":"sidebar-pro-btn"} onClick={()=>setSidebarMenu(m=>m==="pro"?null:"pro")}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><span className="brand header-wordmark"><Wordmark/></span><div className="header-tools">{data&&<DeadlineClock data={data}/>}{desk==="visitor"?<div className="signin-action"><a className="team-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a></div>:<AccountBar onAuthChange={runSync} onAccount={onAccount} initialOpen={startAuth}/>}</div></header>
-      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading} phoneQuiet/><Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
+      {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading} phoneQuiet/>{phoneMoreChild&&<PhoneMoreCrumb view={view} onOpenMore={()=>setMobileOverlay("More")}/>}<Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
     </section>
     {(desk==="free"||desk==="season")&&<footer className="coach-footer"><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>}
     <nav className="coach-mobile-nav" aria-label="Phone primary"><button className={phoneHomeActive?"active":""} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={phoneSquadActive?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i><NavIcon id="team"/></i>My Squad</button><button className={phoneProActive?"active":""} onClick={()=>toggleMobileOverlay("PRO")}><i><NavIcon id="pro"/></i>PRO</button><button className={phoneCoachActive?"active":""} onClick={()=>go("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={phoneMoreActive?"active":""} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
     {mobileOverlay&&<MobileSheet title={mobileOverlay} onClose={()=>setMobileOverlay(null)}>
       {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)}><span>{label}</span>{key==="transfers"?<small className="sheet-hint">Single · Route · Watch</small>:null}</button>)}
       {mobileOverlay==="PRO"&&proItems.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}
-      {mobileOverlay==="More"&&<><button type="button" onClick={()=>go("deadline")}><span>Final check</span></button><button type="button" onClick={()=>go("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span></button>)}<button type="button" className="sheet-refresh" onClick={()=>{load();setMobileOverlay(null)}} disabled={loading}><span>{loading?"Refreshing…":"Refresh FPL data"}</span>{fresh?<small className="sheet-hint">Updated {fresh.label}</small>:null}</button>{desk==="season"?<p className="sheet-account-note">Season pass active · managed on your account</p>:(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
+      {mobileOverlay==="More"&&<><button type="button" className={view==="deadline"?"sheet-active":""} onClick={()=>go("deadline")}><span>Final check</span></button><button type="button" className={view==="players"?"sheet-active":""} onClick={()=>go("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)}><span>{label}</span></button>)}<button type="button" className="sheet-refresh" onClick={()=>{load();setMobileOverlay(null)}} disabled={loading}><span>{loading?"Refreshing…":"Refresh FPL data"}</span>{fresh?<small className="sheet-hint">Updated {fresh.label}</small>:null}</button>{desk==="season"?<p className="sheet-account-note">Season pass active · managed on your account</p>:(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
     </MobileSheet>}
   </main></TeamLinkAuthProvider>
 }
@@ -1339,7 +1361,82 @@ function Watchlist({data,squad,ids,remove,bank}:{data:FplData;squad:FplPlayer[];
   }):<div className="empty-watch"><b>Your watchlist is empty.</b><p>Add a transfer target above or from the ranked transfer list.</p></div>}</section></>;
 }
 
-function Players({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){const events=futureEvents(data,5),first=events[0]?.id;const realMaxPrice=Math.max(...data.players.map(p=>p.price));const[query,setQuery]=useState("");const[pos,setPos]=useState("ALL");const[club,setClub]=useState("ALL");const[maxPrice,setMaxPrice]=useState(realMaxPrice);const[minMins,setMinMins]=useState(0);const[special,setSpecial]=useState("ALL");const[more,setMore]=useState(false);const[sort,setSort]=useState("xPts5");const[direction,setDirection]=useState<"desc"|"asc">("desc");const[compare,setCompare]=useState<number[]>([]);const[watch,setWatch]=useState<number[]>([]);useEffect(()=>setWatch(readIds("fpl-edge-watchlist")),[revision]);const toggleWatch=(id:number)=>{const next=watch.includes(id)?watch.filter(x=>x!==id):[...watch,id];setWatch(next);persist("fpl-edge-watchlist",JSON.stringify(next))};const rows=useMemo(()=>data.players.map(p=>{const metrics=first?projectionMetrics(p,first,data.fixtures,first):null;const xPts3=events.slice(0,3).reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0),xPts5=events.reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0);const xgi90=p.minutes?p.expectedGoalInvolvements/p.minutes*90:0;const fdr=events.length?events.reduce((s,e)=>{const games=data.fixtures.filter(x=>x.event===e.id&&(x.teamH===p.teamId||x.teamA===p.teamId));const difficulties=games.map(f=>f.teamH===p.teamId?f.teamHDifficulty:f.teamADifficulty);return s+(difficulties.length?difficulties.reduce((a,b)=>a+b,0)/difficulties.length:5)},0)/events.length:5;return{p,metrics,xPts3,xPts5,xgi90,fdr,value:xPts5/Math.max(3.5,p.price)}}).filter(r=>(pos==="ALL"||r.p.positionShort===pos)&&(club==="ALL"||String(r.p.teamId)===club)&&r.p.price<=maxPrice&&(r.metrics?.expectedMinutes||0)>=minMins&&(`${r.p.name} ${r.p.teamName}`).toLowerCase().includes(query.toLowerCase())&&(special==="ALL"||special==="DIFF"&&r.p.selectedBy<10||special==="PEN"&&r.metrics?.penaltyRole||special==="SET"&&r.metrics?.setPieceRole||special==="WATCH"&&watch.includes(r.p.id))).sort((a,b)=>{const val=(r:typeof a)=>sort==="xPts3"?r.xPts3:sort==="xPts5"?r.xPts5:sort==="xgi90"?r.xgi90:sort==="fdr"?-r.fdr:sort==="value"?r.value:sort==="expectedMinutes"?(r.metrics?.expectedMinutes||0):sort==="start"?(r.metrics?.startProbability||0):Number(r.p[sort as keyof FplPlayer])||0;return direction==="desc"?val(b)-val(a):val(a)-val(b)}),[data,events.map(e=>e.id).join(","),first,query,pos,club,maxPrice,minMins,special,sort,direction,watch.join(",")]);return <div className="coach-page"><section className="research-intro player-count"><div><span>LIVE 2026/27 RESEARCH</span><h2>Players</h2><p>{data.seasonStatsThrough?`Current-season totals through GW${data.seasonStatsThrough}.`:`No 2026/27 gameweek has finished, so new-season totals correctly start at zero.`} Prices and availability are live.</p></div><strong>{rows.length}<small>matching players</small></strong></section><input className="players-search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search player or club…"/><div className="players-filter-row"><select className="players-select" value={pos} onChange={e=>setPos(e.target.value)}><option value="ALL">All positions</option>{data.rules.positions.map(p=><option key={p.id}>{p.short}</option>)}</select><select className="players-select" value={club} onChange={e=>setClub(e.target.value)}><option value="ALL">All clubs</option>{data.teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select><select className="players-select" value={special} onChange={e=>setSpecial(e.target.value)}><option value="ALL">All roles</option><option value="DIFF">Differential under 10%</option><option value="PEN">Penalties</option><option value="SET">Set pieces</option><option value="WATCH">Watchlist</option></select><label className="players-range">Max £{maxPrice.toFixed(1)}m<input type="range" min="4" max={realMaxPrice} step=".5" value={maxPrice} onChange={e=>setMaxPrice(Number(e.target.value))}/></label><label className="players-range">Min xMins {minMins}<input type="range" min="0" max="90" step="10" value={minMins} onChange={e=>setMinMins(Number(e.target.value))}/></label><select className="players-select" value={sort} onChange={e=>setSort(e.target.value)}>{[["xPts5","5-GW xPts"],["xPts3","3-GW xPts"],["price","Price"],["selectedBy","Ownership"],["form","Form"],["totalPoints","Total points"],["pointsPerGame","Points per match"],["expectedGoals","xG"],["expectedAssists","xA"],["xgi90","xGI/90"],["goals","Goals"],["assists","Assists"],["cleanSheets","Clean sheets"],["defensiveContribution","Defensive contribution"],["expectedMinutes","Expected minutes"],["start","Start probability"],["fdr","Fixture rating"],["value","Value"]].map(x=><option value={x[0]} key={x[0]}>Sort: {x[1]}</option>)}</select><button type="button" className="players-direction" onClick={()=>setDirection(x=>x==="desc"?"asc":"desc")}>{direction==="desc"?"High → low":"Low → high"}</button><button type="button" className="players-more-toggle" onClick={()=>setMore(x=>!x)}>{more?"Fewer columns":"More columns"}</button></div>{compare.length>=2&&<Compare data={data} ids={compare} close={()=>setCompare([])}/>}<section className={more?"research-table wide sticky-head":"research-table sticky-head"}><header>{(more?["Player","Price","Ownership","Points","Form","Points per match","Expected goals","Expected assists","xGI per 90","Goals","Assists","Clean sheets","Defensive contribution","Expected minutes","Start chance","Next fixture","3 gameweeks","5 gameweeks","Fixture rating","Value","Actions"]:["Player","Price","Ownership","Points","Form","Actions"]).map(x=><span key={x}>{x}</span>)}</header>{rows.slice(0,120).map(r=><article key={r.p.id}><b>{r.p.name}<small>{r.p.teamShort} · {r.p.positionShort}</small></b><span>{r.p.price.toFixed(1)}</span><span>{r.p.selectedBy.toFixed(1)}%</span><span>{r.p.totalPoints}</span><span>{(r.p.form??0).toFixed(1)}</span>{more&&<><span>{r.p.pointsPerGame.toFixed(1)}</span><span>{r.p.expectedGoals.toFixed(2)}</span><span>{r.p.expectedAssists.toFixed(2)}</span><span>{r.xgi90.toFixed(2)}</span><span>{r.p.goals}</span><span>{r.p.assists}</span><span>{r.p.cleanSheets}</span><span>{r.p.defensiveContribution}</span><span>{Math.round(r.metrics?.expectedMinutes||0)}</span><span>{Math.round((r.metrics?.startProbability||0)*100)}%</span><span>{first?opponent(r.p,first,data):"—"}</span><strong>{r.xPts3.toFixed(1)}</strong><strong>{r.xPts5.toFixed(1)}</strong><span>{r.fdr.toFixed(1)}</span><span>{r.value.toFixed(2)}</span></>}<div><button className={compare.includes(r.p.id)?"active":""} disabled={!compare.includes(r.p.id)&&compare.length>=4} onClick={()=>setCompare(x=>x.includes(r.p.id)?x.filter(id=>id!==r.p.id):[...x,r.p.id])}>Compare</button><button className={watch.includes(r.p.id)?"active":""} onClick={()=>toggleWatch(r.p.id)}>Watch</button><button onClick={()=>go("transfers")}>Transfer</button></div></article>)}</section></div>}
+function Players({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
+  const events=futureEvents(data,5),first=events[0]?.id;
+  const realMaxPrice=Math.max(...data.players.map(p=>p.price));
+  const[query,setQuery]=useState("");
+  const[pos,setPos]=useState("ALL");
+  const[club,setClub]=useState("ALL");
+  const[maxPrice,setMaxPrice]=useState(realMaxPrice);
+  const[minMins,setMinMins]=useState(0);
+  const[special,setSpecial]=useState("ALL");
+  const[more,setMore]=useState(false);
+  const[showAdvanced,setShowAdvanced]=useState(false);
+  const[sort,setSort]=useState("xPts5");
+  const[direction,setDirection]=useState<"desc"|"asc">("desc");
+  const[compare,setCompare]=useState<number[]>([]);
+  const[watch,setWatch]=useState<number[]>([]);
+  useEffect(()=>setWatch(readIds("fpl-edge-watchlist")),[revision]);
+  const toggleWatch=(id:number)=>{const next=watch.includes(id)?watch.filter(x=>x!==id):[...watch,id];setWatch(next);persist("fpl-edge-watchlist",JSON.stringify(next))};
+  const rows=useMemo(()=>data.players.map(p=>{
+    const metrics=first?projectionMetrics(p,first,data.fixtures,first):null;
+    const xPts3=events.slice(0,3).reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0);
+    const xPts5=events.reduce((s,e)=>s+playerProjection(p,e.id,data.fixtures,first),0);
+    const xgi90=p.minutes?p.expectedGoalInvolvements/p.minutes*90:0;
+    const fdr=events.length?events.reduce((s,e)=>{
+      const games=data.fixtures.filter(x=>x.event===e.id&&(x.teamH===p.teamId||x.teamA===p.teamId));
+      const difficulties=games.map(f=>f.teamH===p.teamId?f.teamHDifficulty:f.teamADifficulty);
+      return s+(difficulties.length?difficulties.reduce((a,b)=>a+b,0)/difficulties.length:5);
+    },0)/events.length:5;
+    return{p,metrics,xPts3,xPts5,xgi90,fdr,value:xPts5/Math.max(3.5,p.price)};
+  }).filter(r=>(pos==="ALL"||r.p.positionShort===pos)&&(club==="ALL"||String(r.p.teamId)===club)&&r.p.price<=maxPrice&&(r.metrics?.expectedMinutes||0)>=minMins&&(`${r.p.name} ${r.p.teamName}`).toLowerCase().includes(query.toLowerCase())&&(special==="ALL"||special==="DIFF"&&r.p.selectedBy<10||special==="PEN"&&r.metrics?.penaltyRole||special==="SET"&&r.metrics?.setPieceRole||special==="WATCH"&&watch.includes(r.p.id))).sort((a,b)=>{
+    const val=(r:typeof a)=>sort==="xPts3"?r.xPts3:sort==="xPts5"?r.xPts5:sort==="xgi90"?r.xgi90:sort==="fdr"?-r.fdr:sort==="value"?r.value:sort==="expectedMinutes"?(r.metrics?.expectedMinutes||0):sort==="start"?(r.metrics?.startProbability||0):Number(r.p[sort as keyof FplPlayer])||0;
+    return direction==="desc"?val(b)-val(a):val(a)-val(b);
+  }),[data,events.map(e=>e.id).join(","),first,query,pos,club,maxPrice,minMins,special,sort,direction,watch.join(",")]);
+  const advancedActive=special!=="ALL"||maxPrice<realMaxPrice||minMins>0||more;
+  const rowActions=(id:number)=><>
+    <button type="button" className={compare.includes(id)?"active":""} disabled={!compare.includes(id)&&compare.length>=4} onClick={()=>setCompare(x=>x.includes(id)?x.filter(pid=>pid!==id):[...x,id])}>Compare</button>
+    <button type="button" className={watch.includes(id)?"active":""} onClick={()=>toggleWatch(id)}>Watch</button>
+    <button type="button" onClick={()=>go("transfers")}>Transfer</button>
+  </>;
+  return <div className="coach-page players-page">
+    <section className="research-intro player-count"><div><span>LIVE 2026/27 RESEARCH</span><h2>Players</h2><p>{data.seasonStatsThrough?`Current-season totals through GW${data.seasonStatsThrough}.`:`No 2026/27 gameweek has finished, so new-season totals correctly start at zero.`} Prices and availability are live.</p></div><strong>{rows.length}<small>matching players</small></strong></section>
+    <input className="players-search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search player or club…"/>
+    <div className="players-filter-row players-filter-primary">
+      <select className="players-select" value={pos} onChange={e=>setPos(e.target.value)}><option value="ALL">All positions</option>{data.rules.positions.map(p=><option key={p.id}>{p.short}</option>)}</select>
+      <select className="players-select" value={club} onChange={e=>setClub(e.target.value)}><option value="ALL">All clubs</option>{data.teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
+      <select className="players-select" value={sort} onChange={e=>setSort(e.target.value)}>{[["xPts5","5-GW xPts"],["xPts3","3-GW xPts"],["price","Price"],["selectedBy","Ownership"],["form","Form"],["totalPoints","Total points"],["pointsPerGame","Points per match"],["expectedGoals","xG"],["expectedAssists","xA"],["xgi90","xGI/90"],["goals","Goals"],["assists","Assists"],["cleanSheets","Clean sheets"],["defensiveContribution","Defensive contribution"],["expectedMinutes","Expected minutes"],["start","Start probability"],["fdr","Fixture rating"],["value","Value"]].map(x=><option value={x[0]} key={x[0]}>Sort: {x[1]}</option>)}</select>
+      <button type="button" className="players-direction" onClick={()=>setDirection(x=>x==="desc"?"asc":"desc")}>{direction==="desc"?"High → low":"Low → high"}</button>
+      <button type="button" className={advancedActive?"players-filter-toggle is-active":"players-filter-toggle"} aria-expanded={showAdvanced} onClick={()=>setShowAdvanced(x=>!x)}>{showAdvanced?"Hide filters":"Filters"}{advancedActive&&!showAdvanced?" · on":""}</button>
+    </div>
+    <div className={showAdvanced?"players-filter-row players-filter-advanced is-open":"players-filter-row players-filter-advanced"}>
+      <select className="players-select" value={special} onChange={e=>setSpecial(e.target.value)}><option value="ALL">All roles</option><option value="DIFF">Differential under 10%</option><option value="PEN">Penalties</option><option value="SET">Set pieces</option><option value="WATCH">Watchlist</option></select>
+      <label className="players-range">Max £{maxPrice.toFixed(1)}m<input type="range" min="4" max={realMaxPrice} step=".5" value={maxPrice} onChange={e=>setMaxPrice(Number(e.target.value))}/></label>
+      <label className="players-range">Min xMins {minMins}<input type="range" min="0" max="90" step="10" value={minMins} onChange={e=>setMinMins(Number(e.target.value))}/></label>
+      <button type="button" className="players-more-toggle" onClick={()=>setMore(x=>!x)}>{more?"Fewer columns":"More columns"}</button>
+    </div>
+    {compare.length>=2&&<Compare data={data} ids={compare} close={()=>setCompare([])}/>}
+    <section className={more?"research-table wide sticky-head":"research-table sticky-head"}>
+      <header>{(more?["Player","Price","Ownership","Points","Form","Points per match","Expected goals","Expected assists","xGI per 90","Goals","Assists","Clean sheets","Defensive contribution","Expected minutes","Start chance","Next fixture","3 gameweeks","5 gameweeks","Fixture rating","Value","Actions"]:["Player","Price","Ownership","Points","Form","Actions"]).map(x=><span key={x}>{x}</span>)}</header>
+      {rows.slice(0,120).map(r=><article key={r.p.id}>
+        <b className="players-identity">{r.p.name}<small>{r.p.teamShort} · {r.p.positionShort}</small></b>
+        <span>{r.p.price.toFixed(1)}</span>
+        <span>{r.p.selectedBy.toFixed(1)}%</span>
+        <span>{r.p.totalPoints}</span>
+        <span>{(r.p.form??0).toFixed(1)}</span>
+        {more&&<><span>{r.p.pointsPerGame.toFixed(1)}</span><span>{r.p.expectedGoals.toFixed(2)}</span><span>{r.p.expectedAssists.toFixed(2)}</span><span>{r.xgi90.toFixed(2)}</span><span>{r.p.goals}</span><span>{r.p.assists}</span><span>{r.p.cleanSheets}</span><span>{r.p.defensiveContribution}</span><span>{Math.round(r.metrics?.expectedMinutes||0)}</span><span>{Math.round((r.metrics?.startProbability||0)*100)}%</span><span>{first?opponent(r.p,first,data):"—"}</span><strong>{r.xPts3.toFixed(1)}</strong><strong>{r.xPts5.toFixed(1)}</strong><span>{r.fdr.toFixed(1)}</span><span>{r.value.toFixed(2)}</span></>}
+        <div className="players-row-actions">
+          <div className="players-actions-inline">{rowActions(r.p.id)}</div>
+          <details className="players-actions-menu">
+            <summary aria-label={`Actions for ${r.p.name}`}>⋯</summary>
+            <div className="players-actions-menu-panel">{rowActions(r.p.id)}</div>
+          </details>
+        </div>
+      </article>)}
+    </section>
+  </div>;
+}
+
 // Feature #9 v1: global template ownership + raw differentials, both off already-fetched data
 // (selectedBy is real and first-party; xPts5 reuses the same playerProjection every other page
 // already uses). Deliberately does NOT attempt effective ownership (captaincy-adjusted) -- FPL

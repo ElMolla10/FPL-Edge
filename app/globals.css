@@ -508,7 +508,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .research-filters label{background:transparent;color:#d5e0da;border:1px solid rgba(255,255,255,.35)}
 .research-filters>button{border:1px solid rgba(255,255,255,.35);background:#10261d;color:#fff}
 .research-table>header{position:sticky;top:0;z-index:4;font-size:14px;font-weight:800;letter-spacing:0;line-height:1.3;background:var(--surface-card);color:var(--text)}
-.research-table:not(.wide)>header,.research-table:not(.wide)>article{min-width:0;grid-template-columns:minmax(160px,1.6fr) repeat(4,minmax(88px,.7fr)) minmax(180px,1.1fr)}
+.research-table:not(.wide)>header,.research-table:not(.wide)>article{min-width:0;grid-template-columns:minmax(160px,1.5fr) repeat(4,minmax(72px,.65fr)) minmax(248px,auto)}
 .research-table.wide>header,.research-table.wide>article{grid-template-columns:180px 72px 72px 64px 64px 64px 56px 56px 64px 44px 44px 44px 44px 64px 56px 88px 56px 56px 48px 56px 210px;min-width:1960px}
 .header-tools .coach-dock{position:relative;right:auto;bottom:auto;z-index:6}
 .header-tools .coach-dock>div{top:calc(100% + 8px);bottom:auto;right:0}
@@ -602,8 +602,8 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .coach-header .account-bar{max-width:42vw;min-width:0}
   .coach-header .account-bar b,.coach-header .account-bar small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 
-  /* Sheet sits above tab bar: 8+48 content + bottom pad with 34px Capacitor floor. */
-  .mobile-sheet{display:flex;flex-direction:column;position:fixed;z-index:75;left:0;right:0;top:0;bottom:calc(56px + max(16px,env(safe-area-inset-bottom,0px),34px));background:var(--canvas-dark);color:var(--canvas-light);padding:max(16px,env(safe-area-inset-top,0px),47px) max(14px,env(safe-area-inset-right,0px)) 12px max(14px,env(safe-area-inset-left,0px))}
+  /* Sheet is opaque through the tab/safe-area strip so Fixtures etc. never peek above the bar. */
+  .mobile-sheet{display:flex;flex-direction:column;position:fixed;z-index:75;left:0;right:0;top:0;bottom:0;background:var(--canvas-dark);color:var(--canvas-light);padding:max(16px,env(safe-area-inset-top,0px),47px) max(14px,env(safe-area-inset-right,0px)) calc(var(--phone-tab-h,72px) + 12px) max(14px,env(safe-area-inset-left,0px));box-sizing:border-box}
   .mobile-sheet>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}
   .mobile-sheet h2{margin:0;font-size:22px;letter-spacing:-.03em}
   .mobile-sheet>header>button{border:1px solid var(--hairline-dark);background:transparent;color:var(--canvas-light);width:40px;height:40px;border-radius:8px;font-size:24px;line-height:1}
@@ -991,6 +991,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .coach-header .account-bar.account-chip{max-width:100%;flex:1;padding:8px 12px 8px 14px}
 }
 
+.phone-more-crumb{display:none}
 /* ─── Kevin QA P0/P1: phone tab clearance · dual-active CSS helpers · overflow ─── */
 :root{
   --phone-tab-content-h:56px; /* padding-top 8 + button min-height 48 */
@@ -1007,30 +1008,53 @@ a.team-open{display:block;text-align:center;text-decoration:none}
     padding-bottom:calc(var(--phone-main-pad-bottom) + max(0px,env(safe-area-inset-bottom,0px))) !important;
   }
   .coach-shell.signed-out .coach-main{
-    padding-bottom:calc(var(--phone-tab-h) + 48px) !important;
+    padding-bottom:calc(var(--phone-tab-h) + 96px) !important;
   }
-  .coach-page{padding-bottom:8px}
+  /* Extra page clearance so Players / Final check pitch clear the fixed tab bar */
+  .coach-page{padding-bottom:calc(32px + var(--phone-tab-h))}
+  .coach-page .coach-pitch{margin-bottom:12px}
   /* Hide duplicate FPL data banner on phone; Refresh lives under More. Keep urgent/stale visible. */
   .freshness-strip.phone-quiet:not(.has-urgent){display:none}
   .freshness-strip.phone-quiet.has-urgent{margin-bottom:10px}
   .command-top-date .deadline-chip{display:none}
   .command-top-date{padding:14px 16px}
   .command-top-date h2{font-size:20px;margin:4px 0}
-  /* Players: keep tab bar clear of sticky table; restore row actions */
+  /* Players: page scroll (not inner scroller fighting the tab bar); sticky identity; overflow actions */
   .research-table.sticky-head{
-    max-height:calc(100dvh - var(--phone-tab-h) - 200px);
-    padding-bottom:12px;
+    max-height:none;
+    overflow:visible;
+    padding-bottom:8px;
   }
   .research-table:not(.wide)>header,.research-table:not(.wide)>article{
     min-width:0;
-    grid-template-columns:minmax(0,1.4fr) 56px 64px minmax(0,1.1fr);
+    grid-template-columns:minmax(0,1.6fr) 52px 58px auto;
   }
   .research-table:not(.wide)>header>span:nth-child(n+4),
   .research-table:not(.wide)>article>span:nth-child(n+4){display:none}
   .research-table:not(.wide)>header>span:last-child,
-  .research-table:not(.wide)>article>div{display:flex!important;flex-wrap:wrap;gap:4px;justify-content:flex-end}
+  .research-table:not(.wide)>article>div.players-row-actions{display:flex!important;align-items:center;justify-content:flex-end;gap:4px}
   .research-table:not(.wide)>header>span:nth-child(6),
-  .research-table article>div button{font-size:12px;padding:5px 7px}
+  .research-table article .players-actions-inline button,
+  .research-table article .players-actions-menu-panel button{font-size:12px;padding:5px 7px}
+  .players-actions-inline{display:none!important}
+  .players-actions-menu{display:block;position:relative}
+  .players-identity{position:sticky;left:0;z-index:1;background:var(--surface-card);padding-right:6px}
+  .phone-more-crumb{
+    display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:8px 10px;
+    border:1px solid var(--line);border-radius:10px;background:var(--surface-card);
+  }
+  .phone-more-crumb>button{
+    border:0;background:transparent;color:var(--lime);font-weight:850;font-size:14px;padding:4px 2px;cursor:pointer;
+  }
+  .phone-more-crumb>span{color:var(--text-muted);font-weight:700}
+  .phone-more-crumb>strong{font-size:14px;font-weight:850;color:var(--text)}
+  .players-filter-toggle{
+    display:flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border:0;border-radius:0;
+    background:transparent;color:var(--text);font-family:var(--font-ui);font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap;
+  }
+  .players-filter-primary{flex-wrap:wrap}
+  .players-filter-advanced{display:none;margin-top:-18px}
+  .players-filter-advanced.is-open{display:flex}
   .coach-mobile-nav{z-index:80}
   /* Transfers: kill wide min-width rows */
   .ranked-moves>article{
@@ -1145,4 +1169,36 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .players-filter-row>*{border-right:0;border-bottom:1px solid var(--hairline);width:100%;box-sizing:border-box}
   .players-filter-row>*:last-child{border-bottom:0}
   .players-select,.players-range{width:100%;box-sizing:border-box}
+}
+
+
+/* ─── Kevin residual P1 (2026-09-27): More crumb · Players filters/actions ─── */
+/* phone-more-crumb shown only inside last max-width:850px block */
+.players-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px;min-width:0;flex-wrap:wrap}
+.players-actions-inline{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
+.players-actions-menu{display:none}
+.players-actions-menu>summary{
+  list-style:none;cursor:pointer;border:1px solid var(--line);background:var(--surface-sunken);color:var(--text);
+  width:36px;height:36px;border-radius:8px;display:grid;place-items:center;font-size:18px;font-weight:900;line-height:1;
+}
+.players-actions-menu>summary::-webkit-details-marker{display:none}
+.players-actions-menu-panel{
+  position:absolute;right:0;top:calc(100% + 4px);z-index:6;display:flex;flex-direction:column;gap:4px;min-width:132px;
+  padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-card);box-shadow:0 12px 28px rgba(0,0,0,.35);
+}
+.players-actions-menu-panel button{width:100%;text-align:left;border:1px solid var(--line);background:var(--surface-sunken);color:var(--text);padding:8px 10px;font-size:13px;font-weight:800;border-radius:6px}
+.players-actions-menu-panel button.active{background:var(--surface-inverse);color:var(--lime);border-color:var(--surface-inverse)}
+.players-filter-toggle{display:none}
+.players-filter-toggle.is-active{color:var(--lime)}
+.players-filter-advanced{margin-top:0}
+.research-table:not(.wide)>header>span:first-child,
+.research-table:not(.wide)>article>b.players-identity{
+  position:sticky;left:0;z-index:2;background:var(--surface-card);
+}
+.research-table article>div.players-row-actions button{border:1px solid var(--line);background:var(--surface-sunken);color:var(--text);padding:6px 8px;font-size:12px;font-weight:800;cursor:pointer;border-radius:5px}
+.research-table article>div.players-row-actions button.active{background:var(--surface-inverse);color:var(--lime);border-color:var(--surface-inverse)}
+.research-table article>div.players-row-actions button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:720px){
+  .players-filter-primary{flex-direction:column}
+  .players-filter-toggle{width:100%;box-sizing:border-box;justify-content:center;border-bottom:0}
 }
