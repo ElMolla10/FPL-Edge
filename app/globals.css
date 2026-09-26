@@ -1031,30 +1031,14 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   }
   .research-table:not(.wide)>header>span:nth-child(n+4),
   .research-table:not(.wide)>article>span:nth-child(n+4){display:none}
+  /* Players/More phone display overrides live in the FINAL max-width:850px block below
+     so later base rules cannot undo them. Keep structural phone table densify here. */
   .research-table:not(.wide)>header>span:last-child,
   .research-table:not(.wide)>article>div.players-row-actions{display:flex!important;align-items:center;justify-content:flex-end;gap:4px}
   .research-table:not(.wide)>header>span:nth-child(6),
   .research-table article .players-actions-inline button,
   .research-table article .players-actions-menu-panel button{font-size:12px;padding:5px 7px}
-  .players-actions-inline{display:none!important}
-  .players-actions-menu{display:block;position:relative}
   .players-identity{position:sticky;left:0;z-index:1;background:var(--surface-card);padding-right:6px}
-  .phone-more-crumb{
-    display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:8px 10px;
-    border:1px solid var(--line);border-radius:10px;background:var(--surface-card);
-  }
-  .phone-more-crumb>button{
-    border:0;background:transparent;color:var(--lime);font-weight:850;font-size:14px;padding:4px 2px;cursor:pointer;
-  }
-  .phone-more-crumb>span{color:var(--text-muted);font-weight:700}
-  .phone-more-crumb>strong{font-size:14px;font-weight:850;color:var(--text)}
-  .players-filter-toggle{
-    display:flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border:0;border-radius:0;
-    background:transparent;color:var(--text);font-family:var(--font-ui);font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap;
-  }
-  .players-filter-primary{flex-wrap:wrap}
-  .players-filter-advanced{display:none;margin-top:-18px}
-  .players-filter-advanced.is-open{display:flex}
   .coach-mobile-nav{z-index:80}
   /* Transfers: kill wide min-width rows */
   .ranked-moves>article{
@@ -1173,7 +1157,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 
 
 /* ─── Kevin residual P1 (2026-09-27): More crumb · Players filters/actions ─── */
-/* phone-more-crumb shown only inside last max-width:850px block */
+/* Desktop defaults. Phone display overrides MUST live in the FINAL max-width:850px block. */
 .players-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px;min-width:0;flex-wrap:wrap}
 .players-actions-inline{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
 .players-actions-menu{display:none}
@@ -1190,7 +1174,8 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .players-actions-menu-panel button.active{background:var(--surface-inverse);color:var(--lime);border-color:var(--surface-inverse)}
 .players-filter-toggle{display:none}
 .players-filter-toggle.is-active{color:var(--lime)}
-.players-filter-advanced{margin-top:0}
+/* Desktop: advanced row always visible (Filters toggle stays hidden). Phone collapses via last 850px. */
+.players-filter-advanced{display:flex;flex-wrap:wrap;align-items:stretch;margin-top:0}
 .research-table:not(.wide)>header>span:first-child,
 .research-table:not(.wide)>article>b.players-identity{
   position:sticky;left:0;z-index:2;background:var(--surface-card);
@@ -1201,4 +1186,31 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 @media(max-width:720px){
   .players-filter-primary{flex-direction:column}
   .players-filter-toggle{width:100%;box-sizing:border-box;justify-content:center;border-bottom:0}
+}
+
+/* LAST max-width:850px block — beats later-base cascade; apply-chip smoke selectors stay here */
+@media(max-width:850px){
+  /* keep apply-TC chip hidden on phone (smoke + UX) — must live in last 850px block */
+  .builder-pitch-row article .apply-chip-button{display:none}
+  .builder-pitch-row article .remove-player{top:1px;right:1px;width:14px;height:14px;font-size:14px;line-height:14px}
+  .builder-pitch-row article .tc-mark{left:1px;top:1px;height:11px;min-width:14px;padding:0 2px;font-size:10px;line-height:11px}
+  .phone-more-crumb{
+    display:flex !important;align-items:center;gap:8px;margin:0 0 12px;padding:8px 10px;
+    border:1px solid var(--line);border-radius:10px;background:var(--surface-card);
+  }
+  .phone-more-crumb>button{
+    border:0;background:transparent;color:var(--lime);font-weight:850;font-size:14px;padding:4px 2px;cursor:pointer;
+  }
+  .phone-more-crumb>span{color:var(--text-muted);font-weight:700}
+  .phone-more-crumb>strong{font-size:14px;font-weight:850;color:var(--text)}
+  .players-filter-toggle{
+    display:flex !important;align-items:center;justify-content:center;width:100%;box-sizing:border-box;
+    min-height:40px;padding:0 16px;border:0;border-radius:0;border-bottom:0;
+    background:transparent;color:var(--text);font-family:var(--font-ui);font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap;
+  }
+  .players-filter-primary{flex-wrap:wrap}
+  .players-filter-advanced{display:none !important;margin-top:-18px}
+  .players-filter-advanced.is-open{display:flex !important;flex-direction:column}
+  .players-actions-inline{display:none !important}
+  .players-actions-menu{display:block !important;position:relative}
 }
