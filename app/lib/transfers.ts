@@ -55,6 +55,8 @@ export type Transfer={
   freeTransfersUsed?:number;
   holdNextGwGross?:number;
   reasonCodes?:string[];
+  /** True when this row came from Wildcard Optimization (not FT/HOLD). */
+  wildcardMode?:boolean;
 };
 
 const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
@@ -166,7 +168,7 @@ export function isPlaceableTransfer(data:FplData,squad:FplPlayer[],out:FplPlayer
  * discounted multi-GW squad EP, MAKE/LEAN/ROLL/WATCH/AVOID).
  * isPlaceableTransfer / live selling prices remain the legality gate inside the engine.
  */
-export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTransfers=1,limit=12,sellingPrices=new Map<number,number>(),options?:{rules?:Partial<import("./transfer-engine").TransferEngineRules>;profile?:"overview"|"full";mode?:"shallow"|"deep"}):Transfer[]{
+export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTransfers=1,limit=12,sellingPrices=new Map<number,number>(),options?:{rules?:Partial<import("./transfer-engine").TransferEngineRules>;profile?:"overview"|"full";mode?:"shallow"|"deep";wildcardActive?:boolean}):Transfer[]{
   if(!isCompleteSquad(squad,data))return[];
   const overview=options?.profile==="overview"||options?.mode==="shallow";
   const profileRules=overview?OVERVIEW_TRANSFER_RULES:undefined;
@@ -175,5 +177,6 @@ export function bestTransfers(data:FplData,squad:FplPlayer[],bank:number,freeTra
   return bestTransfersFromEngine(data,squad,bank,freeTransfers,limit,sellingPrices,{
     rules:Object.keys(rules).length?rules:undefined,
     mode,
+    wildcardActive:options?.wildcardActive===true,
   }) as Transfer[];
 }

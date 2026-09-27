@@ -34,3 +34,22 @@ test("Transfers UI: PriceIntel skips HOLD and priceOutlookSignal defaults missin
   assert.match(coach, /if\(!player\)return\[\]/);
   assert.match(coach, /if\(!player\)return\{direction:"stable"/);
 });
+
+test("Transfers UI: Wildcard Optimization mode switch (not Free transfer labels)", () => {
+  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  assert.match(coach, /isWildcardActive/);
+  assert.match(coach, /managerWildcardActive/);
+  assert.match(coach, /wildcardActive/);
+  assert.match(coach, /Wildcard Optimization/);
+  assert.match(coach, /wildcardMode=\{wildcardActive\}/);
+  assert.match(coach, /WILDCARD SWAP CANDIDATES/);
+  // Must not show FT selector while Wildcard is active
+  assert.match(coach, /fullDesk&&!wildcardActive&&<label>Free transfers/);
+  // Chip-state import is client-safe (not the personal-fpl barrel)
+  assert.match(coach, /from ["']\.\.\/lib\/personal-fpl-transfer\/chip-state["']/);
+});
+
+test("team API prefers live my-team activeChip for pending Wildcard", () => {
+  const route = readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8");
+  assert.match(route, /liveFinance\?\.activeChip/);
+});

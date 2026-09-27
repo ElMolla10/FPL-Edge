@@ -80,3 +80,10 @@ export {
   selectBestDecisionTransfer,
 } from "./adapter";
 export type { EngineTransfer } from "./adapter";
+
+export {
+  recommendWildcardSwaps,
+  wantsWildcardOptimization,
+  WILDCARD_HIT_LABEL,
+} from "./wildcard";
+export type { WildcardSwapAxes } from "./wildcard";

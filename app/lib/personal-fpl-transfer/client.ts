@@ -13,9 +13,21 @@ export type MyTeamPick = Readonly<{
   multiplier: number;
 }>;
 
+export type MyTeamChip = Readonly<{
+  name?: string | null;
+  status_for_entry?: string | null;
+  number?: number | null;
+  played_by_entry?: readonly number[] | null;
+  start_event?: number | null;
+  stop_event?: number | null;
+  chip_type?: string | null;
+}>;
+
 export type MyTeamResponse = Readonly<{
   picks: MyTeamPick[];
   transfers: Readonly<{ bank: number; limit: number | null; made: number; value: number; cost?: number; status?: string }>;
+  /** Present on authenticated my-team — status_for_entry "active" marks the live chip. */
+  chips?: readonly MyTeamChip[];
 }>;
 
 export type TransferLeg = Readonly<{

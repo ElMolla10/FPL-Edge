@@ -183,7 +183,8 @@ export async function GET(request: Request) {
             freeTransferLimit: liveFinance ? liveFinance.freeTransferLimit : null,
             captainId: liveCaptain ?? captain?.element ?? null,
             viceCaptainId: liveVice ?? viceCaptain?.element ?? null,
-            chip: picks.active_chip || null,
+            // Prefer live my-team active chip (pending WC/FH) over public event picks.active_chip.
+            chip: liveFinance?.activeChip || picks.active_chip || null,
             event: event.id,
             picks: responsePicks,
           },
