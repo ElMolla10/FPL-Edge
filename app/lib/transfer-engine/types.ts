@@ -207,4 +207,9 @@ export type TransferEngineOptions = {
    * When omitted, rules.futureBeamWidth decides (0 ⇒ shallow behaviour).
    */
   mode?: TransferPlanningMode;
+  /**
+   * When true, use Wildcard Optimization instead of normal FT / hit / type-B HOLD
+   * ranking. Non-Wildcard callers must leave this unset/false so behaviour is unchanged.
+   */
+  wildcardActive?: boolean;
 };

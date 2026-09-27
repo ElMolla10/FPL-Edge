@@ -41,6 +41,17 @@ export {
   resolveAuthoritativeFreeTransfers,
 } from "./ft-state";
 export {
+  isWildcardActive,
+  isFreeHitActive,
+  isUnlimitedTransferWindow,
+  isUnlimitedTransferLimit,
+  activeChipFromMyTeamChips,
+  normalizeOfficialChip,
+  type MyTeamChip,
+  type WildcardDetectionInput,
+  type OfficialChipName,
+} from "./chip-state";
+export {
   liveTeamFinanceFromMyTeam,
   resolveTransferBankMillions,
   tryFetchLiveTeamFinance,

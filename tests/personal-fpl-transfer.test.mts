@@ -249,11 +249,12 @@ test("README documents reconnect path and cron keep-alive", () => {
   assert.doesNotMatch(panel, /DevTools/);
 });
 
-test("remainingFreeTransfers: limit − made; null limit is unlimited chip", () => {
+test("remainingFreeTransfers: limit − made; null limit is unlimited chip (not a finite FT count)", () => {
   assert.equal(remainingFreeTransfers({ freeTransferLimit: 1, transfersMade: 0 }), 1);
   assert.equal(remainingFreeTransfers({ freeTransferLimit: 1, transfersMade: 1 }), 0);
   assert.equal(remainingFreeTransfers({ freeTransferLimit: 2, transfersMade: 3 }), 0);
-  assert.equal(remainingFreeTransfers({ freeTransferLimit: null, transfersMade: 5 }), 5);
+  // Unlimited WC/FH — callers must branch on chip; do not invent 5 FTs.
+  assert.equal(remainingFreeTransfers({ freeTransferLimit: null, transfersMade: 5 }), null);
   assert.equal(remainingFreeTransfers({ freeTransferLimit: undefined, transfersMade: 0 }), null);
 });
 

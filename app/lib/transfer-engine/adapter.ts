@@ -4,6 +4,7 @@ import { classifyFiveGwGain, transferAnomalies } from "../anomalies";
 import { evaluateTransferQuality } from "../transfer-quality";
 import { classificationToLegacyQuality } from "./classify";
 import { recommendTransfers } from "./recommend";
+import { recommendWildcardSwaps } from "./wildcard";
 import type { TransferClassification, TransferEngineOptions, TransferRecommendation } from "./types";
 
 /**
@@ -87,6 +88,8 @@ export type EngineTransfer = {
   freeTransfersUsed?: number;
   holdNextGwGross?: number;
   reasonCodes?: string[];
+  /** Present when ranked by Wildcard Optimization (not normal FT/HOLD). */
+  wildcardMode?: boolean;
 };
 
 
@@ -170,6 +173,7 @@ export function recommendationToTransfer(rec: TransferRecommendation, playersByI
       freeTransfersUsed: 0,
       holdNextGwGross: net.holdNextGwGross,
       reasonCodes: net.reasonCodes,
+      wildcardMode: net.hitLabel === "Wildcard",
     };
   }
   const out = resolveEnginePlayer(net.legs[0].out, playersById);
@@ -277,6 +281,7 @@ export function recommendationToTransfer(rec: TransferRecommendation, playersByI
     freeTransfersUsed: net.freeTransfersUsed,
     holdNextGwGross: net.holdNextGwGross,
     reasonCodes: net.reasonCodes,
+    wildcardMode: net.hitLabel === "Wildcard",
   };
 }
 
@@ -289,10 +294,12 @@ export function bestTransfersFromEngine(
   sellingPrices: Map<number, number> = new Map(),
   options: TransferEngineOptions = {},
 ): EngineTransfer[] {
-  const result = recommendTransfers(data, squad, bank, freeTransfers, sellingPrices, {
-    ...options,
-    limit,
-  });
+  const result = options.wildcardActive
+    ? recommendWildcardSwaps(data, squad, bank, sellingPrices, { ...options, limit })
+    : recommendTransfers(data, squad, bank, freeTransfers, sellingPrices, {
+        ...options,
+        limit,
+      });
   const playersById = new Map(data.players.map((player) => [player.id, player]));
   return result.recommendations
     .map((rec) => recommendationToTransfer(rec, playersById))

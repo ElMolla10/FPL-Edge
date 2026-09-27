@@ -1214,3 +1214,12 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .players-actions-inline{display:none !important}
   .players-actions-menu{display:block !important;position:relative}
 }
+
+
+/* Wildcard Optimization mode (Transfers) */
+.wildcard-mode-banner{margin:0 0 12px;padding:16px 18px;background:linear-gradient(135deg,#10281f 0%,#1a3d2e 100%);border:1px solid #2f6b4f;border-radius:10px;color:var(--canvas-light)}
+.wildcard-mode-banner span{display:block;font-size:11px;letter-spacing:.16em;font-weight:900;color:var(--lime)}
+.wildcard-mode-banner h2{margin:4px 0 6px;font-size:22px}
+.wildcard-mode-banner p{margin:0;font-size:13px;line-height:1.45;color:var(--text-muted-on-inverse);max-width:720px}
+.wildcard-mode-chip{margin-left:auto;font-size:12px;font-weight:850;color:var(--lime);border:1px solid #2f6b4f;padding:6px 10px;border-radius:999px;background:#10281f}
+.ranked-moves.wildcard-mode>header small{color:var(--lime)}

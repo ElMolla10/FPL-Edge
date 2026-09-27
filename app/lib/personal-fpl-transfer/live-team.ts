@@ -9,6 +9,7 @@
 
 import type { MyTeamResponse } from "./client";
 import { createRotatingTokenProvider, fetchMyTeam } from "./client";
+import { activeChipFromMyTeamChips, type MyTeamChip } from "./chip-state";
 import { personalFplEntryId, type PersonalTransferEnv } from "./config";
 import { FplOidcError } from "./oidc";
 import {
@@ -27,6 +28,13 @@ export type LiveTeamFinance = {
   transfersMade: number;
   transferCost: number;
   freeTransferLimit: number | null;
+  /**
+   * Active chip from my-team chips[] (wildcard / freehit / bboost / 3xc), or null.
+   * Prefer this over public event picks.active_chip while a transfer chip is pending.
+   */
+  activeChip: string | null;
+  /** Raw my-team chips payload (status_for_entry drives Wildcard detection). */
+  chips: readonly MyTeamChip[];
   playerIds: number[];
   /** Official selling prices in £m keyed by element id. */
   sellingMillionsById: Map<number, number>;
@@ -90,12 +98,17 @@ export function liveTeamFinanceFromMyTeam(myTeam: MyTeamResponse): LiveTeamFinan
   const limitRaw = myTeam.transfers?.limit;
   const limit = limitRaw === null || limitRaw === undefined ? null : Number(limitRaw);
 
+  const chips = Array.isArray(myTeam.chips) ? myTeam.chips : [];
+  const activeChip = activeChipFromMyTeamChips(chips);
+
   return {
     bankMillions: Math.round(bankTenths) / 10,
     squadValueMillions: Number.isFinite(valueTenths) ? Math.round(valueTenths) / 10 : 0,
     transfersMade: Number.isFinite(made) ? made : 0,
     transferCost: Number.isFinite(cost) ? cost : 0,
     freeTransferLimit: limit !== null && Number.isFinite(limit) ? limit : null,
+    activeChip,
+    chips,
     playerIds: mapped.map((pick) => pick.elementId),
     sellingMillionsById,
     picks: mapped,
