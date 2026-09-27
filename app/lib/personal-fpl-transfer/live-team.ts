@@ -29,11 +29,11 @@ export type LiveTeamFinance = {
   transferCost: number;
   freeTransferLimit: number | null;
   /**
-   * Active chip from my-team chips[] (wildcard / freehit / bboost / 3xc), or null.
+   * Active chip from my-team chips[] (is_pending / legacy status active), or null.
    * Prefer this over public event picks.active_chip while a transfer chip is pending.
    */
   activeChip: string | null;
-  /** Raw my-team chips payload (status_for_entry drives Wildcard detection). */
+  /** Raw my-team chips payload (is_pending / status drives Wildcard detection). */
   chips: readonly MyTeamChip[];
   playerIds: number[];
   /** Official selling prices in £m keyed by element id. */

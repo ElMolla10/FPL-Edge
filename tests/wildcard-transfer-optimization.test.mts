@@ -7,6 +7,8 @@ import {
   isUnlimitedTransferWindow,
   remainingFreeTransfers,
   activeChipFromMyTeamChips,
+  isMyTeamChipLiveActive,
+  resolveManagerActiveChip,
   liveTeamFinanceFromMyTeam,
 } from "../app/lib/personal-fpl-transfer/index.ts";
 import {
@@ -292,6 +294,64 @@ test("activeChipFromMyTeamChips + liveTeamFinanceFromMyTeam expose active wildca
   assert.ok(live);
   assert.equal(live!.freeTransferLimit, null);
   assert.equal(live!.activeChip, "wildcard");
+});
+
+test("2025/26 my-team: is_pending wildcard is detected (status is available|played|unavailable, not active)", () => {
+  // Official verified shape: status_for_entry available|played|unavailable + is_pending.
+  // Looking only for status "active" misses pending Wildcard and leaves Transfers out of WC mode.
+  assert.equal(isMyTeamChipLiveActive({ name: "wildcard", status_for_entry: "available", is_pending: true }), true);
+  assert.equal(isMyTeamChipLiveActive({ name: "wildcard", status_for_entry: "available", is_pending: false }), false);
+  assert.equal(
+    activeChipFromMyTeamChips([
+      { name: "bboost", status_for_entry: "available", is_pending: false },
+      { name: "wildcard", status_for_entry: "available", is_pending: true },
+      { name: "freehit", status_for_entry: "available", is_pending: false },
+    ]),
+    "wildcard",
+  );
+  assert.equal(
+    isWildcardActive({
+      chips: [{ name: "wildcard", status_for_entry: "available", is_pending: true }],
+      freeTransferLimit: null,
+      bankSource: "live-my-team",
+    }),
+    true,
+  );
+  // limit===null alone must NOT claim Wildcard (could be Free Hit)
+  assert.equal(
+    isWildcardActive({ freeTransferLimit: null, bankSource: "live-my-team" }),
+    false,
+  );
+
+  const picks = Array.from({ length: 15 }, (_, index) => ({
+    element: index + 1,
+    position: index + 1,
+    selling_price: 45,
+    purchase_price: 45,
+    is_captain: index === 0,
+    is_vice_captain: index === 1,
+    multiplier: index < 11 ? 1 : 0,
+  }));
+  const live = liveTeamFinanceFromMyTeam({
+    picks,
+    transfers: { bank: 21, limit: null, made: 0, value: 1000, status: "unlimited" },
+    chips: [
+      { name: "wildcard", number: 1, status_for_entry: "available", is_pending: true, chip_type: "transfer" },
+      { name: "freehit", status_for_entry: "available", is_pending: false, chip_type: "transfer" },
+    ],
+  });
+  assert.ok(live);
+  assert.equal(live!.activeChip, "wildcard");
+  assert.equal(isWildcardActive({ activeChip: live!.activeChip, freeTransferLimit: live!.freeTransferLimit, bankSource: live!.source, chips: live!.chips }), true);
+});
+
+test("resolveManagerActiveChip: live wins; public active_chip works without live overlay", () => {
+  assert.equal(resolveManagerActiveChip({ liveActiveChip: "wildcard", publicActiveChip: "freehit" }), "wildcard");
+  assert.equal(resolveManagerActiveChip({ liveActiveChip: null, publicActiveChip: "wildcard" }), "wildcard");
+  assert.equal(resolveManagerActiveChip({ liveActiveChip: null, publicActiveChip: null }), null);
+  // Public-only path: when official entry event picks expose active_chip (post-deadline),
+  // WC mode still engages without personal my-team overlay / allowlist.
+  assert.equal(isWildcardActive({ activeChip: resolveManagerActiveChip({ publicActiveChip: "wildcard" }) }), true);
 });
 
 // --- Prove required behaviours ---

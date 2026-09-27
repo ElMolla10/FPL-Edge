@@ -80,6 +80,12 @@ export function cachedTeamDiffersFromApi(playerIds: number[], manager: TeamApiMa
   if ((cached.transfersMade ?? null) !== (manager.transfersMade ?? null)) return true;
   if ((cached.transferCost ?? null) !== (manager.transferCost ?? null)) return true;
   if ((cached.freeTransferLimit ?? null) !== (manager.freeTransferLimit ?? null)) return true;
+  // Chip must be compared: pending Wildcard can land with identical bank/picks/limit=null
+  // (e.g. after #81 shipped while WC was already active) — otherwise localStorage never
+  // picks up manager.chip and Transfers stays out of Wildcard Optimization.
+  if ((cached.chip ?? null) !== (manager.chip ?? null)) return true;
+  if ((cached.rankingFinance ?? null) !== (manager.rankingFinance ?? null)) return true;
+  if ((cached.liveOverlayError ?? null) !== (manager.liveOverlayError ?? null)) return true;
 
   const cachedPicks = Array.isArray(cached.picks) ? cached.picks : [];
   const apiPicks = Array.isArray(manager.picks) ? manager.picks : [];

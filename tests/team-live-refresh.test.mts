@@ -392,3 +392,59 @@ test("regression: Transfers ranking drops Maguire outs once live cache replaces 
     resetTeamLiveRefreshCooldown();
   }
 });
+
+test("cachedTeamDiffersFromApi: chip change alone refreshes cache (pending WC / post-#81)", () => {
+  (globalThis.localStorage as { clear: () => void }).clear();
+  const base = {
+    ...managerSnapshot(0.8, "live-my-team", liveIds),
+    freeTransferLimit: null as number | null,
+    chip: null as string | null,
+  };
+  localStorage.setItem("fpl-edge-squad", JSON.stringify(liveIds));
+  localStorage.setItem("fpl-edge-manager", JSON.stringify(base));
+  // Same bank/picks/limit — only chip flipped to wildcard (API now exposes pending WC).
+  assert.equal(
+    cachedTeamDiffersFromApi(liveIds, { ...base, chip: "wildcard" }),
+    true,
+    "stale null chip must not block Wildcard Optimization",
+  );
+  assert.equal(cachedTeamDiffersFromApi(liveIds, base), false);
+});
+
+test("refreshConnectedTeamFromApi: writes chip when only chip differs on live overlay", async () => {
+  (globalThis.localStorage as { clear: () => void }).clear();
+  resetTeamLiveRefreshCooldown();
+  markSignedIn(false);
+  const stale = {
+    ...managerSnapshot(0.8, "live-my-team", liveIds),
+    freeTransferLimit: null as number | null,
+    chip: null as string | null,
+  };
+  writeLocalTeamCache({ squadIds: liveIds, entry: "999001", manager: stale });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/fpl/team")) {
+      return {
+        ok: true,
+        json: async () => ({
+          liveOverlay: true,
+          playerIds: liveIds,
+          manager: { ...stale, chip: "wildcard" },
+        }),
+      } as Response;
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  }) as typeof fetch;
+  try {
+    const result = await refreshConnectedTeamFromApi(
+      { players: liveIds.map((id) => ({ id })) },
+      { force: true },
+    );
+    assert.equal(result.updated, true);
+    assert.equal(JSON.parse(localStorage.getItem("fpl-edge-manager")!).chip, "wildcard");
+  } finally {
+    globalThis.fetch = originalFetch;
+    resetTeamLiveRefreshCooldown();
+  }
+});

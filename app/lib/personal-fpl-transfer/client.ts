@@ -18,6 +18,8 @@ export type MyTeamChip = Readonly<{
   status_for_entry?: string | null;
   number?: number | null;
   played_by_entry?: readonly number[] | null;
+  /** True while chip is armed for the open deadline window (2025/26 my-team). */
+  is_pending?: boolean | null;
   start_event?: number | null;
   stop_event?: number | null;
   chip_type?: string | null;
@@ -26,7 +28,10 @@ export type MyTeamChip = Readonly<{
 export type MyTeamResponse = Readonly<{
   picks: MyTeamPick[];
   transfers: Readonly<{ bank: number; limit: number | null; made: number; value: number; cost?: number; status?: string }>;
-  /** Present on authenticated my-team — status_for_entry "active" marks the live chip. */
+  /**
+   * Authenticated my-team chips. Live window: `is_pending === true`
+   * (status_for_entry is available|played|unavailable). Legacy: status "active".
+   */
   chips?: readonly MyTeamChip[];
 }>;
 
