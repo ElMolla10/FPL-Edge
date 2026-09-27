@@ -2,12 +2,17 @@
  * Client-safe chip / unlimited-transfer detection.
  *
  * Official FPL signals (prefer in this order):
- * 1. Authenticated my-team `chips[]` with `status_for_entry === "active"`
+ * 1. Authenticated my-team `chips[]` where the chip is live for this transfer
+ *    window — prefer `is_pending === true` (2025/26 verified my-team shape:
+ *    status_for_entry is available|played|unavailable, not "active"). Also
+ *    accept legacy `status_for_entry === "active"|"pending"`.
  * 2. Public/live `active_chip` / manager.chip (`"wildcard"` / `"freehit"`)
  * 3. Live my-team `transfers.limit === null` (WC or FH unlimited window — identity
  *    still needs 1 or 2 to distinguish Wildcard vs Free Hit)
  *
  * Pure helpers only — safe for `"use client"` imports.
+ *
+ * Activation is on fantasy.premierleague.com; Edge only detects and switches mode.
  */
 
 export type OfficialChipName = "wildcard" | "freehit" | "bboost" | "3xc" | string;
@@ -17,6 +22,11 @@ export type MyTeamChip = Readonly<{
   status_for_entry?: string | null;
   number?: number | null;
   played_by_entry?: readonly number[] | null;
+  /** True while a transfer/team chip is armed for the open deadline window. */
+  is_pending?: boolean | null;
+  start_event?: number | null;
+  stop_event?: number | null;
+  chip_type?: string | null;
 }>;
 
 const normalizeChip = (raw: string | null | undefined): string =>
@@ -30,9 +40,22 @@ export function isUnlimitedTransferLimit(limit: number | null | undefined): bool
   return limit === null;
 }
 
+/**
+ * Chip is live for the current transfer/deadline window.
+ * 2025/26 my-team uses is_pending; older payloads used status_for_entry "active".
+ */
+export function isMyTeamChipLiveActive(chip: MyTeamChip | null | undefined): boolean {
+  if (!chip) return false;
+  if (chip.is_pending === true) return true;
+  const status = String(chip.status_for_entry ?? "")
+    .trim()
+    .toLowerCase();
+  return status === "active" || status === "pending";
+}
+
 export function activeChipFromMyTeamChips(chips: readonly MyTeamChip[] | null | undefined): OfficialChipName | null {
   if (!Array.isArray(chips) || !chips.length) return null;
-  const active = chips.find((chip) => String(chip.status_for_entry ?? "").toLowerCase() === "active");
+  const active = chips.find((chip) => isMyTeamChipLiveActive(chip));
   if (!active) return null;
   const name = normalizeChip(active.name);
   if (!name) return null;
@@ -47,14 +70,29 @@ export function normalizeOfficialChip(raw: string | null | undefined): OfficialC
   const name = normalizeChip(raw);
   if (!name) return null;
   if (name === "wildcard" || name === "wc") return "wildcard";
-  if (name === "freehit" || name === "fh" || name === "freehit") return "freehit";
+  if (name === "freehit" || name === "fh") return "freehit";
   if (name === "bboost" || name === "benchboost") return "bboost";
   if (name === "3xc" || name === "triplecaptain") return "3xc";
   return name;
 }
 
+/**
+ * Prefer live my-team chip; fall back to public event picks.active_chip
+ * (OK without personal overlay — already public on entry event picks).
+ */
+export function resolveManagerActiveChip(options: {
+  liveActiveChip?: string | null;
+  publicActiveChip?: string | null;
+}): OfficialChipName | null {
+  return (
+    normalizeOfficialChip(options.liveActiveChip) ??
+    normalizeOfficialChip(options.publicActiveChip) ??
+    null
+  );
+}
+
 export type WildcardDetectionInput = {
-  /** my-team chips[].status_for_entry === "active" name, or event picks active_chip */
+  /** my-team chips[].is_pending / status active, or event picks active_chip */
   activeChip?: string | null;
   /** Live my-team transfers.limit (null = unlimited WC/FH window) */
   freeTransferLimit?: number | null;
@@ -66,6 +104,7 @@ export type WildcardDetectionInput = {
 /**
  * Wildcard is active for the current transfer window.
  * Prefer chips status / active_chip; never treat Free Hit as Wildcard.
+ * limit===null alone is insufficient (WC vs FH).
  */
 export function isWildcardActive(input: WildcardDetectionInput): boolean {
   const fromChips = activeChipFromMyTeamChips(input.chips);

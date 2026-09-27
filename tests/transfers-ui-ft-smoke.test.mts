@@ -53,3 +53,23 @@ test("team API prefers live my-team activeChip for pending Wildcard", () => {
   const route = readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8");
   assert.match(route, /liveFinance\?\.activeChip/);
 });
+
+test("team API resolves chip via resolveManagerActiveChip (live is_pending + public active_chip)", () => {
+  const route = readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8");
+  assert.match(route, /resolveManagerActiveChip/);
+  assert.match(route, /liveActiveChip/);
+  assert.match(route, /publicActiveChip/);
+  const chip = readFileSync(new URL("../app/lib/personal-fpl-transfer/chip-state.ts", import.meta.url), "utf8");
+  assert.match(chip, /is_pending/);
+  assert.match(chip, /isMyTeamChipLiveActive/);
+  // Activation is on official FPL — Edge only detects
+  assert.match(chip, /Activation is on fantasy\.premierleague\.com/);
+});
+
+test("team API still gates live overlay behind evaluatePersonalAuthManageGate (#80)", () => {
+  const route = readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8");
+  assert.match(route, /evaluatePersonalAuthManageGate/);
+  assert.match(route, /manageGate\.ok && manageGate\.entryId === entry/);
+  // Must not call tryFetchLiveTeamFinance for arbitrary public callers
+  assert.match(route, /tryFetchLiveTeamFinance\(entry, env\)/);
+});

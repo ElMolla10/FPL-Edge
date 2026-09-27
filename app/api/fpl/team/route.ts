@@ -5,6 +5,7 @@ import {
 import { getCurrentUser } from "../../../lib/auth";
 import {
   evaluatePersonalAuthManageGate,
+  resolveManagerActiveChip,
   resolveTransferBankMillions,
   tryFetchLiveTeamFinance,
 } from "../../../lib/personal-fpl-transfer";
@@ -183,8 +184,13 @@ export async function GET(request: Request) {
             freeTransferLimit: liveFinance ? liveFinance.freeTransferLimit : null,
             captainId: liveCaptain ?? captain?.element ?? null,
             viceCaptainId: liveVice ?? viceCaptain?.element ?? null,
-            // Prefer live my-team active chip (pending WC/FH) over public event picks.active_chip.
-            chip: liveFinance?.activeChip || picks.active_chip || null,
+            // Prefer live my-team chip (is_pending / legacy active); else public picks.active_chip.
+            // Public active_chip is OK without overlay — already public. Pending WC before
+            // deadline only appears on authenticated my-team (activation is on official FPL).
+            chip: resolveManagerActiveChip({
+              liveActiveChip: liveFinance?.activeChip,
+              publicActiveChip: typeof picks.active_chip === "string" ? picks.active_chip : null,
+            }),
             event: event.id,
             picks: responsePicks,
           },
