@@ -2,11 +2,9 @@ import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../db";
 import { sessions, users } from "../../db/schema";
-import { getChatGPTUser } from "../chatgpt-auth";
 import {
   UserRecord,
   UserRepo,
-  resolveChatGptUserWith,
   signInWithPasswordWith,
   signUpWithPasswordWith,
   toBase64Url,
@@ -35,7 +33,6 @@ export function makeD1UserRepo(): UserRepo {
 
 export const signUpWithPassword = (email: string, password: string) => signUpWithPasswordWith(makeD1UserRepo(), email, password);
 export const signInWithPassword = (email: string, password: string) => signInWithPasswordWith(makeD1UserRepo(), email, password);
-export const resolveChatGptUser = (chatgptEmail: string) => resolveChatGptUserWith(makeD1UserRepo(), chatgptEmail);
 
 // --- Sessions: D1-backed (not stateless), so sign-out is an immediate, real revocation. ---
 
@@ -83,16 +80,10 @@ export async function readSessionCookie(): Promise<string | null> {
   return match ? decodeURIComponent(match.slice(SESSION_COOKIE.length + 1)) : null;
 }
 
-// Single entry point every protected route uses: checks our own session cookie first
-// (password-authenticated users), then falls back to the platform-verified ChatGPT header.
-// Both paths resolve through the same users.id via resolveChatGptUser's linking rules.
+// Single entry point every protected route uses: password/session cookie only.
+// ChatGPT / oai-* header identity was removed — those headers are spoofable on Workers.
 export async function getCurrentUser(): Promise<UserRecord | null> {
   const token = await readSessionCookie();
-  if (token) {
-    const user = await getUserBySessionToken(token);
-    if (user) return user;
-  }
-  const chatgptUser = await getChatGPTUser();
-  if (chatgptUser) return resolveChatGptUser(chatgptUser.email);
-  return null;
+  if (!token) return null;
+  return getUserBySessionToken(token);
 }

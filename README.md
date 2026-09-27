@@ -173,11 +173,7 @@ Earlier migrations `0000`–`0004` cover users/sessions/squad and related tables
 
 The deployment environment supplies the `ASSETS` and `IMAGES` Cloudflare bindings (and `DB` for D1).
 
-The optional ChatGPT request identity integration reads these HTTP headers when they are injected by the hosting dispatch layer; they are headers, not environment variables:
-
-- `oai-authenticated-user-email`
-- `oai-authenticated-user-full-name`
-- `oai-authenticated-user-full-name-encoding`
+Authentication is session-cookie only (email/password). Spoofable `oai-*` identity headers are stripped at the Worker edge and are not trusted for identity.
 
 ## Production build and deployment
 

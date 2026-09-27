@@ -28,27 +28,27 @@ test("personal transfer kill switch defaults off", () => {
 test("allowlist is exact email match and case-insensitive", () => {
   const env = {
     FPL_EDGE_PERSONAL_TRANSFER_EXEC: "1",
-    FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST: "imody10@gmail.com, other@example.com",
+    FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST: "owner@example.com, other@example.com",
   };
-  assert.equal(isEmailAllowlisted("imody10@gmail.com", env), true);
-  assert.equal(isEmailAllowlisted("Imody10@Gmail.com", env), true);
+  assert.equal(isEmailAllowlisted("owner@example.com", env), true);
+  assert.equal(isEmailAllowlisted("Owner@Example.com", env), true);
   assert.equal(isEmailAllowlisted("stranger@example.com", env), false);
 });
 
 test("gate requires flag, allowlist, auth, and entry id", () => {
   const base = {
     FPL_EDGE_PERSONAL_TRANSFER_EXEC: "1",
-    FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST: "imody10@gmail.com",
+    FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST: "owner@example.com",
     FPL_EDGE_PERSONAL_FPL_ENTRY_ID: "123456",
   };
-  assert.deepEqual(evaluatePersonalTransferGate({}, "imody10@gmail.com"), { ok: false, reason: "disabled" });
+  assert.deepEqual(evaluatePersonalTransferGate({}, "owner@example.com"), { ok: false, reason: "disabled" });
   assert.deepEqual(evaluatePersonalTransferGate(base, null), { ok: false, reason: "unauthenticated" });
   assert.deepEqual(evaluatePersonalTransferGate(base, "stranger@example.com"), { ok: false, reason: "not-allowlisted" });
   assert.deepEqual(
-    evaluatePersonalTransferGate({ ...base, FPL_EDGE_PERSONAL_FPL_ENTRY_ID: "" }, "imody10@gmail.com"),
+    evaluatePersonalTransferGate({ ...base, FPL_EDGE_PERSONAL_FPL_ENTRY_ID: "" }, "owner@example.com"),
     { ok: false, reason: "missing-entry" },
   );
-  assert.deepEqual(evaluatePersonalTransferGate(base, "imody10@gmail.com"), { ok: true, entryId: "123456" });
+  assert.deepEqual(evaluatePersonalTransferGate(base, "owner@example.com"), { ok: true, entryId: "123456" });
 });
 
 test("refresh token parser accepts bare tokens and oidc.user JSON", () => {
@@ -187,12 +187,12 @@ test("resolveTransferBankMillions: personal live failure never falls back to his
 
 test("evaluatePersonalAuthManageGate: allowlist without EXEC", () => {
   const env = {
-    FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST: "imody10@gmail.com",
-    FPL_EDGE_PERSONAL_FPL_ENTRY_ID: "261593",
+    FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST: "owner@example.com",
+    FPL_EDGE_PERSONAL_FPL_ENTRY_ID: "999001",
   };
   assert.deepEqual(evaluatePersonalAuthManageGate(env, null), { ok: false, reason: "unauthenticated" });
   assert.deepEqual(evaluatePersonalAuthManageGate(env, "stranger@example.com"), { ok: false, reason: "not-allowlisted" });
-  assert.deepEqual(evaluatePersonalAuthManageGate(env, "imody10@gmail.com"), { ok: true, entryId: "261593" });
+  assert.deepEqual(evaluatePersonalAuthManageGate(env, "owner@example.com"), { ok: true, entryId: "999001" });
 });
 
 test("deriveSandboxFinancialContext: unavailable when liveOverlayError / bankSource unavailable", () => {
@@ -202,7 +202,7 @@ test("deriveSandboxFinancialContext: unavailable when liveOverlayError / bankSou
     priceChangeSinceStart: 0,
   })) as never;
   const blocked: ManagerMeta = {
-    id: 261593,
+    id: 999001,
     name: "M",
     teamName: "T",
     overallPoints: 0,

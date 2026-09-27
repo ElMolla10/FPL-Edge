@@ -22,8 +22,6 @@ export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
 
   const other = mode === "signin" ? "signup" : "signin";
   const otherHref = `/${other}?return_to=${encodeURIComponent(destination)}`;
-  const chatgptHref = `/signin-with-chatgpt?return_to=${encodeURIComponent(destination)}`;
-
   const submit = async () => {
     if (!email || !password) {
       setMessage("Enter email and password.");
@@ -58,7 +56,6 @@ export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
     <div className="season-upgrade-actions">
       <button type="button" onClick={submit} disabled={busy}>{busy ? "…" : mode === "signin" ? "Sign in" : "Create account"}</button>
     </div>
-    <a className="chatgpt-signin" href={chatgptHref}>Sign in with ChatGPT</a>
     <p className="season-note">{mode === "signin" ? "New here?" : "Already have an account?"} <a href={otherHref}>{mode === "signin" ? "Create an account" : "Sign in"}</a></p>
     {message && <p className="season-note">{message}</p>}
   </section>;

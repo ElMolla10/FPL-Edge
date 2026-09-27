@@ -2,7 +2,9 @@ import {
   deriveSellingPricesMillions,
   type FplTransferLeg,
 } from "../../../lib/fpl-selling-price";
+import { getCurrentUser } from "../../../lib/auth";
 import {
+  evaluatePersonalAuthManageGate,
   resolveTransferBankMillions,
   tryFetchLiveTeamFinance,
 } from "../../../lib/personal-fpl-transfer";
@@ -51,13 +53,20 @@ export async function GET(request: Request) {
       )
       .sort((a: { id: number }, b: { id: number }) => b.id - a.id);
 
-    // Live my-team (pending next-GW transfers) — only for the personal entry when secrets exist.
-    // Must not block the public path on failure; surface liveOverlayError when it does.
-    const liveAttempt = await tryFetchLiveTeamFinance(entry, env);
+    // Live my-team (pending next-GW transfers) — personal entry only, and only when the
+    // caller is signed in + allowlisted (same gate as reconnect/health). Unauthenticated
+    // or non-allowlisted callers get the public FPL path only — never bank/pending picks
+    // from the personal refresh token.
+    const user = await getCurrentUser();
+    const manageGate = evaluatePersonalAuthManageGate(env, user?.email ?? null);
+    const liveAttempt =
+      manageGate.ok && manageGate.entryId === entry
+        ? await tryFetchLiveTeamFinance(entry, env)
+        : { ok: false as const, error: null };
     const liveFinance = liveAttempt.ok ? liveAttempt.finance : null;
     const liveOverlayError = liveAttempt.ok ? null : liveAttempt.error;
-    // Personal entry + failed live overlay: never rank on public history bank.
-    const personalLiveRequired = liveOverlayError !== null;
+    // Personal entry + allowlisted session + failed live overlay: never rank on public history bank.
+    const personalLiveRequired = manageGate.ok && manageGate.entryId === entry && liveOverlayError !== null;
 
     for (const event of candidateEvents) {
       const picksResponse = await fetch(`${FPL}/entry/${entry}/event/${event.id}/picks/`, {

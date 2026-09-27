@@ -120,8 +120,11 @@ function classifyOverlayError(error: unknown): LiveOverlayError {
 
 /**
  * When the requested entry is the personal team and a refresh token is
- * configured, fetch my-team. Read overlay does not require the transfer
- * kill-switch (EXEC) — that gate stays on place/execute only.
+ * configured, fetch my-team. Callers (e.g. /api/fpl/team) must separately
+ * enforce signed-in + allowlist before invoking this — otherwise any client
+ * who knows the personal entry id would get live bank/pending picks.
+ * Read overlay does not require the transfer kill-switch (EXEC) — that gate
+ * stays on place/execute only.
  *
  * Returns `{ ok:false, error:null }` when this entry is not the personal team
  * (public path; no error to surface).

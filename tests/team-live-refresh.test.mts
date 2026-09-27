@@ -64,12 +64,12 @@ test("shouldReplaceCachedTeam: live-my-team bank replaces stale cache", () => {
 
 test("shouldForceTeamRefreshOnTransfers: true when bankSource is not live-my-team", () => {
   (globalThis.localStorage as { clear: () => void }).clear();
-  localStorage.setItem("fpl-edge-entry", "261593");
+  localStorage.setItem("fpl-edge-entry", "999001");
   localStorage.setItem("fpl-edge-manager", JSON.stringify(managerSnapshot(2.1, "entry-history", staleIds)));
   assert.equal(shouldForceTeamRefreshOnTransfers(), true);
   writeLocalTeamCache({
     squadIds: liveIds,
-    entry: "261593",
+    entry: "999001",
     manager: managerSnapshot(0.8, "live-my-team", liveIds),
   });
   assert.equal(shouldForceTeamRefreshOnTransfers(), false);
@@ -79,7 +79,7 @@ test("refreshConnectedTeamFromApi: replaces stale localStorage when API returns 
   (globalThis.localStorage as { clear: () => void }).clear();
   resetTeamLiveRefreshCooldown();
   markSignedIn(true);
-  localStorage.setItem("fpl-edge-entry", "261593");
+  localStorage.setItem("fpl-edge-entry", "999001");
   localStorage.setItem("fpl-edge-squad", JSON.stringify(staleIds));
   localStorage.setItem("fpl-edge-manager", JSON.stringify(managerSnapshot(2.1, "entry-history", staleIds)));
 
@@ -124,7 +124,7 @@ test("refreshConnectedTeamFromApi: signed-out + entry still updates localStorage
   (globalThis.localStorage as { clear: () => void }).clear();
   resetTeamLiveRefreshCooldown();
   markSignedIn(false);
-  localStorage.setItem("fpl-edge-entry", "261593");
+  localStorage.setItem("fpl-edge-entry", "999001");
   localStorage.setItem("fpl-edge-squad", JSON.stringify(staleIds));
   localStorage.setItem("fpl-edge-manager", JSON.stringify(managerSnapshot(2.1, "entry-history", staleIds)));
 
@@ -170,7 +170,7 @@ test("refreshConnectedTeamFromApi: after stale /api/squad hydrate, live refresh 
   resetTeamLiveRefreshCooldown();
   markSignedIn(true);
   // Simulate account hydrate writing stale public bank
-  localStorage.setItem("fpl-edge-entry", "261593");
+  localStorage.setItem("fpl-edge-entry", "999001");
   localStorage.setItem("fpl-edge-squad", JSON.stringify(staleIds));
   localStorage.setItem("fpl-edge-manager", JSON.stringify(managerSnapshot(2.1, "entry-history", staleIds)));
 
@@ -222,7 +222,7 @@ test("refreshConnectedTeamFromApi: unchanged live snapshot does not rewrite", as
     } as Response;
   }) as typeof fetch;
   try {
-    await writeAccountTeam({ squadIds: liveIds, entry: "261593", manager: liveManager });
+    await writeAccountTeam({ squadIds: liveIds, entry: "999001", manager: liveManager });
     resetTeamLiveRefreshCooldown();
     let teamGets = 0;
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -261,7 +261,7 @@ test("regression: Transfers ranking drops Maguire outs once live cache replaces 
   (globalThis.localStorage as { clear: () => void }).clear();
   resetTeamLiveRefreshCooldown();
   markSignedIn(false);
-  localStorage.setItem("fpl-edge-entry", "261593");
+  localStorage.setItem("fpl-edge-entry", "999001");
   localStorage.setItem("fpl-edge-squad", JSON.stringify(staleIds));
   localStorage.setItem("fpl-edge-manager", JSON.stringify(managerSnapshot(2.1, "entry-history", staleIds)));
 

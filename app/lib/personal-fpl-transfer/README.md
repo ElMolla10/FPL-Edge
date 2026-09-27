@@ -1,10 +1,10 @@
-# Personal FPL transfer execution (Mohamed only)
+# Personal FPL transfer execution (owner-only)
 
 Kill switch: set `FPL_EDGE_PERSONAL_TRANSFER_EXEC` to anything other than `1`, or delete this folder and `app/api/personal/fpl-transfer/**`.
 
 ## Why this exists
 
-Edge recommends transfers. The official FPL site is where they are placed. This module is a **personal-only** path so Mohamed can place **any** chosen single transfer (not only the top recommendation) on **his** FPL team from Edge — via Transfers ranked routes, Draft Lab pitch sandbox, or the recommended-move shortcut. It is not marketed. Public copy stays read-only.
+Edge recommends transfers. The official FPL site is where they are placed. This module is a **personal-only** path so the owner can place **any** chosen single transfer (not only the top recommendation) on **their** FPL team from Edge — via Transfers ranked routes, Draft Lab pitch sandbox, or the recommended-move shortcut. It is not marketed. Public copy stays read-only.
 
 ## Auth (2025/26)
 
@@ -24,8 +24,8 @@ Current flow (official site + community clients such as mgphp/fpl-mcp):
 | Name | Purpose |
 | --- | --- |
 | `FPL_EDGE_PERSONAL_TRANSFER_EXEC` | Must be `1` or the path is dead for everyone |
-| `FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST` | Comma-separated emails; include `imody10@gmail.com` |
-| `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` | Mohamed's numeric FPL team id |
+| `FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST` | Comma-separated owner emails (e.g. `owner@example.com`) |
+| `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` | Owner's numeric FPL team id (e.g. `YOUR_ENTRY_ID`) |
 | `FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN` | Seed refresh token (or whole `oidc.user` JSON). Rotations are persisted in D1 `personal_fpl_auth` |
 
 
@@ -44,12 +44,16 @@ Current flow (official site + community clients such as mgphp/fpl-mcp):
 
 ## Live bank / pending squad overlay
 
-`/api/fpl/team` calls `tryFetchLiveTeamFinance` when the requested entry matches
-`FPL_EDGE_PERSONAL_FPL_ENTRY_ID` and a refresh token is available (D1 or seed
-secret). The transfer **EXEC** kill switch is *not* required for this read-only
-overlay — it only gates Place/execute. The overlay prefers `my-team.transfers.bank`
-(and live picks / selling prices) over public `entry_history.bank`, which goes
-stale after pending next-GW transfers.
+`/api/fpl/team` calls `tryFetchLiveTeamFinance` only when **all** of the following
+hold: the requested entry matches `FPL_EDGE_PERSONAL_FPL_ENTRY_ID`, the caller is
+**signed in** with an email on `FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST` (same manage
+gate as reconnect/health), and a refresh token is available (D1 or seed secret).
+Unauthenticated or non-allowlisted callers receive the public FPL path only —
+never live bank / pending picks from the personal token. The transfer **EXEC**
+kill switch is *not* required for this read-only overlay — it only gates
+Place/execute. The overlay prefers `my-team.transfers.bank` (and live picks /
+selling prices) over public `entry_history.bank`, which goes stale after pending
+next-GW transfers.
 
 Access tokens are cached in D1 (`access_token` / `access_expires_at`) so concurrent
 team refreshes do not race-rotate PingOne refresh tokens into `invalid_grant`.
@@ -65,7 +69,7 @@ history as live.
 
 ### Correctness over availability (personal entry)
 
-For entry `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` (261593):
+For entry `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` (`YOUR_ENTRY_ID`):
 
 - Live my-team succeeds → `bankSource: "live-my-team"`, rankings use live bank/picks.
 - Live my-team fails (`token-expired`, etc.) → **do not** treat public
@@ -100,7 +104,7 @@ Allowlist + auth required. EXEC kill switch is **not** required for reconnect
 If the in-app form is unavailable, update Cloudflare Worker secret
 `FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN`, then optionally
 `DELETE FROM personal_fpl_auth WHERE id = 'default';` so the next request adopts
-the seed. Confirm `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` is still `261593`.
+the seed. Confirm `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` still matches your team id.
 
 ### Cron keep-alive
 
