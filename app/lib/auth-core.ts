@@ -21,7 +21,7 @@ export async function signUpWithPasswordWith(repo: UserRepo, email: string, pass
   const existing = await repo.findByEmail(normalizedEmail);
   if (existing) {
     if (existing.chatgptLinkedAt) {
-      throw new AuthError("An account already exists for this email. Sign in with ChatGPT, or use a different email.");
+      throw new AuthError("An account already exists for this email. Sign in instead, or use a different email.");
     }
     throw new AuthError("An account already exists for this email. Sign in instead.");
   }
@@ -39,9 +39,9 @@ export async function signInWithPasswordWith(repo: UserRepo, email: string, pass
   return user;
 }
 
-// The email in `chatgptEmail` must already be platform-verified (read from the
-// oai-authenticated-user-email header, never user-supplied) -- that trust level is what
-// makes the auto-link below safe. See tests/auth.test.mts for the scenarios this covers.
+// LEGACY (unused by HTTP auth): previously linked accounts via spoofable oai-* headers on
+// Workers. Kept only for unit tests of the historical linking rules. Do not call from
+// request handlers — getCurrentUser() is session-cookie only.
 export async function resolveChatGptUserWith(repo: UserRepo, chatgptEmail: string): Promise<UserRecord> {
   const normalizedEmail = normalizeEmail(chatgptEmail);
   const existing = await repo.findByEmail(normalizedEmail);

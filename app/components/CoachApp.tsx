@@ -275,7 +275,7 @@ function ThemeToggle(){
   return <button type="button" className={theme==="dark"?"theme-toggle on":"theme-toggle"} role="switch" aria-checked={theme==="dark"} aria-label={theme==="dark"?"Dark mode on":"Light mode on"} onClick={toggle}><span>{theme==="dark"?"Dark":"Light"}</span><i/></button>;
 }
 function AccountBar({onAuthChange,onAccount,initialOpen=false}:{onAuthChange:()=>void;onAccount:(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>void;initialOpen?:boolean}){
-  const[account,setAccount]=useState<{email:string;method:"password"|"chatgpt";seasonPassActive:boolean;seasonPassEndsAt:string|null}|null>(null);
+  const[account,setAccount]=useState<{email:string;method:"password";seasonPassActive:boolean;seasonPassEndsAt:string|null}|null>(null);
   const[checked,setChecked]=useState(false);
   const[open,setOpen]=useState(initialOpen);
   const[mode,setMode]=useState<"signin"|"signup">("signin");
@@ -286,11 +286,10 @@ function AccountBar({onAuthChange,onAccount,initialOpen=false}:{onAuthChange:()=
     const user=d.user??null;
     if(!user){setAccount(null);onAccount(null);setChecked(true);return}
     const season=user.seasonPass??{};
-    const next={email:user.email as string,method:(user.method==="chatgpt"?"chatgpt":"password") as "chatgpt"|"password",seasonPassActive:season.active===true,seasonPassEndsAt:typeof season.endsAt==="string"?season.endsAt:null};
+    const next={email:user.email as string,method:"password" as const,seasonPassActive:season.active===true,seasonPassEndsAt:typeof season.endsAt==="string"?season.endsAt:null};
     setAccount(next);onAccount(next);setChecked(true);
   }).catch(()=>{setChecked(true);onAccount(null)})};
   useEffect(()=>{refresh()},[]);
-  const returnTo=typeof window!=="undefined"?encodeURIComponent(window.location.pathname):"%2F";
   const submit=async()=>{
     if(!form.email||!form.password){setMsg("Enter email and password.");return}
     setBusy(true);setMsg("");
@@ -308,9 +307,7 @@ function AccountBar({onAuthChange,onAccount,initialOpen=false}:{onAuthChange:()=
     const short=account.email.length>28?`${account.email.slice(0,25)}…`:account.email;
     return <div className="account-bar signed-in account-chip" title={account.email}>
       <span className="account-email">{short}</span>
-      {account.method==="chatgpt"
-        ?<a className="account-signout" href={`/signout-with-chatgpt?return_to=${returnTo}`}>Sign out</a>
-        :<button type="button" className="account-signout" onClick={signOut}>Sign out</button>}
+      <button type="button" className="account-signout" onClick={signOut}>Sign out</button>
     </div>;
   }
   return <div className="account-bar account-chip"><a className="account-open" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a></div>;

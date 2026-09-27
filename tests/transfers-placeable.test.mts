@@ -284,7 +284,7 @@ test("regression: empty selling map still rejects risen seller via conservative 
 });
 
 test("regression: live bank £0.8 rejects Thomas/Maguire→Tarkowski and O'Nien→Guéhi that stale £2.1 would allow", () => {
-  // Mohamed 261593: public entry_history.bank=2.1 but live my-team transfers.bank=0.8 after
+  // Personal entry fixture: public entry_history.bank=2.1 but live my-team transfers.bank=0.8 after
   // pending Maguire/Barnes → Tarkowski/Tavernier. Ranking must use the live bank.
   const initial = squad();
   const thomas = makePlayer({
@@ -359,7 +359,7 @@ test("regression: live bank £0.8 rejects Thomas/Maguire→Tarkowski and O'Nien�
 });
 
 test("regression: live bank £0.8 + pending Tarkowski owned drops O'Nien→Tarkowski and Palmer→B.Fernandes", () => {
-  // Live my-team for 261593 after Maguire/Barnes → Tarkowski/Tavernier: Tarkowski already owned,
+  // Live my-team fixture after Maguire/Barnes → Tarkowski/Tavernier: Tarkowski already owned,
   // ITB £0.8. Stale cache still had Maguire+Barnes and £2.1, so Actionable ranked impossible rows.
   const initial = squad();
   const onien = makePlayer({

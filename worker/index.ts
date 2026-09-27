@@ -50,7 +50,11 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(request, env, ctx);
+    // Defense in depth: never trust client-supplied oai-* identity headers on Workers.
+    // On OpenAI Sites these were platform-injected; here any client can spoof them.
+    const clean = new Headers(request.headers);
+    for (const key of [...clean.keys()]) if (key.startsWith("oai-")) clean.delete(key);
+    return handler.fetch(new Request(request, { headers: clean }), env, ctx);
   },
 
   /**
