@@ -50,6 +50,14 @@ test("missing officialFetchedAt does not pretend official equals Edge rebuild ti
   assert.equal(f.effectiveAgeMinutes, 5);
 });
 
+test("officialFetchedAtFromResponses returns unknown when Date and Age are missing", () => {
+  const response = new Response("{}");
+  assert.equal(
+    officialFetchedAtFromResponses([response], Date.parse("2026-09-28T12:05:00.000Z")),
+    null,
+  );
+});
+
 test("officialFetchedAtFromResponses prefers earlier Date/Age evidence", () => {
   const older = new Response("{}", {
     headers: { Date: "Mon, 28 Sep 2026 11:00:00 GMT", Age: "120" },
@@ -59,6 +67,7 @@ test("officialFetchedAtFromResponses prefers earlier Date/Age evidence", () => {
   });
   const iso = officialFetchedAtFromResponses([newer, older], Date.parse("2026-09-28T12:05:00.000Z"));
   // Age 120s on a Date of 11:00 → ~10:58; Date of older response alone is 11:00 — earliest wins
+  assert.ok(iso);
   const ms = Date.parse(iso);
   assert.ok(ms <= Date.parse("2026-09-28T11:00:00.000Z"));
 });
