@@ -54,6 +54,11 @@ Fantasy Premier League decision tools: projections, transfers, Draft Lab, chips,
 
 The server routes fetch the public official Fantasy Premier League API under `https://fantasy.premierleague.com/api`. No FPL API key is required. Responses are cached for five minutes where appropriate, while the client requests fresh application data without using demo rosters.
 
+### Visitor demo isolation (`?demo=1` / Open Demo)
+
+Open Demo and `?demo=1` activate a labelled example XV stored only under `fpl-edge-example-squad-ids` (flag `fpl-edge-example-squad`). They never read or write the real draft key `fpl-edge-squad`, and account sync skips demo storage. Clearing the example flag restores the untouched manual draft.
+
+
 Current-season totals are rebuilt from official, finished and data-checked gameweeks; the active gameweek is kept separate for live scoring. The projection prior is the checked-in `app/data/prior-season-2025-26.json` snapshot generated from each current player's official `history_past` record. Players without a genuine 2025/26 Premier League record—including promoted-club players—use a conservative position baseline instead of another competition's stats.
 
 The app persists locally to browser `localStorage` first, and syncs to D1 in the background when signed in (`app/lib/persistence.ts`) -- localStorage stays the source of truth every component reads; the server copy exists for cross-device access and to survive a cleared browser. Public FPL Team IDs are imported server-side using the official entry and picks endpoints.
@@ -62,7 +67,7 @@ Pressing **Lock This Team** before a deadline creates a versioned projection rec
 
 After FPL marks an event finished, the History page automatically derives a model audit from the frozen receipt and official picks/live endpoints. It grades the team total only when the submitted squad, XI and captaincy match the receipt; otherwise it flags the plan divergence. Player-event xPts MAE, minutes MAE, start-probability Brier score, captain outcome, bias, within-two-points rate, and progressive ranked-transfer outcomes are recalculated on refresh from immutable official results rather than stored as fabricated history.
 
-The History accuracy dashboard aggregates strictly one-gameweek-ahead player calibration, with exact breakdowns by gameweek, frozen position, minutes-risk band (Secure ≥80% start / Moderate / Risky), frozen club, prediction confidence (`High ≥ 0.75`, `Medium ≥ 0.50`, otherwise `Low`), and multi-horizon path MAE (1 / 3 / 5 GW) when completed history weeks are available. Final Check auto-stores a pre-deadline snapshot each GW when a complete squad is open and no current-model receipt exists yet. Receipts are grouped by their immutable `modelVersion`; headline accuracy, History KPIs, captain error and transfer-route outcomes never pool different model generations. Users can switch between version cohorts and compare their separately calculated samples, while samples below five evaluated gameweeks remain labelled as early evidence. The release registry and human-readable change history live in `app/lib/model-version.ts` and are exposed on the Points Model page.
+Public `/api/fpl/accuracy` keeps `report: null` on purpose (`reportNullReason`) so private receipt rows are never published; graded MAE is the in-app History → Model accuracy surface (plus AutoProjectionSnapshot locks). The History accuracy dashboard aggregates strictly one-gameweek-ahead player calibration, with exact breakdowns by gameweek, frozen position, minutes-risk band (Secure ≥80% start / Moderate / Risky), frozen club, prediction confidence (`High ≥ 0.75`, `Medium ≥ 0.50`, otherwise `Low`), and multi-horizon path MAE (1 / 3 / 5 GW) when completed history weeks are available. Final Check auto-stores a pre-deadline snapshot each GW when a complete squad is open and no current-model receipt exists yet. Receipts are grouped by their immutable `modelVersion`; headline accuracy, History KPIs, captain error and transfer-route outcomes never pool different model generations. Users can switch between version cohorts and compare their separately calculated samples, while samples below five evaluated gameweeks remain labelled as early evidence. The release registry and human-readable change history live in `app/lib/model-version.ts` and are exposed on the Points Model page.
 
 Player projections use four explicit Premier League evidence classes: established prior (`≥900` prior PL minutes), limited prior (`1–899`), no genuine PL prior, and established in the current PL season (`≥900` current minutes without an established prior). Limited/no-prior players receive stronger rate shrinkage, slower early-season learning, and lower confidence ceilings. Club context uses a roster-level PL-continuity score derived only from genuine prior PL minutes; low-continuity clubs receive an additional confidence reduction without hardcoding club names or substituting lower-division statistics. The Points Model exposes the assigned class and the History dashboard measures accuracy by that frozen class.
 
@@ -204,3 +209,13 @@ If you move the app to another Cloudflare account, provision equivalent `ASSETS`
 
 - Original Sites starter README is preserved as `README.SITES.md`.
 - Session continuity for agents and humans: **`HANDOFF.md`** (process rules, architecture lessons, Sept 2026 ship log).
+
+
+### Deep links (`?view=`)
+
+Desk navigation is **client-side only** (needs JavaScript). `?view=players`, `?view=transfers`, etc. are parsed/written in the browser (`parseCoachView` / `coachViewSearchParams` + `popstate`). There is no SSR rewrite of `?view=`.
+
+
+### Data connection chip (public UX)
+
+The normal UI shows a **binary** connection state only: **Connected** or **Not connected** (usable Edge payload loaded vs load failure / empty pool). Detailed Edge age, Official fetch age, and cache/stale policy stay on `computeDataFreshness.summaryLabel` and appear only with `?debug=1`.

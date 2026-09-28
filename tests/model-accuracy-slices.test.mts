@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildAccuracyReport,
+  publishAccuracyPayload,
   horizonAccuracyRows,
   sliceByMinutesRisk,
   sliceByPosition,
@@ -75,4 +76,12 @@ test("horizonAccuracyRows grades 1/3/5 GW sums from frozen paths", () => {
   assert.ok(report.byHorizon.length >= 2);
   assert.ok(report.byMinutesRisk.length >= 1);
   assert.ok(report.byPosition.length >= 1);
+});
+
+test("publishAccuracyPayload documents why report is null (no private receipts)", () => {
+  const payload = publishAccuracyPayload(null, "2026-09-28T12:00:00.000Z");
+  assert.equal(payload.report, null);
+  assert.ok(payload.reportNullReason);
+  assert.match(payload.reportNullReason!, /History/i);
+  assert.match(payload.reportNullReason!, /null/i);
 });

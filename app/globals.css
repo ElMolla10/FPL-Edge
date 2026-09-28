@@ -1266,3 +1266,28 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .best-decision-metrics span{border:1px solid #2d463b;padding:12px}
 .best-decision-metrics small{display:block;font-size:11px;color:var(--text-muted-on-inverse)}
 .best-decision-metrics b{display:block;font-size:16px;margin-top:5px}
+
+/* Public connection chip: binary Connected / Not connected; detail only with ?debug=1 */
+.freshness-debug,
+.coach-data-note .freshness-debug {
+  display: block;
+  opacity: 0.75;
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+.immediate-net-chip small { letter-spacing: 0.02em; }
+.best-decision-immediate {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+.optimized-squad-compare-details {
+  margin: 0.75rem 0;
+}
+.optimized-squad-compare-summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+}

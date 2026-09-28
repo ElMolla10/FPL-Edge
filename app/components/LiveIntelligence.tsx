@@ -1,5 +1,7 @@
 "use client";
 
+import { computeDataFreshness, isDataFreshnessDebug, publicConnectionStatus } from "../lib/data-freshness";
+
 import { useEffect, useMemo, useState } from "react";
 import { FplData, FplPlayer, bestXi, eventTotals, fetchFplData, futureEvents, isCompleteSquad, optimizeSquad, playerProjection, projectionMetrics, savedSquad } from "../lib/fpl";
 import { detectFixtureAnomalies } from "../lib/dgw";
@@ -10,7 +12,7 @@ import { ChipAssignment, ChipPortfolioCandidate, HistoryChipEntry, PlannedChip, 
 import { clearPlanChipTag, readPlans, writePlans } from "../lib/strategy-plans";
 
 function useOfficialFpl(){const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const load=async()=>{setLoading(true);setError("");try{setData(await fetchFplData())}catch(e){setError(e instanceof Error?e.message:"Official FPL data unavailable")}finally{setLoading(false)}};useEffect(()=>{load();const id=window.setInterval(load,300000);return()=>window.clearInterval(id)},[]);return{data,error,loading,load}}
-function Source({data,loading,onRefresh}:{data:FplData;loading:boolean;onRefresh:()=>void}){return <section className="live-source"><div><span className="live-dot"/><b>OFFICIAL FPL DATA</b><small>Edge cache ≤5m (+10m stale) · Edge {new Date(data.edgeCalculatedAt||data.updatedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}{data.officialFetchedAt?` · Official ${new Date(data.officialFetchedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`:" · Official unknown"}</small></div><button onClick={onRefresh} disabled={loading}>{loading?"Refreshing…":"Refresh now"}</button></section>}
+function Source({data,loading,onRefresh}:{data:FplData;loading:boolean;onRefresh:()=>void}){const usable=Array.isArray(data.players)&&data.players.length>0;const pub=publicConnectionStatus({hasUsableData:usable});const debug=typeof window!=="undefined"&&isDataFreshnessDebug(window.location.search);const detail=debug?computeDataFreshness({edgeCalculatedAt:data.edgeCalculatedAt||data.updatedAt,officialFetchedAt:data.officialFetchedAt??null,cacheMaxAgeSeconds:data.cacheMaxAgeSeconds}).summaryLabel:null;return <section className="live-source"><div><span className={`live-dot ${pub.tone}`}/><b>OFFICIAL FPL DATA</b><small>{pub.label}{usable?` · ${data.players.length} players`:""}{detail?` · ${detail}`:""}{debug&&!data.officialFetchedAt?" · Official unknown":""}</small></div><button onClick={onRefresh} disabled={loading}>{loading?"Refreshing…":"Refresh now"}</button></section>}
 function State({loading,error,retry}:{loading:boolean;error:string;retry:()=>void}){return <div className={`live-state ${error?"error":""}`}>{loading&&!error?<><span className="live-spinner"/><b>Loading official FPL data…</b></>:<><b>Official data unavailable</b><p>{error}</p><button onClick={retry}>Try again</button></>}</div>}
 
 export function LiveFixtures(){
