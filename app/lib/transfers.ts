@@ -85,6 +85,42 @@ export function selectBestDecision(rows:Transfer[]):Transfer|null{
   return selectPrimaryTransfer(rows);
 }
 
+/** GW1 and horizon NET vs the type-B HOLD path — surface before MAKE/HOLD action copy. */
+export type HoldPathComparison={
+  isHold:boolean;
+  thisGwVsHold:number;
+  fiveGwNetVsHold:number;
+  riskAdjustedFiveGwNetVsHold:number;
+  freeTransfersBefore:number|null;
+  freeTransfersAfter:number|null;
+};
+export function compareTransferToHold(row:Transfer):HoldPathComparison{
+  const isHold=Boolean(row.isHold||row.classification==="HOLD");
+  if(isHold){
+    return{
+      isHold:true,
+      thisGwVsHold:0,
+      fiveGwNetVsHold:0,
+      riskAdjustedFiveGwNetVsHold:0,
+      freeTransfersBefore:row.freeTransfersBefore??null,
+      freeTransfersAfter:row.freeTransfersAfter??null,
+    };
+  }
+  const thisGw=row.nextGwGross!=null&&row.holdNextGwGross!=null
+    ?row.nextGwGross-row.holdNextGwGross
+    :row.gain1-(row.hitCost||0);
+  const five=row.fiveGwNetVsHold??row.netEv5??row.netDifference;
+  const riskAdj=row.riskAdjustedFiveGwNetVsHold??row.riskAdjustedNet5??row.rankScore;
+  return{
+    isHold:false,
+    thisGwVsHold:thisGw,
+    fiveGwNetVsHold:five,
+    riskAdjustedFiveGwNetVsHold:riskAdj,
+    freeTransfersBefore:row.freeTransfersBefore??null,
+    freeTransfersAfter:row.freeTransfersAfter??null,
+  };
+}
+
 type TransferBaseline={
   events:{id:number}[];first:number;hitCost:number;
   projected:(player:FplPlayer,eventId:number)=>number;

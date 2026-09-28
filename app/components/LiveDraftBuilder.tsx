@@ -8,7 +8,7 @@ import { useTeamLinkAuth } from "./team-link-auth";
 import { blankProbability, haulProbability, playerPointsDistribution, pointsRange } from "../lib/projection-distribution";
 import { TRANSFER_ACTION_THRESHOLD, evaluateTransferQuality, transferHitCost } from "../lib/transfer-quality";
 import { transferAnomalies } from "../lib/anomalies";
-import { bestTransfers, evaluateTransfer, selectPrimaryTransfer } from "../lib/transfers";
+import { bestTransfers, compareTransferToHold, evaluateTransfer, selectBestDecision } from "../lib/transfers";
 import { ManagerMeta, SandboxFinancialContext, SandboxState, applySandboxTransfer, calculateSandboxFinances, createSandboxState, deriveSandboxFinancialContext, evaluateSandbox, resetSandbox, sandboxEconomics, undoSandboxTransfer } from "../lib/squad-comparison";
 import { LOAD_PLAN_SIGNAL_KEY, MAX_PLANS, createPlan, dehydratePlanSandbox, hydratePlanSandbox, readPlans, writePlans } from "../lib/strategy-plans";
 import { PlannedChip, computeChipInventory, computeHalfBoundary, planChip, readPlannedChips, removePlannedChip, writePlannedChips } from "../lib/chip-portfolio";
@@ -385,7 +385,11 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
   // offers for free, and would pick up real selling prices automatically if Draft Lab ever becomes
   // manager-connection-aware.
   const bestTransferMoves=useMemo(()=>data&&complete?bestTransfers(data,squad,bank,freeTransfers):[],[data,complete,squad,bank,freeTransfers]);
-  const bestTransferRightNow=selectPrimaryTransfer(bestTransferMoves);
+  // One primary MAKE/LEAN/HOLD call (same selectBestDecision as Transfers). Optimized-squad
+  // comparison below is labelled separately so it cannot contradict this headline.
+  const bestDecision=selectBestDecision(bestTransferMoves);
+  const decisionHold=Boolean(!bestDecision||bestDecision.isHold||bestDecision.classification==="HOLD");
+  const holdCompare=bestDecision?compareTransferToHold(bestDecision):null;
   const totals=manualEvaluation?.weeks.slice(0,5).map(week=>week.points)??[];
   const rating=manualEvaluation?.scores.overall??null;
   const consistencyWarnings=useMemo(()=>{if(!data)return[];const warnings:string[]=[];if(manualEvaluation)validateSquadEvaluation(manualEvaluation,squad,data).forEach(w=>warnings.push(`Your squad — ${w}`));if(optimized)validateSquadEvaluation(optimized.evaluation,optimized.squad,data).forEach(w=>warnings.push(`Model suggestion — ${w}`));return warnings;},[manualEvaluation,optimized,squad,data]);
@@ -554,19 +558,29 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
     </>}
     {complete&&manualEvaluation&&<>
       {consistencyWarnings.length>0&&<p className="integrity-warning optimizer-consistency-warning">⚠ Consistency check failed: {consistencyWarnings[0]}{consistencyWarnings.length>1?` (+${consistencyWarnings.length-1} more)`:""}</p>}
-      <section className="recommended-move best-transfer-now">
-        <div className="call-label"><span>BEST TRANSFER RIGHT NOW</span><b>{bestTransferRightNow?"MODEL EDGE":"SAVE"}</b></div>
-        <h2>{bestTransferRightNow?`${bestTransferRightNow.out.name} → ${bestTransferRightNow.incoming.name}`:"No actionable single transfer"}</h2>
-        <p>{bestTransferRightNow?`The single highest-ranked legal swap right now — not a full squad rebuild. ${bestTransferRightNow.risk} modelled minutes/availability risk.`:`No individual swap clears the ${TRANSFER_ACTION_THRESHOLD}-point action threshold and every quality gate right now.`}</p>
-        {bestTransferRightNow&&<div>{([["GW","1",bestTransferRightNow.gain1],["NEXT","3",bestTransferRightNow.gain3],["NEXT","5",bestTransferRightNow.gain5]] as const).map(([label,n,value])=><span key={n}><small>{label} {n}</small><b>{value>=0?"+":""}{value.toFixed(1)} pts</b></span>)}<span><small>TRANSFER HIT</small><b>{bestTransferRightNow.hitCost?`−${bestTransferRightNow.hitCost}`:"None"}</b></span><span><small>NET (AFTER HIT)</small><b>{bestTransferRightNow.netDifference>=0?"+":""}{bestTransferRightNow.netDifference.toFixed(1)} pts</b></span></div>}
-        {bestTransferRightNow&&eventIds[0]!=null&&<PersonalTransferPlace elementOut={bestTransferRightNow.out.id} elementIn={bestTransferRightNow.incoming.id} event={eventIds[0]} purchasePrice={bestTransferRightNow.incoming.price} outName={bestTransferRightNow.out.name} inName={bestTransferRightNow.incoming.name} note="Shortcut for Draft Lab's best single move. For any other pair, swap on the pitch first, then Place above."/>}
+      <section className="recommended-move best-transfer-now best-decision-hero" aria-label="Best decision">
+        <div className="call-label"><span>BEST DECISION</span><b className={decisionHold?"badge-hold":"badge-make"}>{decisionHold?"HOLD":(bestDecision!.classification??"MAKE")}</b></div>
+        <h2>{decisionHold?"HOLD — do not transfer now":`${bestDecision!.out.name} → ${bestDecision!.incoming.name}`}</h2>
+        {holdCompare&&<p className="hold-path-compare" aria-label="Value versus rolling">Versus HOLD: {holdCompare.thisGwVsHold>=0?"+":""}{holdCompare.thisGwVsHold.toFixed(1)} this GW · {holdCompare.fiveGwNetVsHold>=0?"+":""}{holdCompare.fiveGwNetVsHold.toFixed(1)} net over 5 GW{holdCompare.isHold?" (rolling keeps the free transfer)":""}.</p>}
+        <p>{decisionHold
+          ?`No single swap clears the risk-adjusted 5-GW NET vs HOLD bar right now — bank the free transfer. Threshold ${TRANSFER_ACTION_THRESHOLD} pts.`
+          :`Should I transfer? Yes — clears the risk-adjusted 5-GW NET vs HOLD bar. ${bestDecision!.risk} modelled minutes/availability risk.`}</p>
+        {bestDecision&&holdCompare&&<div className="best-decision-metrics" aria-label="Decision metrics">
+          <span><small>THIS GW VS HOLD</small><b>{holdCompare.thisGwVsHold>=0?"+":""}{holdCompare.thisGwVsHold.toFixed(1)}</b></span>
+          <span><small>5-GW NET VS HOLD</small><b>{holdCompare.fiveGwNetVsHold>=0?"+":""}{holdCompare.fiveGwNetVsHold.toFixed(1)}</b></span>
+          <span><small>ADJUSTED 5-GW NET</small><b>{holdCompare.riskAdjustedFiveGwNetVsHold>=0?"+":""}{holdCompare.riskAdjustedFiveGwNetVsHold.toFixed(1)}</b></span>
+          <span><small>HIT</small><b>{decisionHold?"Free":(bestDecision.hitLabel??(bestDecision.hitCost?`−${bestDecision.hitCost}`:"Free"))}</b></span>
+          {decisionHold&&holdCompare.freeTransfersBefore!=null&&holdCompare.freeTransfersAfter!=null&&<span><small>FT NOW → NEXT</small><b>{holdCompare.freeTransfersBefore} → {holdCompare.freeTransfersAfter}</b></span>}
+        </div>}
+        {!decisionHold&&bestDecision&&eventIds[0]!=null&&<PersonalTransferPlace elementOut={bestDecision.out.id} elementIn={bestDecision.incoming.id} event={eventIds[0]} purchasePrice={bestDecision.incoming.price} outName={bestDecision.out.name} inName={bestDecision.incoming.name} note="Shortcut for Draft Lab's best decision. For any other pair, swap on the pitch first, then Place above."/>}
       </section>
       {!optimized&&<div className="builder-message">Press "Build best squad" above to run {resultMode} against your current squad and see a full recommendation, result pitch and report.</div>}
       {optimized&&<>
       {staleFields.length>0&&<p className="integrity-warning optimizer-consistency-warning">⚠ This result is stale: {staleFields.join("; ")} since it was built. Press "Build best squad" to refresh.</p>}
-      {recommendedChanges&&<section className="recommended-move draft-recommended-changes">
-        <div className="call-label"><span>RECOMMENDED CHANGES</span><b>{recommendedChanges.changes.length===0?"ALREADY OPTIMAL":recommendedChanges.worthIt?"MAKE THE CHANGES":"KEEP CURRENT SQUAD"}</b></div>
-        <h2>{recommendedChanges.changes.length?`${recommendedChanges.changes.length} change${recommendedChanges.changes.length===1?"":"s"} to reach the model squad`:"Your squad already matches the model suggestion"}</h2>
+      {recommendedChanges&&<section className="recommended-move draft-recommended-changes optimized-squad-compare" aria-label="Optimized squad comparison">
+        <div className="call-label"><span>VS OPTIMIZED SQUAD</span><b>{recommendedChanges.changes.length===0?"MATCHES MODEL":recommendedChanges.worthIt?"UPGRADE AVAILABLE":"KEEP CURRENT"}</b></div>
+        <h2>{recommendedChanges.changes.length?`${recommendedChanges.changes.length} change${recommendedChanges.changes.length===1?"":"s"} to reach the rebuilt model squad`:"Pitch already matches the rebuilt model squad"}</h2>
+        <p className="optimized-squad-note">Separate from BEST DECISION above — this is a full-rebuild diff after you pressed Build best squad, not the single-transfer HOLD/MAKE call.</p>
         {recommendedChanges.changes.length>0&&<>
           <p>Net of the real hit cost for making {recommendedChanges.changes.length} change{recommendedChanges.changes.length===1?"":"s"} at once, using the free transfers set on the Transfers page.</p>
           <div>
