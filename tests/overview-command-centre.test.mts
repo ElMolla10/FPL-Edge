@@ -103,7 +103,8 @@ test("Overview does not reintroduce tech freshness chip; jumps to Final Check / 
   assert.match(overview, /URGENT RISKS|URGENT/);
   assert.match(overview, /CAPTAIN/);
   assert.match(overview, /PROJECTED GW/);
-  assert.match(overview, /OverviewDeadlineStrip|COUNTDOWN|GAMEWEEK DEADLINE/);
+  assert.match(overview, /OverviewDeadlineStrip|UP NEXT|overview-deadline-when/);
+  assert.doesNotMatch(overview, /COUNTDOWN|setInterval\(\(\)=>setNow/);
 });
 
 test("Transfers page still owns the full BEST DECISION hero and shared ranking helper", () => {
@@ -125,9 +126,16 @@ test("Overview known-state strip shows bank/FT/chip only when known — no inven
   assert.match(overview, /plannedChip/);
 });
 
-test("countdown uses theme text color (readable on dark surface-card), not hardcoded --ink", () => {
-  assert.match(css, /\.overview-countdown b\{[^}]*color:\s*var\(--text\)/);
-  assert.doesNotMatch(css, /\.overview-countdown b\{[^}]*color:\s*var\(--ink\)/);
+test("Overview keeps the upcoming gameweek date but has no second live countdown", () => {
+  const stripStart = coach.indexOf("function OverviewDeadlineStrip(");
+  const stripEnd = coach.indexOf("/** Same FT input Transfers uses", stripStart);
+  assert.ok(stripStart >= 0 && stripEnd > stripStart, "Overview deadline strip marker must exist");
+  const strip = coach.slice(stripStart, stripEnd);
+  assert.match(strip, /UP NEXT/);
+  assert.match(strip, /overview-deadline-when/);
+  assert.match(strip, /event\.deadline/);
+  assert.doesNotMatch(strip, /COUNTDOWN|setInterval/);
+  assert.doesNotMatch(css, /overview-countdown/);
 });
 
 test("model utility pipeline can flip BEST DECISION — identical mock rows alone are not enough", () => {

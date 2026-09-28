@@ -505,16 +505,10 @@ export function rankTransfersForBestDecision(
 }
 
 function OverviewDeadlineStrip({event}:{event:{name:string;deadline:string}}){
-  const[now,setNow]=useState(Date.now());
-  useEffect(()=>{const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[]);
-  const total=Math.max(0,Date.parse(event.deadline)-now);
-  const d=Math.floor(total/86400000),h=Math.floor(total/3600000)%24,m=Math.floor(total/60000)%60,s=Math.floor(total/1000)%60;
-  const clock=`${d?`${d}d `:""}${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
-  return <section className="overview-deadline" aria-label="Gameweek deadline">
-    <div><span>GAMEWEEK DEADLINE</span><h2>{event.name}</h2>
-      <p className="overview-deadline-when">{new Date(event.deadline).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
+  return <section className="overview-deadline" aria-label="Upcoming gameweek">
+    <div><span>UP NEXT</span><h2>{event.name}</h2>
+      <p className="overview-deadline-when">Deadline · {new Date(event.deadline).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
     </div>
-    <div className="overview-countdown" aria-label="Countdown"><small>COUNTDOWN</small><b>{clock}</b></div>
   </section>;
 }
 
