@@ -78,13 +78,15 @@ function countdown(deadline: string, now: number) {
 
 export default function Home() {
   const [appMode, setAppMode] = useState<null | "demo" | "signin">(null);
+  const [startExample, setStartExample] = useState(false);
   const [data, setData] = useState<FplData | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "return") window.location.replace("/pay?checkout=return");
-    if (params.get("app") === "1") setAppMode("demo");
+    if (params.get("demo") === "1") { setStartExample(true); setAppMode("demo"); }
+    else if (params.get("app") === "1") setAppMode("demo");
   }, []);
   useEffect(() => {
     if (appMode || new URLSearchParams(window.location.search).get("app") === "1") return;
@@ -104,10 +106,11 @@ export default function Home() {
     if (!data) return null;
     try { return exampleDesk(data); } catch { return null; }
   }, [data]);
-  if (appMode) return <Suspense fallback={null}><CoachApp onBack={() => setAppMode(null)} startAuth={appMode === "signin"} /></Suspense>;
+  if (appMode) return <Suspense fallback={<div className="coach-loading"><b>Opening the desk…</b></div>}><CoachApp onBack={() => { setAppMode(null); setStartExample(false); }} startAuth={appMode === "signin"} startExample={startExample} /></Suspense>;
 
   const clock = desk ? countdown(desk.deadline, now) : "";
-  const openDesk = () => setAppMode("demo");
+  const openDesk = () => { setStartExample(false); setAppMode("demo"); };
+  const openDemo = () => { setStartExample(true); setAppMode("demo"); };
   const points = (value: number | null) => value === null ? "—" : value.toFixed(1);
 
   return <main className="paper">
@@ -125,6 +128,7 @@ export default function Home() {
           <p className="paper-lead">A lineup, a captain, and whether to transfer. Free this gameweek.</p>
           <div className="paper-hero-actions">
             <button type="button" className="paper-btn paper-open" onClick={openDesk}>Check your FPL team</button>
+            <button type="button" className="paper-btn paper-demo" onClick={openDemo}>Open Demo</button>
             <a className="paper-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a>
           </div>
         </div>
@@ -191,6 +195,7 @@ export default function Home() {
     </div>
     <div className="paper-dock">
       <button type="button" className="paper-btn" onClick={openDesk}>Check your FPL team</button>
+      <button type="button" className="paper-btn paper-demo" onClick={openDemo}>Open Demo</button>
     </div>
   </main>;
 }
