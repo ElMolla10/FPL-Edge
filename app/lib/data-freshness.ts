@@ -88,28 +88,30 @@ export function computeDataFreshness(input: {
 
 /**
  * Best-effort "when was upstream actually retrieved?" from Response headers.
- * Falls back to `fallbackMs` when Date/Age are absent (common on some upstreams).
+ * Returns null when a response provides neither usable Date nor Age evidence; the
+ * handler's current time is not evidence of when the official feed was fetched.
  */
 export function officialFetchedAtFromResponses(
   responses: Response[],
-  fallbackMs: number = Date.now(),
-): string {
-  let earliest = fallbackMs;
+  nowMs: number = Date.now(),
+): string | null {
+  let earliest: number | null = null;
   for (const response of responses) {
-    let candidate = fallbackMs;
     const dateHeader = response.headers.get("date");
-    if (dateHeader) {
-      const parsed = Date.parse(dateHeader);
-      if (Number.isFinite(parsed)) candidate = parsed;
-    }
+    const parsedDate = dateHeader ? Date.parse(dateHeader) : Number.NaN;
     const ageHeader = response.headers.get("age");
-    if (ageHeader != null && ageHeader !== "") {
-      const ageSec = Number(ageHeader);
-      if (Number.isFinite(ageSec) && ageSec >= 0) {
-        candidate = Math.min(candidate, Date.now() - ageSec * 1000);
-      }
-    }
-    earliest = Math.min(earliest, candidate);
+    const ageSec = ageHeader != null && ageHeader !== "" ? Number(ageHeader) : Number.NaN;
+    const hasUsableDate = Number.isFinite(parsedDate);
+    const hasUsableAge = Number.isFinite(ageSec) && ageSec >= 0;
+    if (!hasUsableDate && !hasUsableAge) continue;
+
+    const ageDerived = nowMs - ageSec * 1000;
+    const candidate = hasUsableAge
+      ? hasUsableDate
+        ? Math.min(parsedDate, ageDerived)
+        : ageDerived
+      : parsedDate;
+    earliest = earliest == null ? candidate : Math.min(earliest, candidate);
   }
-  return new Date(earliest).toISOString();
+  return earliest == null ? null : new Date(earliest).toISOString();
 }
