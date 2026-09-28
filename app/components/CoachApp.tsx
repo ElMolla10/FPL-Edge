@@ -486,22 +486,177 @@ export function withModelUtilityChange(rows:Transfer[],squad:FplPlayer[],optimiz
   return sortTransfersByQuality(adjustedRows);
 }
 
-function Overview({data,go,revision,onTeamChange,onLoadExample,exampleActive,onClearExample}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;onLoadExample:()=>void;exampleActive:boolean;onClearExample:()=>void}){const[meta,setMeta]=useManager(revision);const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);const a=analysis(data,squad);const finance=useMemo(()=>deriveSandboxFinancialContext(squad,data.rules.budget,meta),[squad,data.rules.budget,meta]);
-  // SHELL Phase 1 (overview-3-metrics): display-only metric cut below.
-  // ASSERT — shallow Overview path UNCHANGED: sync bestTransfers profile:"overview" mode:"shallow"
-  // on first paint; deep upgrade only via scheduleDeferred (requestIdleCallback / timeout).
-  // Do NOT reintroduce blocking planner work, OVERVIEW_TRANSFER_RULES edits, or ranking changes.
-  // Headline still uses selectPrimaryTransfer(moves) — no transfer-engine ranking edits.
-  const shallowMoves=useMemo(()=>{if(!a||finance.source==="unavailable"||isRankingFinanceUnavailable(meta))return [] as Transfer[];return bestTransfers(data,squad,finance.baselineBank,authoritativeFreeTransfers(meta),1,finance.baselineSellingPrices,{profile:"overview",mode:"shallow",wildcardActive:managerWildcardActive(meta)})},[data,squad,finance,meta,a]);
+function OverviewDeadlineStrip({event}:{event:{name:string;deadline:string}}){
+  const[now,setNow]=useState(Date.now());
+  useEffect(()=>{const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[]);
+  const total=Math.max(0,Date.parse(event.deadline)-now);
+  const d=Math.floor(total/86400000),h=Math.floor(total/3600000)%24,m=Math.floor(total/60000)%60,s=Math.floor(total/1000)%60;
+  const clock=`${d?`${d}d `:""}${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  return <section className="overview-deadline" aria-label="Gameweek deadline">
+    <div><span>GAMEWEEK DEADLINE</span><h2>{event.name}</h2>
+      <p>{new Date(event.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p>
+    </div>
+    <div className="overview-countdown" aria-label="Countdown"><small>COUNTDOWN</small><b>{clock}</b></div>
+  </section>;
+}
+
+/** Same FT input Transfers uses after live sync — authoritative when live my-team, else stored/default. */
+function rankingFreeTransfersForDecision(meta:ManagerMeta|null|undefined):number{
+  return authoritativeFreeTransfers(meta);
+}
+
+function Overview({data,go,revision,onTeamChange,onLoadExample,exampleActive,onClearExample}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;onLoadExample:()=>void;exampleActive:boolean;onClearExample:()=>void}){
+  const[meta,setMeta]=useManager(revision);
+  const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);
+  const a=analysis(data,squad);
+  const finance=useMemo(()=>deriveSandboxFinancialContext(squad,data.rules.budget,meta),[squad,data.rules.budget,meta]);
+  const wildcardActive=managerWildcardActive(meta);
+  const fts=rankingFreeTransfersForDecision(meta);
+  // ASSERT — hang-safe Overview path (OVERVIEW_HANG_HOTFIX): sync shallow first paint; deep only via scheduleDeferred.
+  // Do NOT reintroduce blocking planner work or OVERVIEW_TRANSFER_RULES edits.
+  // BEST DECISION uses selectBestDecision — same selector + FT/hit/wildcard inputs as Transfers.
+  const shallowMoves=useMemo(()=>{
+    if(!a||finance.source==="unavailable"||isRankingFinanceUnavailable(meta))return [] as Transfer[];
+    return bestTransfers(data,squad,finance.baselineBank,fts,12,finance.baselineSellingPrices,{profile:"overview",mode:"shallow",wildcardActive});
+  },[data,squad,finance,meta,a,fts,wildcardActive]);
   const[moves,setMoves]=useState<Transfer[]>([]);
-  useEffect(()=>{setMoves(shallowMoves);if(!a||finance.source==="unavailable"||isRankingFinanceUnavailable(meta))return;const handle=scheduleDeferred(()=>{
-    try{
-      const upgraded=bestTransfers(data,squad,finance.baselineBank,authoritativeFreeTransfers(meta),1,finance.baselineSellingPrices,{mode:"deep",wildcardActive:managerWildcardActive(meta),rules:{maxEvalCandidates:16,maxPlanNodes:2500,planTimeBudgetMs:120,futureBeamWidth:4,candidatePoolPerPosition:8}});
-      setMoves(upgraded);
-    }catch{/* keep shallow */}
-  },{timeout:500,delayMs:50});return()=>handle.cancel()},[data,squad,finance,meta,shallowMoves,a]);
-  const move=selectPrimaryTransfer(moves);const roll=!move;
-  if(!a)return <><section className="empty-command example-demo-card" aria-label="Open Demo"><span>OPEN DEMO</span><h2>Try a real decision without signing in</h2><p>Load a labelled example 15 — transfers, captaincy and explanation on live FPL data. Not your FPL team.</p><button type="button" className="wide-action" onClick={onLoadExample}>Open Demo →</button></section><ConnectTeam data={data} onConnected={m=>{onClearExample();setMeta(m);onTeamChange()}}/><section className="empty-command"><span>MANUAL OPTION</span><h2>Already know your draft?</h2><p>Build and save it manually. Your recommendations, transfer centre and deadline check will activate immediately.</p><button onClick={()=>go("draft")}>Build a squad →</button></section></>;const liveBankBlocked=isRankingFinanceUnavailable(meta);const issues=a.issues;const next=a.events[0];let manager:ManagerMeta|null=null;try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}const storedCaptainId=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));const storedViceId=Number(localStorage.getItem(`fpl-edge-vice-${a.first}`));const modelCaptain=a.xi.captain??a.xi.players[0];const resolvedCaptaincy=resolveCaptaincy(a.xi.players,storedCaptainId,storedViceId,manager?.captainId,manager?.viceCaptainId,modelCaptain,undefined);const activeCaptain=(resolvedCaptaincy&&a.xi.players.find(p=>p.id===resolvedCaptaincy.captainId))??modelCaptain;const plannedChip=plannedChipFor(readPlannedChips(),a.first);const captainTerm=playerProjection(activeCaptain,a.first,data.fixtures,a.first);const chipBonus=plannedChip==="Triple Captain"?captainTerm:plannedChip==="Bench Boost"?a.bench.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0):0;const projected=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0)+captainTerm+chipBonus;return <div className="coach-page">{exampleActive&&<section className="example-squad-banner" role="status"><span>EXAMPLE</span><b>{EXAMPLE_SQUAD_LABEL}</b><p>Interactive demo on live data — sign in to replace this with your official team.</p></section>}<section className="command-top command-top-date"><div><span>NEXT DEADLINE</span><h2>{next.name}</h2><p>{new Date(next.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p></div></section>{liveBankBlocked&&<ReconnectFplPanel errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{const live=await refreshConnectedTeamFromApi(data,{force:true});try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}if(live.updated)onTeamChange()}}/>}{!liveBankBlocked&&<section className="weekly-call"><div className="call-label"><span>THIS WEEK'S RECOMMENDATION</span><b>{roll?"LIKELY":"MODEL EDGE"}</b></div><h2>{roll?"ROLL TRANSFER":`${move.out.name} → ${move.incoming.name}`}</h2><ul>{roll?<><li>No risk-adjusted squad move clears the 2.2-point five-GW action threshold.</li><li>Your current XI keeps two future transfer routes open.</li><li>Recheck official flags before the deadline.</li></>:<><li>+{move.gain5.toFixed(1)} projected squad points across five gameweeks.</li><li>{move.minutes>=0?`${Math.round(move.minutes)} extra expected minutes this week.`:"The upside is fixture-led despite lower expected minutes."}</li><li>{move.risk} modelled minutes/availability risk.</li></>}</ul><button onClick={()=>go("transfers")}>Inspect the reasoning →</button></section>}{!liveBankBlocked&&<><div className="command-metrics" aria-label="Key metrics"><article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></article><article><span>IN THE BANK</span><b>{liveBankBlocked||meta?.bank==null&&meta?.bankSource==="unavailable"?"—":`£${(meta?.bank??a.bank).toFixed(1)}m`}</b><small>{liveBankBlocked||meta?.bankSource==="unavailable"?"reconnect FPL for live bank":meta?(meta.bankSource==="live-my-team"?"live FPL transfer bank":meta.liveOverlayError?"live bank unavailable":"official public data"):"builder estimate"}</small></article><article><span>{managerWildcardActive(meta)?"WILDCARD":"FREE TRANSFERS"}</span><b>{managerWildcardActive(meta)?"Active":(meta?.bankSource==="live-my-team"&&meta.freeTransferLimit!==undefined&&meta.freeTransferLimit!==null?authoritativeFreeTransfers(meta):"Set in Transfers")}</b><small>{managerWildcardActive(meta)?"unlimited swaps until deadline":meta?.bankSource==="live-my-team"?"live FPL (limit − made this GW)":"not exposed publicly by FPL"}</small></article></div><details className="command-metrics-secondary"><summary>More squad stats</summary><div className="command-metrics-secondary-grid"><article><span>SQUAD VALUE</span><b>£{(meta?.squadValue??a.cost).toFixed(1)}m</b><small>official when connected</small></article><article><span>OVERALL RANK</span><b>{fmt(meta?.overallRank)}</b><small>{meta?meta.teamName:"connect to reveal"}</small></article><article><span>GW RANK</span><b>{fmt(meta?.gameweekRank)}</b><small>{meta?.gameweekPoints??"—"} GW points</small></article><article><span>TOTAL POINTS</span><b>{meta?.overallPoints??"—"}</b><small>official account history</small></article></div></details></>}<section className="urgent-card"><header><div><span>URGENT ISSUES</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div><button onClick={()=>go("deadline")}>Open final check →</button></header>{issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}</section><WhatChanged data={data} squad={squad}/><DgwAlert data={data}/><SquadValueAlert squad={squad}/></div>}
+  useEffect(()=>{
+    setMoves(shallowMoves);
+    if(!a||finance.source==="unavailable"||isRankingFinanceUnavailable(meta))return;
+    const handle=scheduleDeferred(()=>{
+      try{
+        // Deferred deep upgrade: same mode/wildcard/FT/bank as Transfers; hang-safe budgets kept on Overview.
+        const upgraded=bestTransfers(data,squad,finance.baselineBank,fts,12,finance.baselineSellingPrices,{
+          mode:"deep",
+          wildcardActive,
+          rules:{maxEvalCandidates:16,maxPlanNodes:2500,planTimeBudgetMs:120,futureBeamWidth:4,candidatePoolPerPosition:8},
+        });
+        setMoves(upgraded);
+      }catch{/* keep shallow */}
+    },{timeout:500,delayMs:50});
+    return()=>handle.cancel();
+  },[data,squad,finance,meta,shallowMoves,a,fts,wildcardActive]);
+  const decision=selectBestDecision(moves);
+  const decisionHold=Boolean(!decision||decision.isHold||decision.classification==="HOLD");
+  const decisionClass=decisionHold?(wildcardActive?"KEEP":"HOLD"):(decision!.classification??"MAKE");
+  const fiveGwNet=decision?(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference):0;
+  const shortReason=decisionHold
+    ?(decision?.engineReason??(wildcardActive?"No Wildcard swap clears the full-squad bar — keep iterating before the deadline.":"HOLD — bank the free transfer; no move clears 5-GW NET vs HOLD."))
+    :(decision?.engineReason??`${decision!.out.name} → ${decision!.incoming.name} clears the risk-adjusted 5-GW NET vs HOLD bar.`);
+
+  if(!a)return <>
+    <section className="empty-command example-demo-card" aria-label="Open Demo">
+      <span>OPEN DEMO</span>
+      <h2>Try a real decision without signing in</h2>
+      <p>Load a labelled example 15 — transfers, captaincy and explanation on live FPL data. Not your FPL team.</p>
+      <button type="button" className="wide-action" onClick={onLoadExample}>Open Demo →</button>
+    </section>
+    <ConnectTeam data={data} onConnected={m=>{onClearExample();setMeta(m);onTeamChange()}}/>
+    <section className="empty-command">
+      <span>MANUAL OPTION</span>
+      <h2>Already know your draft?</h2>
+      <p>Build and save it manually. Your recommendations, transfer centre and deadline check will activate immediately.</p>
+      <button onClick={()=>go("draft")}>Build a squad →</button>
+    </section>
+  </>;
+
+  const liveBankBlocked=isRankingFinanceUnavailable(meta);
+  const issues=a.issues;
+  const next=a.events[0];
+  let manager:ManagerMeta|null=null;
+  try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}
+  const storedCaptainId=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));
+  const storedViceId=Number(localStorage.getItem(`fpl-edge-vice-${a.first}`));
+  const modelCaptain=a.xi.captain??a.xi.players[0];
+  const resolvedCaptaincy=resolveCaptaincy(a.xi.players,storedCaptainId,storedViceId,manager?.captainId,manager?.viceCaptainId,modelCaptain,undefined);
+  const activeCaptain=(resolvedCaptaincy&&a.xi.players.find(p=>p.id===resolvedCaptaincy.captainId))??modelCaptain;
+  const plannedChip=plannedChipFor(readPlannedChips(),a.first);
+  const captainTerm=playerProjection(activeCaptain,a.first,data.fixtures,a.first);
+  const chipBonus=plannedChip==="Triple Captain"?captainTerm:plannedChip==="Bench Boost"?a.bench.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0):0;
+  const projected=a.xi.players.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0)+captainTerm+chipBonus;
+  const liveFtKnown=meta?.bankSource==="live-my-team"&&meta.freeTransferLimit!==undefined&&meta.freeTransferLimit!==null;
+  const bankKnown=!(liveBankBlocked||(meta?.bank==null&&meta?.bankSource==="unavailable"));
+  const bankValue=meta?.bank??a.bank;
+  const bankSourceLabel=liveBankBlocked||meta?.bankSource==="unavailable"
+    ?"reconnect FPL for live bank"
+    :meta?(meta.bankSource==="live-my-team"?"live FPL transfer bank":meta.liveOverlayError?"live bank unavailable":"official public data"):"builder estimate";
+
+  return <div className="coach-page">
+    {exampleActive&&<section className="example-squad-banner" role="status"><span>EXAMPLE</span><b>{EXAMPLE_SQUAD_LABEL}</b><p>Interactive demo on live data — sign in to replace this with your official team.</p></section>}
+
+    <OverviewDeadlineStrip event={next}/>
+
+    {/* Known finance / chip only — no freshness tech chip (public Connected/Not connected lives in header/sidebar from #89). */}
+    {!liveBankBlocked&&<section className="overview-status-strip" aria-label="Known squad state">
+      {bankKnown&&<div><span>IN THE BANK</span><b>£{bankValue.toFixed(1)}m</b><small>{bankSourceLabel}</small></div>}
+      <div>
+        <span>{wildcardActive?"WILDCARD":"FREE TRANSFERS"}</span>
+        <b>{wildcardActive?"Active":(liveFtKnown?String(fts):"Set in Transfers")}</b>
+        <small>{wildcardActive?"unlimited swaps until deadline":liveFtKnown?"live FPL (limit − made this GW)":"not exposed publicly by FPL"}</small>
+      </div>
+      {plannedChip&&<div><span>PLANNED CHIP</span><b>{plannedChip}</b><small>for {next.name.replace(/^Gameweek\s+/i,"GW")}</small></div>}
+    </section>}
+
+    {liveBankBlocked&&<ReconnectFplPanel errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{
+      const live=await refreshConnectedTeamFromApi(data,{force:true});
+      try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}
+      if(live.updated)onTeamChange();
+    }}/>}
+
+    {!liveBankBlocked&&<section className="recommended-move best-decision-hero overview-best-decision" aria-label="Best decision">
+      <div className="call-label">
+        <span>{wildcardActive?"WILDCARD BEST SWAP":"BEST DECISION"}</span>
+        <b className={decisionHold?"badge-hold":"badge-make"}>{decisionClass}</b>
+      </div>
+      <h2>{decisionHold
+        ?(wildcardActive?"KEEP — leave this temporary Wildcard squad unchanged":"HOLD — do not transfer now")
+        :`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
+      <p className="best-decision-lede">{decisionHold
+        ?(wildcardActive?"Should I swap on Wildcard? No strong full-squad upgrade clears the bar.":fts<=0?"Should I transfer? No — with 0 FT, no move clears hit-adjusted NET vs HOLD.":"Should I transfer? No — HOLD now and bank the free transfer.")
+        :(wildcardActive?"Should I swap on Wildcard? Yes — full-squad objective improves.":`Should I transfer? Yes — ${decisionClass} clears the risk-adjusted 5-GW NET vs HOLD bar.`)}</p>
+      <div className="best-decision-metrics" aria-label="Decision metrics">
+        <span><small>{wildcardActive?"MODE":"HIT"}</small><b>{wildcardActive?"Wildcard":(decisionHold?"Free":(decision!.hitLabel??(decision!.hitCost?`−${decision!.hitCost}`:"Free")))}</b></span>
+        <span><small>{wildcardActive?"5-GW SQUAD Δ":"5-GW NET vs HOLD"}</small><b>{decisionHold?"0.0":`${fiveGwNet>=0?"+":""}${fiveGwNet.toFixed(1)}`}</b></span>
+        {!decisionHold&&decision&&<span><small>ADJUSTED 5-GW NET</small><b>{((decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore)>=0?"+":"")}{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore).toFixed(1)}</b></span>}
+        {decisionHold&&!wildcardActive&&<span><small>FT NOW → NEXT</small><b>{fts} → {Math.min(5,fts+1)}</b></span>}
+      </div>
+      <div className="engine-why" aria-label="Why"><span>WHY</span><p className="engine-reason-hero">{shortReason}</p></div>
+      <button type="button" className="overview-transfers-link" onClick={()=>go("transfers")}>Open Transfers →</button>
+    </section>}
+
+    {!liveBankBlocked&&<div className="command-metrics overview-captain-metrics" aria-label="Captain and projected points">
+      <article>
+        <span>CAPTAIN</span>
+        <b>{activeCaptain.name}</b>
+        <small>{captainTerm.toFixed(1)} xPts{plannedChip==="Triple Captain"?" · Triple Captain":""}</small>
+      </article>
+      <article>
+        <span>PROJECTED GW</span>
+        <b>{projected.toFixed(1)}</b>
+        <small>including {activeCaptain.name} captaincy{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small>
+      </article>
+    </div>}
+
+    <section className="urgent-card">
+      <header>
+        <div><span>URGENT RISKS</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div>
+        <button type="button" onClick={()=>go("deadline")}>Open final check →</button>
+      </header>
+      {issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}
+    </section>
+
+    <section className="overview-jumps" aria-label="Next actions">
+      <button type="button" onClick={()=>go("deadline")}><span>FINAL CHECK</span><b>Lock captain, XI and chips →</b></button>
+      <button type="button" onClick={()=>go("transfers")}><span>TRANSFERS</span><b>Full BEST DECISION + routes →</b></button>
+      <button type="button" onClick={()=>go("draft")}><span>DRAFT LAB</span><b>Sandbox the squad →</b></button>
+    </section>
+
+    <WhatChanged data={data} squad={squad}/>
+    <DgwAlert data={data}/>
+    <SquadValueAlert squad={squad}/>
+  </div>;
+}
+
 function WhatChanged({data,squad}:{data:FplData;squad:FplPlayer[]}){const flagged=squad.filter(p=>p.news||p.status!=="a");const market=[...data.players].filter(p=>p.transfersIn>p.transfersOut).sort((a,b)=>(b.transfersIn-b.transfersOut)-(a.transfersIn-a.transfersOut))[0];return <section className="changed-card"><div><span>SINCE YOUR LAST CHECK</span><h2>What changed?</h2></div><div>{flagged.slice(0,2).map(p=><p key={p.id}><i className="amber"/><b>{p.name}</b> {p.news||"remains flagged in the official feed"}</p>)}{market&&<p><i className="green"/><b>{market.name}</b> has the strongest net transfer-in pressure.</p>}{!flagged.length&&<p><i className="green"/>No new official flag affects your saved squad.</p>}</div><strong>Impact: {flagged.length?"Review the final-check risk flags.":"No forced transfer."}</strong></section>}
 
 // Surfaces confirmed doubles/blanks within the same 8-GW horizon Chips/Fixtures already use, so a

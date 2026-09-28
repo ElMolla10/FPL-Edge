@@ -396,21 +396,19 @@ test("transfer quality gate: blocked and watchlist rows cannot become the primar
   assert.equal(selectPrimaryTransfer([blocked,watch]),null);
 });
 
-// Overview's "THIS WEEK'S RECOMMENDATION" card previously re-derived its own
-// "is this transfer good enough to recommend" check with an independently hardcoded
-// `rankScore<2.2`/`rankScore>=2.2` comparison, instead of calling selectPrimaryTransfer()
-// the Transfers page uses. The floating CoachDock orb was removed in shell/chrome-strip;
-// Overview must still share the selector (and must not reinvent the 2.2 threshold).
-test("Overview selects the primary transfer via selectPrimaryTransfer, not an independently duplicated 2.2 threshold",()=>{
+// Overview BEST DECISION must share Transfers' selectBestDecision selector (MAKE/LEAN/HOLD),
+// not reinvent a local threshold. Floating CoachDock stays removed.
+test("Overview BEST DECISION uses selectBestDecision, not an independently duplicated threshold",()=>{
   const source=readFileSync(new URL("../app/components/CoachApp.tsx",import.meta.url),"utf-8");
   assert.ok(!source.includes("function CoachDock("),"floating CoachDock was removed; do not restore it for this invariant");
   const overviewStart=source.indexOf("function Overview(");
   const overviewEnd=source.indexOf("function WhatChanged(");
   assert.ok(overviewStart>=0&&overviewEnd>overviewStart,"Overview and WhatChanged markers must exist");
   const overview=source.slice(overviewStart,overviewEnd);
-  assert.ok(overview.includes("selectPrimaryTransfer("),"Overview must call selectPrimaryTransfer to pick its headline route");
+  assert.ok(overview.includes("selectBestDecision("),"Overview must call selectBestDecision for BEST DECISION");
+  assert.ok(!overview.includes("selectPrimaryTransfer("),"Overview headline must not use selectPrimaryTransfer — Transfers hero uses selectBestDecision");
   assert.ok(!/rankScore\s*[<>]=?\s*2\.2/.test(overview),"Overview must not independently compare rankScore against the 2.2 action threshold");
-  assert.ok(!overview.includes(".reviewRequired"),"Overview must not re-check .reviewRequired alongside the shared selector -- it is already folded into qualityStatus/rankScore");
+  assert.ok(!overview.includes(".reviewRequired"),"Overview must not re-check .reviewRequired alongside the shared selector");
 });
 
 test("transfer quality gate: optimizer utility cannot lift a blocked route back into recommendation",()=>{
