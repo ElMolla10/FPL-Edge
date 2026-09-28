@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
   computeDataFreshness,
+  isDataFreshnessDebug,
   officialFetchedAtFromResponses,
+  publicConnectionStatus,
 } from "../app/lib/data-freshness.ts";
 
 test("computeDataFreshness never says just now and separates Edge vs official ages", () => {
@@ -70,4 +73,45 @@ test("officialFetchedAtFromResponses prefers earlier Date/Age evidence", () => {
   assert.ok(iso);
   const ms = Date.parse(iso);
   assert.ok(ms <= Date.parse("2026-09-28T11:00:00.000Z"));
+});
+
+test("publicConnectionStatus is binary Connected / Not connected", () => {
+  assert.deepEqual(publicConnectionStatus({ hasUsableData: true }), {
+    status: "connected",
+    label: "Connected",
+    tone: "fresh",
+  });
+  assert.deepEqual(publicConnectionStatus({ hasUsableData: false }), {
+    status: "not_connected",
+    label: "Not connected",
+    tone: "stale",
+  });
+  assert.deepEqual(publicConnectionStatus({ hasUsableData: true, loadFailed: true }), {
+    status: "not_connected",
+    label: "Not connected",
+    tone: "stale",
+  });
+});
+
+test("isDataFreshnessDebug gates detailed Edge/Official/cache string", () => {
+  assert.equal(isDataFreshnessDebug("?app=1"), false);
+  assert.equal(isDataFreshnessDebug("?debug=1"), true);
+  assert.equal(isDataFreshnessDebug("app=1&debug=1"), true);
+});
+
+test("missing Date/Age → officialFetchedAt null and UI shows Official unknown only on debug path", () => {
+  const response = new Response("{}", { headers: {} });
+  assert.equal(officialFetchedAtFromResponses([response], Date.parse("2026-09-28T12:05:00.000Z")), null);
+  // Branch comment + UI string still present for ?debug=1 / Official unknown.
+  const freshnessSrc = readFileSync(new URL("../app/lib/data-freshness.ts", import.meta.url), "utf8");
+  assert.match(freshnessSrc, /neither usable Date nor Age/);
+  const ldb = readFileSync(new URL("../app/components/LiveDraftBuilder.tsx", import.meta.url), "utf8");
+  const live = readFileSync(new URL("../app/components/LiveIntelligence.tsx", import.meta.url), "utf8");
+  assert.match(ldb, /Official unknown/);
+  assert.match(live, /Official unknown/);
+  // Public chips must not lead with the long Edge/Official/cache summary.
+  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  assert.match(coach, /publicConnectionStatus/);
+  assert.match(coach, /Connected/);
+  assert.doesNotMatch(coach, /Edge recalculation · official fetch · ≤5m cache/);
 });

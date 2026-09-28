@@ -115,3 +115,34 @@ export function officialFetchedAtFromResponses(
   }
   return earliest == null ? null : new Date(earliest).toISOString();
 }
+
+
+/**
+ * Public UX: binary connection chip only (Connected / Not connected).
+ * Detailed Edge/Official/cache ages stay on computeDataFreshness.summaryLabel for ?debug=1.
+ *
+ * Connected = usable Edge payload is loaded (players present, no load failure).
+ * Not connected = no usable data (still loading failure, empty pool, or explicit error).
+ * Age/stale alone does NOT flip to Not connected — that would revive jargon-driven UX.
+ */
+export type PublicConnectionStatus = "connected" | "not_connected";
+
+export function publicConnectionStatus(input: {
+  hasUsableData: boolean;
+  loadFailed?: boolean;
+}): { status: PublicConnectionStatus; label: "Connected" | "Not connected"; tone: "fresh" | "stale" } {
+  const ok = input.hasUsableData && !input.loadFailed;
+  return ok
+    ? { status: "connected", label: "Connected", tone: "fresh" }
+    : { status: "not_connected", label: "Not connected", tone: "stale" };
+}
+
+/** Least-invasive internal path: ?debug=1 exposes Edge/Official/cache detail. */
+export function isDataFreshnessDebug(search: string = ""): boolean {
+  try {
+    const raw = search.startsWith("?") ? search.slice(1) : search;
+    return new URLSearchParams(raw).get("debug") === "1";
+  } catch {
+    return false;
+  }
+}

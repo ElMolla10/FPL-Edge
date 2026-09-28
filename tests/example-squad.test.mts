@@ -12,6 +12,7 @@ import {
   readActiveSquadIds,
   readRealSquadIds,
   REAL_SQUAD_KEY,
+  writeActiveSquadIds,
 } from "../app/lib/example-squad.ts";
 import { isCompleteSquad, type FplData, type FplPlayer } from "../app/lib/fpl.ts";
 
@@ -124,4 +125,32 @@ test("persistence sync payload ignores example storage keys", () => {
   assert.match(src, /fpl-edge-example-squad-ids/);
   // collectSyncPayload still reads real draft key only
   assert.match(src, /localStorage\.getItem\("fpl-edge-squad"\)/);
+});
+
+test("demo isolation: writeActiveSquadIds never touches REAL_SQUAD_KEY while example flag is on", () => {
+  installMemoryStorage();
+  memory.clear();
+  const manual = [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115];
+  memory.set(REAL_SQUAD_KEY, JSON.stringify(manual));
+  const data = miniData();
+  assert.equal(activateExampleSquad(data), true);
+  const beforeReal = memory.get(REAL_SQUAD_KEY);
+  const demoIds = readActiveSquadIds();
+  assert.equal(demoIds.length, 15);
+  assert.ok(memory.has(EXAMPLE_SQUAD_IDS_KEY));
+  // Mutate active (demo) desk — must only rewrite fpl-edge-example-squad-ids.
+  writeActiveSquadIds([999, ...demoIds.slice(1)]);
+  assert.equal(memory.get(REAL_SQUAD_KEY), beforeReal, "real squad key must stay untouched");
+  assert.deepEqual(readRealSquadIds(), manual);
+  assert.equal(JSON.parse(memory.get(EXAMPLE_SQUAD_IDS_KEY)!)[0], 999);
+  clearExampleSquadFlag();
+  assert.deepEqual(readActiveSquadIds(), manual);
+});
+
+test("Open Demo / ?demo=1 isolation is documented in README and wired from page.tsx", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /params\.get\("demo"\)\s*===\s*"1"/);
+  assert.match(readme, /fpl-edge-example-squad-ids/);
+  assert.match(readme, /\?demo=1/);
 });

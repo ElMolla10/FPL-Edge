@@ -43,7 +43,8 @@ import { ClubFixtureRow, computeClubFixtureRows, difficultyScoreOutOf10 } from "
 import { SeasonLocked } from "./SeasonPass";
 import { formatSeasonPassPrice } from "../lib/season-pass";
 import { qualityPopulation, qualityScoreOutOf10 } from "../lib/team-quality";
-import { computeDataFreshness } from "../lib/data-freshness";
+import { computeDataFreshness, isDataFreshnessDebug, publicConnectionStatus } from "../lib/data-freshness";
+import { horizonModeLabel } from "../lib/horizon-labels";
 import { buildAccuracyReport, horizonAccuracyRows, type AccuracyPlayerRow } from "../lib/model-accuracy";
 import { minutesRiskBand } from "../lib/minutes-risk";
 
@@ -60,13 +61,22 @@ export function parseCoachView(raw:string|null|undefined):View|null{
 export function coachViewFromLocation(search:string):View|null{
   try{return parseCoachView(new URLSearchParams(search).get("view"))}catch{return null}
 }
+/** Pure ?view= search builder for deep links. Client-side only (needs JS; no SSR rewrite). */
+export function coachViewSearchParams(view:View, currentSearch:string=""):string{
+  const raw=currentSearch.startsWith("?")?currentSearch.slice(1):currentSearch;
+  const params=new URLSearchParams(raw);
+  if(view==="overview")params.delete("view");
+  else params.set("view",view);
+  // Preserve app/demo entry flags used by the marketing shell.
+  if(!params.has("app")&&!params.has("demo"))params.set("app","1");
+  const q=params.toString();
+  return q?`?${q}`:"";
+}
 function writeCoachViewToUrl(view:View){
   try{
     const url=new URL(window.location.href);
-    if(view==="overview")url.searchParams.delete("view");
-    else url.searchParams.set("view",view);
-    // Preserve app/demo entry flags used by the marketing shell.
-    if(!url.searchParams.has("app")&&!url.searchParams.has("demo"))url.searchParams.set("app","1");
+    const next=coachViewSearchParams(view,url.search);
+    url.search=next.startsWith("?")?next.slice(1):next;
     window.history.pushState({fplEdgeView:view},"",url.pathname+url.search+url.hash);
   }catch{/* ignore */}
 }
@@ -173,13 +183,26 @@ function PhoneMoreCrumb({view,onOpenMore}:{view:View;onOpenMore:()=>void}){
   return <nav className="phone-more-crumb" aria-label="More destination"><button type="button" onClick={onOpenMore}>More</button><span aria-hidden="true">›</span><strong>{label}</strong></nav>;
 }
 
-function freshness(data:FplData){
+function freshness(data:FplData, opts?:{loadFailed?:boolean;debug?:boolean}){
   const f=computeDataFreshness({
     edgeCalculatedAt:data.edgeCalculatedAt||data.updatedAt,
     officialFetchedAt:data.officialFetchedAt??null,
     cacheMaxAgeSeconds:data.cacheMaxAgeSeconds,
   });
-  return{minutes:f.effectiveAgeMinutes,label:f.summaryLabel,tone:f.tone,edgeLabel:f.edgeLabel,officialLabel:f.officialLabel};
+  const usable=Array.isArray(data.players)&&data.players.length>0;
+  const pub=publicConnectionStatus({hasUsableData:usable,loadFailed:opts?.loadFailed===true});
+  const debug=opts?.debug===true||(typeof window!=="undefined"&&isDataFreshnessDebug(window.location.search));
+  // Public UX: Connected / Not connected only. Detailed Edge/Official/cache string is ?debug=1 only.
+  return{
+    minutes:f.effectiveAgeMinutes,
+    label:pub.label,
+    tone:pub.tone,
+    publicStatus:pub.status,
+    edgeLabel:f.edgeLabel,
+    officialLabel:f.officialLabel,
+    detailLabel:f.summaryLabel,
+    showDetail:debug,
+  };
 }
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
 
@@ -257,7 +280,7 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   // Phase 1 chrome-strip: sticky header = Wordmark · GW countdown · Sign in/Account only.
   // Season pass lives under More; floating Coach pill removed; freshness owned by sidebar (desktop) / slim line (phone).
   return <TeamLinkAuthProvider value={teamAuth}><main className={desk==="visitor"?"coach-shell signed-out":"coach-shell"}>
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" className={researchRest.some(([key])=>key===view)?"active":sidebarMenu==="research"?"open":""} onClick={()=>setSidebarMenu(m=>m==="research"?null:"research")}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" className={proItems.some(([key])=>key===view)?"sidebar-pro-btn active":sidebarMenu==="pro"?"sidebar-pro-btn open":"sidebar-pro-btn"} onClick={()=>setSidebarMenu(m=>m==="pro"?null:"pro")}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?fresh.label:"Connecting…"}</b><small>Edge recalculation · official fetch · ≤5m cache (+10m stale)</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" className={researchRest.some(([key])=>key===view)?"active":sidebarMenu==="research"?"open":""} onClick={()=>setSidebarMenu(m=>m==="research"?null:"research")}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" className={proItems.some(([key])=>key===view)?"sidebar-pro-btn active":sidebarMenu==="pro"?"sidebar-pro-btn open":"sidebar-pro-btn"} onClick={()=>setSidebarMenu(m=>m==="pro"?null:"pro")}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note" aria-label="Data connection"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?fresh.label:(error&&!data?"Not connected":"Connecting…")}</b>{fresh?.showDetail?<small className="freshness-debug">{fresh.detailLabel}</small>:null}</div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><span className="brand header-wordmark"><Wordmark/></span><div className="header-tools">{data&&<DeadlineClock data={data}/>}{desk==="visitor"?<div className="signin-action"><a className="team-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a></div>:<AccountBar onAuthChange={runSync} onAccount={onAccount} initialOpen={startAuth}/>}</div></header>
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading} phoneQuiet/>{phoneMoreChild&&<PhoneMoreCrumb view={view} onOpenMore={()=>setMobileOverlay("More")}/>}{exampleActive&&<p className="example-squad-banner" role="status">{EXAMPLE_SQUAD_LABEL}. Transfers, captaincy and explanations use this demo XV — sign in to connect your real team.</p>}<Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay} onLoadExample={()=>{if(activateExampleSquad(data)){setExampleActive(true);setRevision(x=>x+1)}}} exampleActive={exampleActive} onClearExample={()=>{clearExampleSquadFlag();setExampleActive(false);setRevision(x=>x+1)}}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
     </section>
@@ -307,7 +330,7 @@ function TeamQualityPanel({data}:{data:FplData}){
   return <section className="team-quality-panel"><header><div><span>TEAM QUALITY MODEL</span><h2>Attack and defence are separate signals.</h2><p>League-normalized official priors update gradually from completed Premier League results. A single clean sheet or haul cannot rewrite a club's rating. Scores are 0-10, 10 = best, relative to the 20 clubs modeled this season -- the top and bottom club will always read close to 10 and 0 even in a tightly-matched league.</p></div><div className="segmented"><button className={dimension==="attack"?"active":""} onClick={()=>setDimension("attack")}>Attack</button><button className={dimension==="defence"?"active":""} onClick={()=>setDimension("defence")}>Defence</button></div></header><div className="team-quality-grid">{rows.map((row,index)=><article key={row.team.id}><i>{index+1}</i><b>{row.team.short}<small>{row.team.name}</small></b><p><span>HOME</span><strong>{qualityScoreOutOf10(row.home,homePopulation).toFixed(1)}/10</strong></p><p><span>AWAY</span><strong>{qualityScoreOutOf10(row.away,awayPopulation).toFixed(1)}/10</strong></p><p><span>CONFIDENCE</span><strong>{Math.round(row.quality.confidence*100)}%</strong></p><em className={row.quality.lowPlContinuity?"provisional":"established"}>{row.quality.lowPlContinuity?"LOW-CONTINUITY PRIOR":`${row.quality.matches} PL MATCH${row.quality.matches===1?"":"ES"}`}</em></article>)}</div><footer>Scores are relative to the 20 clubs modeled this season, not a fixed baseline. Ratings use genuine Premier League evidence only; promoted and low-continuity squads start conservatively and gain authority as completed top-flight matches accumulate.</footer></section>;
 }
 function DeadlineClock({data}:{data:FplData}){const next=futureEvents(data,1)[0];const[now,setNow]=useState(Date.now());useEffect(()=>{const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[]);if(!next)return <div className="deadline-chip"><small>NEXT DEADLINE</small><b>Season complete</b><em className="deadline-compact">Season complete</em></div>;const total=Math.max(0,Date.parse(next.deadline)-now);const d=Math.floor(total/86400000),h=Math.floor(total/3600000)%24,m=Math.floor(total/60000)%60,s=Math.floor(total/1000)%60;const gw=next.name.replace(/^Gameweek\s+/i,"GW");const clock=`${d?`${d}d `:""}${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;return <div className="deadline-chip"><small>{next.name.toUpperCase()} DEADLINE</small><b>{clock}</b><span>{new Date(next.deadline).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</span><em className="deadline-compact">{gw} {clock}</em></div>}
-function Freshness({data,onRefresh,loading,phoneQuiet=false}:{data:FplData;onRefresh:()=>void;loading:boolean;phoneQuiet?:boolean}){const f=freshness(data);const warnings=data.dataIntegrityWarnings??[];const urgent=f.tone==="stale"||warnings.length>0;return <section className={`freshness-strip ${f.tone}${phoneQuiet?" phone-quiet":""}${urgent?" has-urgent":""}`}><div><span className={`fresh-dot ${f.tone}`}/><b>{f.label}</b></div>{f.tone==="stale"&&<strong>Data is stale—verify before acting.</strong>}{warnings.length>0&&<strong className="integrity-warning">⚠ Data integrity issue: {warnings[0]}{warnings.length>1?` (+${warnings.length-1} more)`:""}</strong>}<button onClick={onRefresh} disabled={loading}>{loading?"Refreshing…":"Refresh"}</button></section>}
+function Freshness({data,onRefresh,loading,phoneQuiet=false,loadFailed=false}:{data:FplData;onRefresh:()=>void;loading:boolean;phoneQuiet?:boolean;loadFailed?:boolean}){const f=freshness(data,{loadFailed});const warnings=data.dataIntegrityWarnings??[];const urgent=f.publicStatus==="not_connected"||warnings.length>0;return <section className={`freshness-strip ${f.tone}${phoneQuiet?" phone-quiet":""}${urgent?" has-urgent":""}`} aria-label="Data connection"><div><span className={`fresh-dot ${f.tone}`}/><b>{f.label}</b>{f.showDetail&&<small className="freshness-debug">{f.detailLabel}</small>}</div>{warnings.length>0&&<strong className="integrity-warning">⚠ Data integrity issue: {warnings[0]}{warnings.length>1?` (+${warnings.length-1} more)`:""}</strong>}<button onClick={onRefresh} disabled={loading}>{loading?"Refreshing…":"Refresh"}</button></section>}
 
 // Squad/watchlist/locks persist to the server (see app/lib/persistence.ts) when signed in via
 // either method below; both resolve to the same account (see app/lib/auth.ts).
@@ -1072,6 +1095,7 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
           {!decisionHold&&decision&&<>
             <span><small>{wildcardActive?"5-GW SQUAD Δ":"5-GW NET vs HOLD"}</small><b>{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference)>=0?"+":""}{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference).toFixed(1)}</b></span>
             <span><small>ADJUSTED 5-GW NET</small><b>{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore)>=0?"+":""}{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore).toFixed(1)}</b></span>
+            {!wildcardActive&&decision.nextGwGross!=null&&decision.holdNextGwGross!=null&&<span className="immediate-net-chip"><small>IMMEDIATE NET (THIS GW)</small><b>{((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost)>=0?"+":""}{((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost).toFixed(1)}</b></span>}
             <span><small>CONFIDENCE · RISK</small><b>{Math.round(decision.confidenceIn*100)}% · {decision.risk}</b></span>
           </>}
           {decisionHold&&<>
@@ -1079,6 +1103,7 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
             <span><small>{wildcardActive?"SQUAD Δ":"NET vs HOLD"}</small><b>0.0</b></span>
           </>}
         </div>
+        {!wildcardActive&&!decisionHold&&decision&&decision.nextGwGross!=null&&decision.holdNextGwGross!=null&&<p className="best-decision-immediate" aria-label="Immediate this-GW net">Immediate (this GW) net {(((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost)>=0)?"+":""}{((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost).toFixed(1)} — secondary to 5-GW NET above; expand any route for the full hit breakdown.</p>}
         <div className="engine-why" aria-label="Why">
           <span>WHY</span>
           <p className="engine-reason-hero">{decisionHold?(decision?.engineReason??(wildcardActive?"Wildcard KEEP: no swap clears the full-squad bar; unlimited changes remain until the deadline.":"Type-B HOLD: no transfer now; future free transfers stay available.")):(decision?.engineReason??"")}</p>
@@ -1433,7 +1458,7 @@ function Players({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:num
   const[special,setSpecial]=useState("ALL");
   const[more,setMore]=useState(false);
   const[showAdvanced,setShowAdvanced]=useState(false);
-  const[sort,setSort]=useState("xPts5");
+  const[sort,setSort]=useState("xPts1"); // Default matches primary Next GW column; 5-GW remains visible.
   const[direction,setDirection]=useState<"desc"|"asc">("desc");
   const[compare,setCompare]=useState<number[]>([]);
   const[watch,setWatch]=useState<number[]>([]);
@@ -1470,7 +1495,7 @@ function Players({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:num
       <button type="button" className={advancedActive?"players-filter-toggle is-active":"players-filter-toggle"} aria-expanded={showAdvanced} onClick={()=>setShowAdvanced(x=>!x)}>{showAdvanced?"Hide filters":"Filters"}{advancedActive&&!showAdvanced?" · on":""}</button>
     </div>
     <div className={showAdvanced?"players-filter-row players-filter-advanced is-open":"players-filter-row players-filter-advanced"}>
-      <select className="players-select" value={sort} onChange={e=>setSort(e.target.value)}>{[["xPts5","5-GW xPts"],["xPts1","Next GW xPts"],["xPts3","3-GW xPts"],["price","Price"],["selectedBy","Ownership"],["form","Form"],["totalPoints","Total points"],["pointsPerGame","Points per match"],["expectedGoals","xG"],["expectedAssists","xA"],["xgi90","xGI/90"],["goals","Goals"],["assists","Assists"],["cleanSheets","Clean sheets"],["defensiveContribution","Defensive contribution"],["expectedMinutes","Expected minutes"],["start","Start probability"],["fdr","Fixture rating"],["value","Value"]].map(x=><option value={x[0]} key={x[0]}>Sort: {x[1]}</option>)}</select>
+      <select className="players-select" value={sort} onChange={e=>setSort(e.target.value)}>{[["xPts1","Next GW xPts"],["xPts5","5-GW xPts"],["xPts3","3-GW xPts"],["price","Price"],["selectedBy","Ownership"],["form","Form"],["totalPoints","Total points"],["pointsPerGame","Points per match"],["expectedGoals","xG"],["expectedAssists","xA"],["xgi90","xGI/90"],["goals","Goals"],["assists","Assists"],["cleanSheets","Clean sheets"],["defensiveContribution","Defensive contribution"],["expectedMinutes","Expected minutes"],["start","Start probability"],["fdr","Fixture rating"],["value","Value"]].map(x=><option value={x[0]} key={x[0]}>Sort: {x[1]}</option>)}</select>
       <button type="button" className="players-direction" onClick={()=>setDirection(x=>x==="desc"?"asc":"desc")}>{direction==="desc"?"High → low":"Low → high"}</button>
       <select className="players-select" value={special} onChange={e=>setSpecial(e.target.value)}><option value="ALL">All roles</option><option value="DIFF">Differential under 10%</option><option value="PEN">Penalties</option><option value="SET">Set pieces</option><option value="WATCH">Watchlist</option></select>
       <label className="players-range">Max £{maxPrice.toFixed(1)}m<input type="range" min="4" max={realMaxPrice} step=".5" value={maxPrice} onChange={e=>setMaxPrice(Number(e.target.value))}/></label>
@@ -1842,12 +1867,13 @@ function LineupIntelligencePanel({data}:{data:FplData}){
 // navigates; LiveDraftBuilder.tsx's own load() consumes and clears it on mount.
 function StrategyBoard({data,go,revision}:{data:FplData;go:(v:View)=>void;revision:number}){
   const[plans,setPlans]=useState<readonly PersistedPlan[]>([]);
-  const[horizonMode,setHorizonMode]=useState<HorizonMode>("Balanced 5 GWs");
+  const[horizonMode,setHorizonMode]=useState<HorizonMode>("Balanced 5 GWs"); // internal id; UI via horizonModeLabel
   const[riskMode,setRiskMode]=useState<RiskMode>("Balanced");
   const[philosophy,setPhilosophy]=useState<SquadPhilosophy>("Maximum xPts");
   useEffect(()=>setPlans(readPlans()),[revision]);
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
   const complete=isCompleteSquad(squad,data);
+  const boardNextGwId=futureEvents(data,1)[0]?.id;
   // One optimizer instance, shared across every row -- the whole point of the Board is comparing
   // plans under one consistent evaluator, not whatever settings happened to be active when each
   // plan was individually saved (see PlanRow's settingsStale disclosure for that).
@@ -1880,7 +1906,7 @@ function StrategyBoard({data,go,revision}:{data:FplData;go:(v:View)=>void;revisi
   const editInDraftLab=(id:string)=>{localStorage.setItem(LOAD_PLAN_SIGNAL_KEY,id);go("draft")};
   return <div className="coach-page">
     <section className="board-intro"><div><span>MULTI-PLAN STRATEGY BOARD</span><h2>Compare up to {MAX_PLANS} saved transfer plans side by side.</h2><p>Every plan below is scored live under the Time Horizon / Risk Profile / Squad Philosophy settings selected here — a genuine apples-to-apples comparison, not whatever settings happened to be active in Draft Lab when each plan was saved.</p></div><button onClick={addPlan} disabled={plans.length>=MAX_PLANS||!complete}>{plans.length>=MAX_PLANS?`${MAX_PLANS} plans saved (maximum)`:!complete?"Complete your squad first":"New plan"}</button></section>
-    <section className="optimizer-controls"><div><span>TIME HORIZON</span>{(["GW1 Attack","Next 3 GWs","Balanced 5 GWs","Long-term 8 GWs"] as HorizonMode[]).map(mode=><button className={horizonMode===mode?"active":""} onClick={()=>setHorizonMode(mode)} key={mode}>{mode}</button>)}</div><div><span>RISK PROFILE</span>{(["Safe","Balanced","Aggressive"] as RiskMode[]).map(mode=><button className={riskMode===mode?"active":""} onClick={()=>setRiskMode(mode)} key={mode}>{mode}</button>)}</div><div><span>SQUAD PHILOSOPHY</span>{(["Maximum xPts","Flexible","Strong Bench","Premium Heavy","Differential"] as SquadPhilosophy[]).map(mode=><button className={philosophy===mode?"active":""} onClick={()=>setPhilosophy(mode)} key={mode}>{mode}</button>)}</div></section>
+    <section className="optimizer-controls"><div><span>TIME HORIZON</span>{(["GW1 Attack","Next 3 GWs","Balanced 5 GWs","Long-term 8 GWs"] as HorizonMode[]).map(mode=><button className={horizonMode===mode?"active":""} onClick={()=>setHorizonMode(mode)} key={mode}>{horizonModeLabel(mode,boardNextGwId)}</button>)}</div><div><span>RISK PROFILE</span>{(["Safe","Balanced","Aggressive"] as RiskMode[]).map(mode=><button className={riskMode===mode?"active":""} onClick={()=>setRiskMode(mode)} key={mode}>{mode}</button>)}</div><div><span>SQUAD PHILOSOPHY</span>{(["Maximum xPts","Flexible","Strong Bench","Premium Heavy","Differential"] as SquadPhilosophy[]).map(mode=><button className={philosophy===mode?"active":""} onClick={()=>setPhilosophy(mode)} key={mode}>{mode}</button>)}</div></section>
     {!plans.length?<div className="empty-watch"><b>No saved plans yet.</b><p>Build a scenario in Draft Lab, make at least one sandbox transfer, then press "Save as plan" to bring it here.</p></div>:<section className="board-plans">{plans.map(plan=><PlanRow key={plan.id} plan={plan} data={data} optimizer={optimizer} horizonMode={horizonMode} riskMode={riskMode} philosophy={philosophy} onRename={()=>renamePlan(plan.id)} onDelete={()=>deletePlan(plan.id)} onEdit={()=>editInDraftLab(plan.id)}/>)}</section>}
   </div>;
 }
@@ -2401,7 +2427,7 @@ function AccuracyDashboard({data,rows,weeks=[]}:{data:FplData;rows:EvaluationRow
     <nav className="model-version-tabs" aria-label="Accuracy model version">{availableVersions.map(version=><button className={selectedVersion===version?"active":""} onClick={()=>setSelectedVersion(version)} key={version}><span>{modelDisplayName(version)}</span><small>{groupedVersions.get(version)?.length??0} evaluated GW</small></button>)}</nav>
     <p className="model-comparability-note"><b>{modelDisplayName(selectedVersion)}</b> only. Metrics below never combine forecasts made by different model generations.</p>
     {versionSummaries.length>1&&<section className="version-comparison"><header><span>VERSION COMPARISON</span><small>Separate cohorts · lower error is better · fewer than 5 GWs is early evidence</small></header><div>{versionSummaries.map(summary=><button className={selectedVersion===summary.version?"active":""} onClick={()=>setSelectedVersion(summary.version)} key={summary.version}><strong>{modelDisplayName(summary.version)}</strong><span>{summary.rows} GW{summary.rows===1?"":"s"}{summary.rows<5?" · early sample":""}</span><dl><div><dt>xPts MAE</dt><dd>{fmtMetric(summary.metric.pointsMae)}</dd></div><div><dt>Start Brier</dt><dd>{fmtMetric(summary.metric.startBrier,3)}</dd></div><div><dt>Captain MAE</dt><dd>{fmtMetric(summary.captainMae)}</dd></div><div><dt>Top route</dt><dd>{summary.topGain===null?"—":`${summary.topGain>=0?"+":""}${summary.topGain.toFixed(2)}`}</dd></div></dl></button>)}</div></section>}
-    {!playerRows.length?<div className="accuracy-empty"><b>No calibration sample yet.</b><p>Final Check auto-stores a pre-deadline snapshot each GW (and Lock This Team refreshes it). Connect your FPL Team ID; this dashboard activates after FPL publishes the finished gameweek.</p></div>:<>
+    {!playerRows.length?<div className="accuracy-empty"><b>No calibration sample yet.</b><p>Final Check auto-stores a pre-deadline snapshot each GW (and Lock This Team refreshes it). Connect your FPL Team ID; this dashboard activates after FPL publishes the finished gameweek. Public <code>/api/fpl/accuracy</code> keeps <code>report: null</code> on purpose (no private receipts server-side) — History MAE here is the graded surface.</p></div>:<>
       <div className="accuracy-kpis">
         <article><span>xPTS MAE</span><b>{fmtMetric(overall.pointsMae)}</b><small>{overall.activeRows} active player forecasts</small></article>
         <article><span>START BRIER</span><b>{fmtMetric(overall.startBrier,3)}</b><small>0 is perfect · {overall.rows} probabilities</small></article>

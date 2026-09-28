@@ -61,6 +61,9 @@ async function writeBucket(bucket: RateLimitBucket): Promise<void> {
  * Atomic failed-attempt increment (single SQL statement).
  * Avoids read-modify-write races where concurrent failures could all read failCount=4 and never lock.
  * Window reset + block-at-maxFails are expressed in SQL so concurrent writers serialize on the row.
+ * Expected limits (see LOGIN_RATE_LIMIT): maxFails inside windowMs → blockedUntil for blockMs;
+ * same email/IP concurrent attempts must not double-count past the threshold or skip the lock.
+ * Pure mirror for tests: applyAtomicLoginFailureIncrement in login-rate-limit.ts.
  */
 export async function incrementLoginFailureAtomic(
   key: string,

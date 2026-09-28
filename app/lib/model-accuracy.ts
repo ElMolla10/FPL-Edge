@@ -228,6 +228,9 @@ export function buildAccuracyReport(
 
 /** Public JSON shape for /api/fpl/accuracy (no PII). */
 export function publishAccuracyPayload(report: AccuracyReport | null, generatedAt: string) {
+  const reportNullReason = report
+    ? null
+    : "report is null because this endpoint never publishes private receipt rows. Graded MAE lives in-app under History → Model accuracy (and AutoProjectionSnapshot locks) after a pre-deadline snapshot and a finished gameweek — season pass. No PII is exposed here.";
   return {
     generatedAt,
     source: "fpl-edge-receipt-evaluations",
@@ -243,5 +246,6 @@ export function publishAccuracyPayload(report: AccuracyReport | null, generatedA
           byConfidence: report.byConfidence,
         }
       : null,
+    reportNullReason,
   };
 }

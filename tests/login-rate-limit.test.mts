@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
   LOGIN_RATE_LIMIT,
+  applyAtomicLoginFailureIncrement,
   clientIpFromRequest,
   evaluateLoginRateLimit,
   normalizeLoginEmail,
@@ -69,4 +70,45 @@ test("recordLoginFailure store uses atomic SQL increment (no read-modify-write)"
   // Must not call registerLoginFailure inside recordLoginFailure (RMW race).
   const recordBody = src.slice(src.indexOf("export async function recordLoginFailure"));
   assert.doesNotMatch(recordBody, /registerLoginFailure/);
+});
+
+test("applyAtomicLoginFailureIncrement: concurrent same-key increments hit threshold exactly once", async () => {
+  // Simulate parallel writers that each apply the atomic CASE once (SQLite serializes ON CONFLICT).
+  // A naive RMW (all read failCount=4 then write 5) would under-count; this mirror must not.
+  const t0 = Date.parse("2026-09-28T12:00:00.000Z");
+  let shared: ReturnType<typeof applyAtomicLoginFailureIncrement> | null = null;
+  const queue: Promise<void> = Promise.resolve();
+  let chain = queue;
+  const tasks = Array.from({ length: LOGIN_RATE_LIMIT.maxFails }, (_, i) => {
+    const run = async () => {
+      // Serialize applications the way a row lock would — each call sees prior result.
+      shared = applyAtomicLoginFailureIncrement(shared, t0 + i);
+    };
+    const scheduled = chain.then(run);
+    chain = scheduled;
+    return scheduled;
+  });
+  await Promise.all(tasks);
+  assert.ok(shared);
+  assert.equal(shared!.failCount, LOGIN_RATE_LIMIT.maxFails);
+  assert.ok(shared!.blockedUntil, "must set blockedUntil at maxFails (no bypass under concurrency)");
+  // One more attempt inside the window increments further and keeps the block.
+  shared = applyAtomicLoginFailureIncrement(shared, t0 + LOGIN_RATE_LIMIT.maxFails);
+  assert.equal(shared.failCount, LOGIN_RATE_LIMIT.maxFails + 1);
+  assert.ok(shared.blockedUntil);
+});
+
+test("applyAtomicLoginFailureIncrement resets after window expiry", () => {
+  const t0 = Date.parse("2026-09-28T12:00:00.000Z");
+  let bucket = applyAtomicLoginFailureIncrement(null, t0);
+  for (let i = 1; i < LOGIN_RATE_LIMIT.maxFails; i++) {
+    bucket = applyAtomicLoginFailureIncrement(bucket, t0 + i * 1000);
+  }
+  assert.ok(bucket.blockedUntil);
+  const afterWindow = applyAtomicLoginFailureIncrement(
+    bucket,
+    t0 + LOGIN_RATE_LIMIT.windowMs + 1,
+  );
+  assert.equal(afterWindow.failCount, 1);
+  assert.equal(afterWindow.blockedUntil, null);
 });

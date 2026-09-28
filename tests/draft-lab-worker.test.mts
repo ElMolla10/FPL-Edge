@@ -63,7 +63,7 @@ test("executeDraftLabOptimizeRequest runs Practical Upgrade off the main thread 
     priorExpectedGoals: 15, priorExpectedAssists: 10, priorMinutes: 2500, priorStarts: 30, teamId: 910,
   });
   const data = makeData([...squad, upgrade]);
-  const progress: string[] = [];
+  const progress: { phase: string; detail: string; step: number; totalSteps: number; percent: number }[] = [];
   const result = executeDraftLabOptimizeRequest(
     {
       type: "optimize",
@@ -78,7 +78,7 @@ test("executeDraftLabOptimizeRequest runs Practical Upgrade off the main thread 
       practicalMaxChanges: 3,
       keepCoreMaxChanges: 4,
     },
-    (p) => progress.push(p.phase),
+    (p) => progress.push({ phase: p.phase, detail: p.detail, step: p.step, totalSteps: p.totalSteps, percent: p.percent }),
   );
   assert.equal(result.type, "result");
   if (result.type === "result") {
@@ -87,8 +87,13 @@ test("executeDraftLabOptimizeRequest runs Practical Upgrade off the main thread 
     assert.ok(result.durationMs >= 0);
     assert.match(result.modeLabel, /Practical Upgrade/);
   }
-  assert.ok(progress.includes("started"));
-  assert.ok(progress.includes("finished"));
+  assert.ok(progress.some((p) => p.phase === "started"));
+  assert.ok(progress.some((p) => p.phase === "searching"));
+  assert.ok(progress.some((p) => p.phase === "finished"));
+  assert.ok(progress.every((p) => p.totalSteps === 3 && p.step >= 1 && p.step <= 3));
+  assert.ok(progress.some((p) => /Step 1\/3/.test(p.detail)));
+  assert.ok(progress.some((p) => /Step 2\/3/.test(p.detail)));
+  assert.ok(progress.some((p) => p.percent === 100));
 });
 
 test("executeDraftLabOptimizeRequest preserves requestId on failure", () => {
@@ -142,7 +147,9 @@ test("executeDraftLabOptimizeRequest labels follow the request's own settings", 
   });
   assert.equal(a.type, "result");
   if (a.type === "result") {
-    assert.match(a.modeLabel, /GW1 Attack/);
+    // Internal id is still "GW1 Attack"; modeLabel must show live next GW (6 in this fixture).
+    assert.match(a.modeLabel, /GW6 Attack/);
+    assert.doesNotMatch(a.modeLabel, /GW1 Attack/);
     assert.match(a.modeLabel, /Safe/);
     assert.match(a.modeLabel, /Differential/);
   }

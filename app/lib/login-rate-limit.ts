@@ -105,6 +105,31 @@ export function registerLoginFailure(
   };
 }
 
+/**
+ * Mirrors incrementLoginFailureAtomic SQL CASE semantics (single-writer / serialized row update).
+ * Concurrent same-key attempts must each apply this once; RMW "read 4 → write 5" races are what
+ * the store's ON CONFLICT UPDATE avoids. Expected limits: maxFails within windowMs → blockedUntil
+ * for blockMs; window expiry resets failCount to 1.
+ */
+export function applyAtomicLoginFailureIncrement(
+  existing: Pick<RateLimitBucket, "failCount" | "windowStartedAt" | "blockedUntil"> | null,
+  nowMs: number = Date.now(),
+): Pick<RateLimitBucket, "failCount" | "windowStartedAt" | "blockedUntil"> {
+  const nowIso = new Date(nowMs).toISOString();
+  const windowStartCutoff = nowMs - LOGIN_RATE_LIMIT.windowMs;
+  const inWindow =
+    existing != null && Number.isFinite(Date.parse(existing.windowStartedAt))
+      ? Date.parse(existing.windowStartedAt) >= windowStartCutoff
+      : false;
+  const failCount = inWindow && existing ? existing.failCount + 1 : 1;
+  const windowStartedAt = inWindow && existing ? existing.windowStartedAt : nowIso;
+  const blockedUntil =
+    failCount >= LOGIN_RATE_LIMIT.maxFails
+      ? new Date(nowMs + LOGIN_RATE_LIMIT.blockMs).toISOString()
+      : null;
+  return { failCount, windowStartedAt, blockedUntil };
+}
+
 export function clearLoginRateLimitBucket(
   key: string,
   kind: "email" | "ip",
