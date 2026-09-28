@@ -302,7 +302,7 @@ function Page({view,data,go,revision,onTeamChange,desk,onUpgrade,onLoadExample,e
   if(desk==="free"&&view==="board")return <SeasonLocked feature="Multi-week transfer planning is part of the season pass." onUpgrade={onUpgrade}/>;
   if(desk==="free"&&view==="history")return <SeasonLocked feature="Decision history is part of the season pass." onUpgrade={onUpgrade}/>;
   const fullDesk=desk!=="free";
-  if(view==="overview")return <Overview data={data} go={go} revision={revision} onTeamChange={onTeamChange} onLoadExample={onLoadExample} exampleActive={exampleActive} onClearExample={onClearExample}/>;
+  if(view==="overview")return <Overview data={data} go={go} revision={revision} onTeamChange={onTeamChange} onLoadExample={onLoadExample} onClearExample={onClearExample}/>;
   if(view==="team")return <Team data={data} go={go} revision={revision} onTeamChange={onTeamChange} fullDesk={fullDesk} onUpgrade={onUpgrade}/>;
   if(view==="transfers")return <Transfers data={data} go={go} revision={revision} onTeamChange={onTeamChange} fullDesk={fullDesk} onUpgrade={onUpgrade}/>;
   if(view==="league")return <MiniLeagueWarRoom revision={revision} onGoToTeam={()=>go("team")}/>;
@@ -486,6 +486,24 @@ export function withModelUtilityChange(rows:Transfer[],squad:FplPlayer[],optimiz
   return sortTransfersByQuality(adjustedRows);
 }
 
+/** Shared Transfers ranking pipeline before selectBestDecision: deep limit 60 + model utility.
+ *  Overview deferred deep must call this (not hang-safe restricted budgets alone) so BEST DECISION matches. */
+export function rankTransfersForBestDecision(
+  data:FplData,
+  squad:FplPlayer[],
+  bank:number,
+  freeTransfers:number,
+  sellingPrices:Map<number,number>,
+  optimizer:ReturnType<typeof createOptimizer>|null,
+  options?:{wildcardActive?:boolean},
+):Transfer[]{
+  const base=bestTransfers(data,squad,bank,freeTransfers,60,sellingPrices,{
+    mode:"deep",
+    wildcardActive:options?.wildcardActive===true,
+  });
+  return withModelUtilityChange(base,squad,optimizer);
+}
+
 function OverviewDeadlineStrip({event}:{event:{name:string;deadline:string}}){
   const[now,setNow]=useState(Date.now());
   useEffect(()=>{const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[]);
@@ -494,7 +512,7 @@ function OverviewDeadlineStrip({event}:{event:{name:string;deadline:string}}){
   const clock=`${d?`${d}d `:""}${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
   return <section className="overview-deadline" aria-label="Gameweek deadline">
     <div><span>GAMEWEEK DEADLINE</span><h2>{event.name}</h2>
-      <p>{new Date(event.deadline).toLocaleString([],{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZoneName:"short"})}</p>
+      <p className="overview-deadline-when">{new Date(event.deadline).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
     </div>
     <div className="overview-countdown" aria-label="Countdown"><small>COUNTDOWN</small><b>{clock}</b></div>
   </section>;
@@ -505,16 +523,17 @@ function rankingFreeTransfersForDecision(meta:ManagerMeta|null|undefined):number
   return authoritativeFreeTransfers(meta);
 }
 
-function Overview({data,go,revision,onTeamChange,onLoadExample,exampleActive,onClearExample}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;onLoadExample:()=>void;exampleActive:boolean;onClearExample:()=>void}){
+function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void;onLoadExample:()=>void;onClearExample:()=>void}){
   const[meta,setMeta]=useManager(revision);
   const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);
   const a=analysis(data,squad);
   const finance=useMemo(()=>deriveSandboxFinancialContext(squad,data.rules.budget,meta),[squad,data.rules.budget,meta]);
   const wildcardActive=managerWildcardActive(meta);
   const fts=rankingFreeTransfersForDecision(meta);
+  const optimizer=useMemo(()=>createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"),[data]);
   // ASSERT — hang-safe Overview path (OVERVIEW_HANG_HOTFIX): sync shallow first paint; deep only via scheduleDeferred.
-  // Do NOT reintroduce blocking planner work or OVERVIEW_TRANSFER_RULES edits.
-  // BEST DECISION uses selectBestDecision — same selector + FT/hit/wildcard inputs as Transfers.
+  // Do NOT reintroduce blocking planner work on the critical path. Deferred deep uses the SAME Transfers
+  // pipeline (limit 60 + withModelUtilityChange via rankTransfersForBestDecision) so BEST DECISION matches.
   const shallowMoves=useMemo(()=>{
     if(!a||finance.source==="unavailable"||isRankingFinanceUnavailable(meta))return [] as Transfer[];
     return bestTransfers(data,squad,finance.baselineBank,fts,12,finance.baselineSellingPrices,{profile:"overview",mode:"shallow",wildcardActive});
@@ -525,17 +544,15 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,exampleActive,onC
     if(!a||finance.source==="unavailable"||isRankingFinanceUnavailable(meta))return;
     const handle=scheduleDeferred(()=>{
       try{
-        // Deferred deep upgrade: same mode/wildcard/FT/bank as Transfers; hang-safe budgets kept on Overview.
-        const upgraded=bestTransfers(data,squad,finance.baselineBank,fts,12,finance.baselineSellingPrices,{
-          mode:"deep",
-          wildcardActive,
-          rules:{maxEvalCandidates:16,maxPlanNodes:2500,planTimeBudgetMs:120,futureBeamWidth:4,candidatePoolPerPosition:8},
-        });
+        // Deferred deep upgrade: identical ranking/utility pipeline as Transfers (not hang-safe restricted budgets).
+        const upgraded=rankTransfersForBestDecision(
+          data,squad,finance.baselineBank,fts,finance.baselineSellingPrices,optimizer,{wildcardActive},
+        );
         setMoves(upgraded);
       }catch{/* keep shallow */}
     },{timeout:500,delayMs:50});
     return()=>handle.cancel();
-  },[data,squad,finance,meta,shallowMoves,a,fts,wildcardActive]);
+  },[data,squad,finance,meta,shallowMoves,a,fts,wildcardActive,optimizer]);
   const decision=selectBestDecision(moves);
   const decisionHold=Boolean(!decision||decision.isHold||decision.classification==="HOLD");
   const decisionClass=decisionHold?(wildcardActive?"KEEP":"HOLD"):(decision!.classification??"MAKE");
@@ -581,9 +598,8 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,exampleActive,onC
     ?"reconnect FPL for live bank"
     :meta?(meta.bankSource==="live-my-team"?"live FPL transfer bank":meta.liveOverlayError?"live bank unavailable":"official public data"):"builder estimate";
 
-  return <div className="coach-page">
-    {exampleActive&&<section className="example-squad-banner" role="status"><span>EXAMPLE</span><b>{EXAMPLE_SQUAD_LABEL}</b><p>Interactive demo on live data — sign in to replace this with your official team.</p></section>}
-
+  return <div className="coach-page overview-command">
+    {/* Demo banner lives in coach chrome once — omit duplicate here so captain+projected stay above the fold. */}
     <OverviewDeadlineStrip event={next}/>
 
     {/* Known finance / chip only — no freshness tech chip (public Connected/Not connected lives in header/sidebar from #89). */}
@@ -1169,22 +1185,22 @@ function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:FplD
   const rankingBlocked=finance.source==="unavailable"||isRankingFinanceUnavailable(meta);
   const bank=finance.baselineBank;
   const sellingPrices=finance.baselineSellingPrices;
-  const [baseRows,setBaseRows]=useState<Transfer[]>([]);
+  const [rows,setRows]=useState<Transfer[]>([]);
   useEffect(()=>{
-    if(!a||rankingBlocked){setBaseRows([]);return;}
+    if(!a||rankingBlocked){setRows([]);return;}
     let cancelled=false;
     // Deep type-B ranking is deferred off first paint (idle / timeout) — never sync-hang Transfers.
+    // Shared with Overview deferred deep via rankTransfersForBestDecision (limit 60 + model utility).
     const handle=scheduleDeferred(()=>{
       if(cancelled)return;
       try{
-        setBaseRows(bestTransfers(data,squad,bank,fts,60,sellingPrices,{mode:"deep",wildcardActive}));
+        setRows(rankTransfersForBestDecision(data,squad,bank,fts,sellingPrices,optimizer,{wildcardActive}));
       }catch{
-        if(!cancelled)setBaseRows([]);
+        if(!cancelled)setRows([]);
       }
     },{timeout:600,delayMs:16});
     return ()=>{cancelled=true;handle.cancel()};
-  },[data,squad,bank,fts,a,sellingPrices,rankingBlocked,wildcardActive]);
-  const rows=useMemo(()=>withModelUtilityChange(baseRows,squad,optimizer),[baseRows,squad,optimizer]);
+  },[data,squad,bank,fts,a,sellingPrices,rankingBlocked,wildcardActive,optimizer]);
   const routes=useMemo(()=>rankingBlocked?[]:solveTransferRoutes(data,squad,bank,{horizon:routeHorizon,freeTransfers:fts,maxWeeklyHit,sellingPrices,resultLimit:4,plannedChips:readPlannedChips()}),[data,squad,bank,fts,routeHorizon,maxWeeklyHit,sellingPrices,rankingBlocked]);
   const best=selectPrimaryTransfer(rows);const roll=!best;
   const decision=selectBestDecision(rows);

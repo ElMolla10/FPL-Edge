@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { selectBestDecision, type Transfer } from "../app/lib/transfers.ts";
+import {
+  selectBestDecision,
+  type Transfer,
+} from "../app/lib/transfers.ts";
+import {
+  withModelUtilityChange,
+  rankTransfersForBestDecision,
+} from "../app/components/CoachApp.tsx";
+import type { FplData, FplPlayer } from "../app/lib/fpl.ts";
 
 const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
 function overviewSource(): string {
   const start = coach.indexOf("function Overview(");
@@ -28,10 +37,10 @@ function holdRow(partial: Partial<Transfer> = {}): Transfer {
   } as Transfer;
 }
 
-function moveRow(classification: "MAKE" | "LEAN" | "WATCH", net: number): Transfer {
+function moveRow(classification: "MAKE" | "LEAN" | "WATCH", net: number, ids = { out: 1, incoming: 2 }): Transfer {
   return {
-    out: { id: 1, name: "Out Player" } as Transfer["out"],
-    incoming: { id: 2, name: "In Player" } as Transfer["incoming"],
+    out: { id: ids.out, name: `Out ${ids.out}` } as Transfer["out"],
+    incoming: { id: ids.incoming, name: `In ${ids.incoming}` } as Transfer["incoming"],
     gain1: net, gain3: net, gain5: net,
     individualGain1: net, individualGain3: net, individualGain5: net,
     minutes: 10, risk: "Low", confidenceIn: 0.8, priceDelta: 0,
@@ -59,20 +68,20 @@ test("Overview BEST DECISION selector matches Transfers vocabulary (MAKE/LEAN/HO
   assert.match(overview, /managerWildcardActive\(meta\)/);
 });
 
-test("Overview preserves hang-safe shallow-first then deferred deep path", () => {
+test("Overview preserves hang-safe shallow-first then deferred deep shared Transfers path", () => {
   const overview = overviewSource();
   assert.match(overview, /profile:"overview"/);
   assert.match(overview, /mode:"shallow"/);
   assert.match(overview, /scheduleDeferred/);
-  assert.match(overview, /mode:"deep"/);
-  assert.match(overview, /maxEvalCandidates:\s*16/);
-  assert.match(overview, /planTimeBudgetMs:\s*120/);
-  // Deep bestTransfers must sit inside the scheduleDeferred callback, not on first paint.
+  // Deferred deep must use the shared Transfers ranking+utility pipeline — not restricted hang-safe budgets alone.
+  assert.match(overview, /rankTransfersForBestDecision\(/);
+  assert.doesNotMatch(overview, /maxEvalCandidates:\s*16/);
+  assert.doesNotMatch(overview, /planTimeBudgetMs:\s*120/);
   const shallowIdx = overview.indexOf('mode:"shallow"');
   const deferredIdx = overview.indexOf("scheduleDeferred(()");
-  const deepIdx = overview.indexOf('mode:"deep"');
+  const sharedIdx = overview.indexOf("rankTransfersForBestDecision(");
   assert.ok(shallowIdx >= 0 && deferredIdx > shallowIdx, "shallow sync must precede deferred deep call");
-  assert.ok(deepIdx > deferredIdx, "deep upgrade must be inside scheduleDeferred callback");
+  assert.ok(sharedIdx > deferredIdx, "shared Transfers deep path must be inside scheduleDeferred callback");
 });
 
 test("Overview signed-out / incomplete-squad empty states stay action-first (no fake personal team)", () => {
@@ -97,31 +106,14 @@ test("Overview does not reintroduce tech freshness chip; jumps to Final Check / 
   assert.match(overview, /OverviewDeadlineStrip|COUNTDOWN|GAMEWEEK DEADLINE/);
 });
 
-test("selectBestDecision is shared: same rows → same BEST DECISION for Overview and Transfers", () => {
-  const hold = holdRow();
-  const lean = moveRow("LEAN", 1.5);
-  const make = moveRow("MAKE", 4.2);
-  const watch = moveRow("WATCH", 0.4);
-
-  // Transfers page hero uses selectBestDecision(rows); Overview must too.
-  assert.equal(selectBestDecision([watch, hold])?.classification, "HOLD");
-  assert.equal(selectBestDecision([watch, hold, lean])?.classification, "LEAN");
-  assert.equal(selectBestDecision([watch, hold, lean, make])?.classification, "MAKE");
-  assert.equal(selectBestDecision([make, lean, hold])?.out.name, "Out Player");
-  assert.equal(selectBestDecision([make, lean, hold])?.incoming.name, "In Player");
-  assert.equal(selectBestDecision([make, lean, hold])?.fiveGwNetVsHold, 4.2);
-
-  // Empty / pending deep upgrade: HOLD when nothing actionable
-  assert.equal(selectBestDecision([]) , null);
-});
-
-test("Transfers page still owns the full BEST DECISION hero (Overview is a teaser)", () => {
+test("Transfers page still owns the full BEST DECISION hero and shared ranking helper", () => {
   assert.match(coach, /best-decision-hero/);
   assert.match(coach, /function Transfers\(/);
   const transfersStart = coach.indexOf("function Transfers(");
-  const transfersSlice = coach.slice(transfersStart, transfersStart + 12000);
+  const transfersSlice = coach.slice(transfersStart, transfersStart + 14000);
   assert.match(transfersSlice, /selectBestDecision\(/);
   assert.match(transfersSlice, /BEST DECISION/);
+  assert.match(transfersSlice, /rankTransfersForBestDecision\(/);
 });
 
 test("Overview known-state strip shows bank/FT/chip only when known — no invented personal data", () => {
@@ -131,4 +123,73 @@ test("Overview known-state strip shows bank/FT/chip only when known — no inven
   assert.match(overview, /liveFtKnown/);
   assert.match(overview, /Set in Transfers/);
   assert.match(overview, /plannedChip/);
+});
+
+test("countdown uses theme text color (readable on dark surface-card), not hardcoded --ink", () => {
+  assert.match(css, /\.overview-countdown b\{[^}]*color:\s*var\(--text\)/);
+  assert.doesNotMatch(css, /\.overview-countdown b\{[^}]*color:\s*var\(--ink\)/);
+});
+
+test("model utility pipeline can flip BEST DECISION — identical mock rows alone are not enough", () => {
+  const hold = holdRow();
+  // Two MAKE rows: raw rankScore prefers A; Transfers applies withModelUtilityChange before selectBestDecision.
+  const makeA = moveRow("MAKE", 3.0, { out: 10, incoming: 20 });
+  const makeB = moveRow("MAKE", 2.5, { out: 11, incoming: 21 });
+  // Engine rows arrive quality-sorted; selectBestDecision uses find(MAKE) on that order.
+  // Without utility, higher raw rankScore MAKE (A) stays first.
+  const rawDecision = selectBestDecision([hold, makeA, makeB]);
+  assert.equal(rawDecision?.incoming.name, "In 20", "without utility, first MAKE in engine order wins");
+
+  const squad = [
+    { id: 10, name: "Out 10" },
+    { id: 11, name: "Out 11" },
+  ] as FplPlayer[];
+  // Utility boosts B enough (+2.0 rankScore from clamped utilityChange 10 * 0.2) to overtake A.
+  const optimizer = {
+    evaluate: (players: FplPlayer[]) => {
+      if (players.some((p) => p.id === 21)) return { objective: 50 }; // B swap
+      return { objective: 0 }; // baseline / A swap
+    },
+  } as unknown as Parameters<typeof withModelUtilityChange>[2];
+
+  const adjusted = withModelUtilityChange([hold, makeA, makeB], squad, optimizer);
+  const decision = selectBestDecision(adjusted);
+  assert.equal(decision?.classification, "MAKE");
+  assert.equal(decision?.incoming.name, "In 21", "utility-adjusted ranking must be able to change which MAKE wins");
+  assert.notEqual(
+    rawDecision?.incoming.id,
+    decision?.incoming.id,
+    "raw engine rows vs utility-adjusted rows must disagree — Overview omitting withModelUtilityChange is the bug class",
+  );
+});
+
+test("rankTransfersForBestDecision matches Transfers composition (limit 60 deep + utility)", () => {
+  // Source contract: helper is the single shared pipeline both pages call.
+  assert.match(coach, /export function rankTransfersForBestDecision/);
+  assert.match(coach, /bestTransfers\(data,squad,bank,freeTransfers,60,sellingPrices/);
+  assert.match(coach, /withModelUtilityChange\(base,squad,optimizer\)/);
+
+  // Empty / incomplete inputs stay empty (no invented decision).
+  const empty = rankTransfersForBestDecision(
+    { players: [], fixtures: [], events: [], teams: [], rules: { budget: 100, squadSize: 15, teamLimit: 3, positions: [] }, updatedAt: "", source: "test", seasonStatsThrough: 0 } as FplData,
+    [],
+    0,
+    1,
+    new Map(),
+    null,
+  );
+  assert.deepEqual(empty, []);
+  assert.equal(selectBestDecision(empty), null);
+});
+
+test("Overview deferred deep and Transfers both call rankTransfersForBestDecision (not selector-only share)", () => {
+  const overview = overviewSource();
+  const transfersStart = coach.indexOf("function Transfers(");
+  const transfersSlice = coach.slice(transfersStart, transfersStart + 14000);
+  assert.match(overview, /rankTransfersForBestDecision\(/);
+  assert.match(transfersSlice, /rankTransfersForBestDecision\(/);
+  // Overview must still keep shallow-first; Transfers must not call restricted overview budgets for the hero.
+  assert.match(overview, /mode:"shallow"/);
+  assert.doesNotMatch(transfersSlice, /profile:"overview"/);
+  assert.doesNotMatch(transfersSlice, /maxEvalCandidates:\s*16/);
 });
