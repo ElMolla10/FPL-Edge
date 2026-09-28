@@ -63,6 +63,7 @@ export function writeLocalTeamCache(options: {
   entry: string;
   manager: TeamApiManagerSnapshot;
 }) {
+  try{localStorage.removeItem("fpl-edge-example-squad");localStorage.removeItem("fpl-edge-example-squad-ids")}catch{/* ignore */}
   localStorage.setItem("fpl-edge-squad", JSON.stringify(options.squadIds));
   localStorage.setItem("fpl-edge-entry", options.entry);
   localStorage.setItem("fpl-edge-manager", JSON.stringify(options.manager));

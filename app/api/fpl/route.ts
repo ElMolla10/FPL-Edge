@@ -1,6 +1,7 @@
 import { accumulateLiveStats, attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile, seasonStatsThroughEvent, type FplEvent } from "../../lib/fpl";
 import { buildTeamQualityProfiles, teamCleanSheetsFromFixtures, teamSeasonStatSum } from "../../lib/team-quality";
 import priorSeasonSnapshot from "../../data/prior-season-2025-26.json";
+import { FPL_EDGE_CACHE_MAX_AGE_SECONDS, officialFetchedAtFromResponses } from "../../lib/data-freshness";
 
 const BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/";
 const FIXTURES_URL = "https://fantasy.premierleague.com/api/fixtures/";
@@ -38,7 +39,8 @@ export async function GET() {
       throw new Error(`Official FPL feed returned ${bootstrapResponse.status}/${fixturesResponse.status}`);
     }
 
-    const officialFetchedAt = new Date().toISOString();
+    // Timestamp = when official upstream was actually obtained (Date/Age headers), not Edge rebuild time.
+    const officialFetchedAt = officialFetchedAtFromResponses([bootstrapResponse, fixturesResponse]);
     const bootstrap = await bootstrapResponse.json();
     const fixtures = await fixturesResponse.json();
     const statsEvents = bootstrap.events.filter((event: any) => event.is_current || event.started || event.finished);
@@ -88,7 +90,7 @@ export async function GET() {
       updatedAt: edgeCalculatedAt,
       edgeCalculatedAt,
       officialFetchedAt,
-      cacheMaxAgeSeconds: 300,
+      cacheMaxAgeSeconds: FPL_EDGE_CACHE_MAX_AGE_SECONDS,
       source: BOOTSTRAP_URL,
       seasonStatsThrough: seasonStatsThroughEvent(bootstrap.events, fixtures),
       rules: {

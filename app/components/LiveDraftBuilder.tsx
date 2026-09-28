@@ -19,6 +19,7 @@ import PersonalTransferPlace from "./PersonalTransferPlace";
 import { Chip, chipScoresForEvent, useConnectedChipHistory } from "./LiveIntelligence";
 import { horizonModeLabel, immediateGwGapLabel } from "../lib/horizon-labels";
 import type { DraftLabOptimizeRequest, DraftLabWorkerResponse } from "../lib/draft-lab-worker";
+import { isExampleSquadActive, readActiveSquadIds, writeActiveSquadIds } from "../lib/example-squad";
 
 // Shared by the List tab (standalone) and the Report tab (alongside Budget/Strategy in the same
 // optimizer-grid) so the XI/bench summary exists in exactly one place, not two copies of the same
@@ -200,7 +201,7 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
   const{connectedEntry,historyChips}=useConnectedChipHistory();
   const poolRef=useRef<HTMLElement>(null);
   const searchRef=useRef<HTMLInputElement>(null);
-  const load = async () => { setLoading(true); setError(""); try { const response=await fetch(`/api/fpl?refresh=${Date.now()}`,{cache:"no-store"}); const json=await response.json(); if(!response.ok) throw new Error(json.error||"Could not load FPL data"); let restored:Player[]=[];let restoredManager:ManagerMeta|null=null;try{const ids:number[]=JSON.parse(localStorage.getItem("fpl-edge-squad")||"[]");restored=ids.map(id=>json.players.find((p:Player)=>p.id===id)).filter(Boolean);restoredManager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null");const stamp=localStorage.getItem("fpl-edge-squad-saved-at");if(stamp)setSavedAt(new Date(stamp).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}))}catch{}
+  const load = async () => { setLoading(true); setError(""); try { const response=await fetch(`/api/fpl?refresh=${Date.now()}`,{cache:"no-store"}); const json=await response.json(); if(!response.ok) throw new Error(json.error||"Could not load FPL data"); let restored:Player[]=[];let restoredManager:ManagerMeta|null=null;try{const ids:number[]=readActiveSquadIds();restored=ids.map(id=>json.players.find((p:Player)=>p.id===id)).filter(Boolean);restoredManager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null");const stamp=localStorage.getItem("fpl-edge-squad-saved-at");if(stamp)setSavedAt(new Date(stamp).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}))}catch{}
     // A pending "load this plan" signal (written by the Strategy Board just before navigating here)
     // takes priority over the normal saved-squad restore. Consumed exactly once and cleared
     // immediately, so a later unrelated reload of Draft Lab never re-triggers it -- the no-signal
@@ -361,6 +362,8 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
   const bank=Math.max(0,currentFinances?.finalBank??0);
   const cancelBuildBestSquad=()=>{
     searchRequestRef.current+=1;
+    try{draftWorkerRef.current?.terminate()}catch{/* ignore */}
+    draftWorkerRef.current=null;
     setSearchRunning(false);
     setSearchProgress("");
     setMessage("Build cancelled. Previous result kept.");
@@ -368,6 +371,9 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
   const buildBestSquad=()=>{
     if(!data)return;
     if(resultMode!=="Pure Optimum"&&!complete){setMessage(`${resultMode} builds from your current squad — complete all 15 slots first, or switch to Pure Optimum.`);return;}
+    // Supersede any in-flight search: terminate so prior settings/compute cannot finish late.
+    try{draftWorkerRef.current?.terminate()}catch{/* ignore */}
+    draftWorkerRef.current=null;
     const requestId=++searchRequestRef.current;
     setSearchRunning(true);
     setSearchProgress("Starting search…");
@@ -387,6 +393,8 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
       practicalMaxChanges:PRACTICAL_UPGRADE_MAX_CHANGES,
       keepCoreMaxChanges:KEEP_CORE_MAX_CHANGES,
     };
+    // Capture this run's settings on the request object so 2nd+ finishes never stamp stale first-run labels.
+    const runSettings:OptimizedSettings={horizonMode:request.horizonMode,riskMode:request.riskMode,philosophy:request.philosophy,resultMode:request.resultMode};
     const applyResult=(response:DraftLabWorkerResponse)=>{
       if(response.requestId!==searchRequestRef.current)return;
       if(response.type==="progress"){setSearchProgress(response.detail);return}
@@ -396,17 +404,18 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
       const nextOptimized:OptimizedState={squad:response.squad,evaluation:response.evaluation,nearMisses:response.nearMisses,explanations:response.explanations};
       // Prefer the live next-GW label in the mode message when Pure Optimum used the internal GW1 Attack id.
       const modeLabel=response.modeLabel.replace("GW1 Attack",horizonModeLabel("GW1 Attack",nextGwId));
-      setOptimized(nextOptimized);setOptimizedSettings({horizonMode,riskMode,philosophy,resultMode});setSquad(nextOptimized.squad);setSavedAt(null);setSelectedInsight(nextOptimized.squad[0]?.id??null);setSwapOutId(null);setSandbox(null);setLoadedPlanId(null);setMessage(`${modeLabel} Press Save squad to keep it.`);
+      setOptimized(nextOptimized);setOptimizedSettings(runSettings);setSquad(nextOptimized.squad);setSavedAt(null);setSelectedInsight(nextOptimized.squad[0]?.id??null);setSwapOutId(null);setSandbox(null);setLoadedPlanId(null);setMessage(`${modeLabel} Press Save squad to keep it.`);
     };
     try{
+      // Rebind handlers every run: a long-lived worker kept the first applyResult closure (stale settings).
       if(!draftWorkerRef.current){
         draftWorkerRef.current=new Worker(new URL("../workers/draft-lab.worker.ts",import.meta.url),{type:"module"});
-        draftWorkerRef.current.onmessage=(event:MessageEvent<DraftLabWorkerResponse>)=>applyResult(event.data);
-        draftWorkerRef.current.onerror=()=>{
-          if(requestId!==searchRequestRef.current)return;
-          setSearchRunning(false);setSearchProgress("");setMessage("Background search failed to start.");
-        };
       }
+      draftWorkerRef.current.onmessage=(event:MessageEvent<DraftLabWorkerResponse>)=>applyResult(event.data);
+      draftWorkerRef.current.onerror=()=>{
+        if(requestId!==searchRequestRef.current)return;
+        setSearchRunning(false);setSearchProgress("");setMessage("Background search failed to start.");
+      };
       draftWorkerRef.current.postMessage(request);
     }catch{
       // Fallback: main thread if Worker construction fails (SSR / older engines).
@@ -560,13 +569,13 @@ export default function LiveDraftBuilder({ explorer = false }: { explorer?: bool
     setMessage(`${updateInPlace?"Updated":"Saved as"} plan "${name}"${chipTag?` and applied as ${chipTag.chip} for GW${chipTag.event}`:""}.${updateInPlace?"":" View and compare it on the Strategy Board."}`);
     setSaveAsPlanChip(null);setSaveAsPlanWeek(null);
   };
-  const saveSquad=()=>{if(!data)return;persist("fpl-edge-squad",JSON.stringify(squad.map(p=>p.id)));localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());setSavedAt(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));setSandbox(null);setLoadedPlanId(null);setMessage(`Squad saved${squad.length===data.rules.squadSize?" and ready for chip and wildcard analysis":" as a draft"}. Sandbox comparison cleared.`)};
+  const saveSquad=()=>{if(!data)return;writeActiveSquadIds(squad.map(p=>p.id),{syncReal:persist});if(!isExampleSquadActive())localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());setSavedAt(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));setSandbox(null);setLoadedPlanId(null);setMessage(isExampleSquadActive()?`Example squad updated locally (your saved manual draft is untouched).`:`Squad saved${squad.length===data.rules.squadSize?" and ready for chip and wildcard analysis":" as a draft"}. Sandbox comparison cleared.`)};
   const importTeam=async()=>{if(!data)return;if(teamAuth!=="in"){setMessage("Sign in to connect your team.");return}if(!/^\d+$/.test(teamId)){setMessage("Enter the numeric Team ID from your official FPL URL.");return}setImporting(true);try{const response=await fetch(`/api/fpl/team?entry=${teamId}`,{cache:"no-store"});const json=await response.json();if(!response.ok)throw new Error(json.error||"Could not import team");const imported:Player[]=json.playerIds.map((id:number)=>data.players.find(p=>p.id===id)).filter(Boolean);if(imported.length!==data.rules.squadSize)throw new Error("FPL did not return a complete 15-player squad.");const saved=await writeAccountTeam({squadIds:imported.map(p=>p.id),entry:teamId,manager:json.manager});if(!saved.ok)throw new Error(saved.error);setSquad(imported);setManagerMeta(json.manager);localStorage.setItem("fpl-edge-squad-saved-at",new Date().toISOString());setSavedAt(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));setSwapOutId(null);setSandbox(null);setLoadedPlanId(null);setMessage(`${json.manager.teamName} connected to your account.`)}catch(e){setMessage(e instanceof Error?e.message:"Could not import that FPL team.")}finally{setImporting(false)}};
   if(loading&&!data)return <div className="live-state"><span className="live-spinner"/><b>Loading the official FPL player list and prices…</b></div>;
   if(error&&!data)return <div className="live-state error"><b>Official data unavailable</b><p>{error}</p><button onClick={load}>Try again</button></div>;
   if(!data)return null;
   return <div className="live-builder">
-    <section className="live-source"><div><span className="live-dot"/><b>OFFICIAL FPL DATA</b><small>{data.players.length} current players · prices refresh every 5 minutes · updated {new Date(data.updatedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</small></div><button onClick={load} disabled={loading}>{loading?"Refreshing…":"Refresh now"}</button></section>
+    <section className="live-source"><div><span className="live-dot"/><b>OFFICIAL FPL DATA</b><small>{data.players.length} current players · Edge cache ≤5m (+10m stale) · Edge {new Date(data.edgeCalculatedAt||data.updatedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}{data.officialFetchedAt?` · Official ${new Date(data.officialFetchedAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`:""}</small></div><button onClick={load} disabled={loading}>{loading?"Refreshing…":"Refresh now"}</button></section>
     {!explorer&&<>{teamAuth==="in"?<section className="team-import"><div><span>IMPORT OFFICIAL TEAM</span><b>Enter your FPL Team ID</b><small>Found in your official team URL. Public picks can be imported after the gameweek deadline.</small></div><div><input value={teamId} onChange={e=>setTeamId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID"/><button onClick={importTeam} disabled={importing}>{importing?"Importing…":"Fetch my squad"}</button></div></section>:<section className="team-import"><div><span>IMPORT OFFICIAL TEAM</span><b>Sign in to connect your team</b><small>Your official FPL team id belongs to your email account. Public picks still load only after the deadline.</small></div></section>}<section className="optimizer-controls"><div><span>TIME HORIZON</span>{horizonButtons.map(mode=><button className={horizonMode===mode?"active":""} onClick={()=>setHorizonMode(mode)} key={mode}>{horizonModeLabel(mode,nextGwId)}</button>)}</div><div><span>RISK PROFILE</span>{(["Safe","Balanced","Aggressive"] as RiskMode[]).map(mode=><button className={riskMode===mode?"active":""} onClick={()=>setRiskMode(mode)} key={mode}>{mode}</button>)}</div><div><span>SQUAD PHILOSOPHY</span>{(["Maximum xPts","Flexible","Strong Bench","Premium Heavy","Differential"] as SquadPhilosophy[]).map(mode=><button className={philosophy===mode?"active":""} onClick={()=>setPhilosophy(mode)} key={mode}>{mode}</button>)}</div><div className="structure-presets"><span>QUICK STRUCTURES</span><button onClick={()=>{setRiskMode("Balanced");setPhilosophy("Maximum xPts")}}>Maximum Expected Points</button><button onClick={()=>{setRiskMode("Safe");setPhilosophy("Flexible")}}>Safer</button><button onClick={()=>{setRiskMode("Aggressive");setPhilosophy("Differential")}}>Higher Upside</button></div><div className="result-mode-group"><span>RESULT MODE</span>{(["Pure Optimum","Practical Upgrade","Keep Core"] as ResultMode[]).map(mode=><button className={resultMode===mode?"active":""} onClick={()=>setResultMode(mode)} key={mode}>{mode}</button>)}</div><p className="mode-help">{horizonMode==="GW1 Attack"?`Heavily prioritises ${nextGwShort}.`:horizonMode==="Next 3 GWs"?"Attacks the short fixture run with limited future weight.":horizonMode==="Balanced 5 GWs"?"Balances immediate points with five-gameweek planning.":"Keeps eight-gameweek structure and flexibility in view."} {riskMode==="Safe"?"Minutes security is prioritised.":riskMode==="Aggressive"?"Volatility and ceiling receive more weight.":"Risk and upside are balanced."} {philosophy} shapes the squad structure. {resultMode==="Practical Upgrade"?`Practical Upgrade searches up to ${PRACTICAL_UPGRADE_MAX_CHANGES} simultaneous changes from your current squad.`:resultMode==="Keep Core"?`Keep Core protects ${pinnedIds.size} pinned player${pinnedIds.size===1?"":"s"} and searches up to ${KEEP_CORE_MAX_CHANGES} simultaneous changes among the rest — pin players on the pitch below.`:"Pure Optimum rebuilds the squad from the entire player pool, with no constraint from your current picks."}</p></section><section className="builder-toolbar"><div><small>SQUAD</small><b>{squad.length} / {data.rules.squadSize}</b></div><div><small>SPENT</small><b>£{cost.toFixed(1)}m</b></div><div><small>REMAINING</small><b>£{Math.max(0,data.rules.budget-cost).toFixed(1)}m</b></div><button className="clear-squad" onClick={()=>{setSquad([]);setSavedAt(null);setSelectedInsight(null);setPinnedIds(new Set());setSwapOutId(null);setSandbox(null);setLoadedPlanId(null);setMessage("Squad cleared. Build it your way.");}}>Clear squad</button>{searchRunning?<><button className="best-squad" disabled>Building…</button><button type="button" className="clear-squad" onClick={cancelBuildBestSquad}>Cancel search</button></>:<button className="best-squad" onClick={buildBestSquad}>Build best squad</button>}{searchProgress&&<small className="draft-search-progress" role="status">{searchProgress}</small>}<button className="save-squad" onClick={saveSquad}>{savedAt?`Saved ${savedAt} ✓`:"Save squad"}</button></section>
     <div className="builder-message">{message}</div>
     {complete&&<section className={`sandbox-toolbar ${swapOutId?"active":""}`}><div><span>TRANSFER SANDBOX</span><b>{tcArmedWeek!=null?`Triple Captain armed for GW${tcArmedWeek}. Tap an owned player, then transfer clicks work again.`:swapOut?`${swapOut.name} selected for transfer`:`Click any owned player on the pitch to compare a live replacement.`}</b><small>The pool locks to the same position; every legal move immediately recalculates XI, bench, formation, captaincy, rating and bank.</small></div><div><strong>{sandbox?.history.length??0} sandbox action{sandbox?.history.length===1?"":"s"}</strong><button type="button" onClick={undoLastTransfer} disabled={!sandbox?.history.length}>Undo last</button><button type="button" onClick={resetAllTransfers} disabled={!sandbox?.history.length}>Reset all</button><button type="button" onClick={saveAsPlan} disabled={!sandbox||(!loadedPlanId&&readPlans().length>=MAX_PLANS)} title={!sandbox?"Make at least one sandbox change first":(!loadedPlanId&&readPlans().length>=MAX_PLANS)?`You already have ${MAX_PLANS} saved plans, the maximum`:undefined}>{loadedPlanId?"Save as plan…":"Save as plan"}</button></div></section>}

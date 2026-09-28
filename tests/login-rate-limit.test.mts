@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
   LOGIN_RATE_LIMIT,
   clientIpFromRequest,
@@ -57,4 +58,15 @@ test("registerLoginFailure locks after maxFails inside the window", () => {
   assert.equal(bucket.failCount, LOGIN_RATE_LIMIT.maxFails);
   assert.ok(bucket.blockedUntil);
   assert.ok(Date.parse(bucket.blockedUntil!) > t0);
+});
+
+test("recordLoginFailure store uses atomic SQL increment (no read-modify-write)", () => {
+  const src = readFileSync(new URL("../app/lib/login-rate-limit-store.ts", import.meta.url), "utf8");
+  assert.match(src, /incrementLoginFailureAtomic/);
+  assert.match(src, /ON CONFLICT\(key\) DO UPDATE SET/);
+  assert.match(src, /fail_count \+ 1/);
+  assert.match(src, /blocked_until/);
+  // Must not call registerLoginFailure inside recordLoginFailure (RMW race).
+  const recordBody = src.slice(src.indexOf("export async function recordLoginFailure"));
+  assert.doesNotMatch(recordBody, /registerLoginFailure/);
 });

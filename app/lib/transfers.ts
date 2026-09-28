@@ -106,9 +106,12 @@ export function compareTransferToHold(row:Transfer):HoldPathComparison{
       freeTransfersAfter:row.freeTransfersAfter??null,
     };
   }
-  const thisGw=row.nextGwGross!=null&&row.holdNextGwGross!=null
+  // this-GW vs HOLD must include hit cost (−4 per paid transfer) so the number matches MAKE/LEAN/HOLD
+  // wording and the expanded "Immediate net (gross−hit)" row. Free transfers keep hitCost 0.
+  const grossDelta=row.nextGwGross!=null&&row.holdNextGwGross!=null
     ?row.nextGwGross-row.holdNextGwGross
-    :row.gain1-(row.hitCost||0);
+    :row.gain1;
+  const thisGw=grossDelta-(row.hitCost||0);
   const five=row.fiveGwNetVsHold??row.netEv5??row.netDifference;
   const riskAdj=row.riskAdjustedFiveGwNetVsHold??row.riskAdjustedNet5??row.rankScore;
   return{
