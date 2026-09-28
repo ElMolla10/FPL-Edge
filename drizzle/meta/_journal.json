@@ -64,6 +64,13 @@
       "when": 1789720000000,
       "tag": "0008_personal_fpl_refresh_lease",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789730000000,
+      "tag": "0009_login_rate_limit",
+      "breakpoints": true
     }
   ]
 }
