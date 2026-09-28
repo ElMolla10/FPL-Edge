@@ -1,5 +1,7 @@
 "use client";
 
+import { isExampleSquadActive } from "./example-squad";
+
 // Local-first persistence: every existing localStorage read call site is left untouched (still
 // synchronous, still simple). This module hydrates localStorage from the server on load when
 // signed in, and wraps the *write* call sites (persist() replaces localStorage.setItem for the
@@ -53,6 +55,11 @@ async function putSquadPayload(payload: ReturnType<typeof collectSyncPayload>): 
 }
 
 function applyAccountTeamLocally(team: AccountTeamWrite) {
+  // Real team data replaces demo state.
+  try {
+    localStorage.removeItem("fpl-edge-example-squad");
+    localStorage.removeItem("fpl-edge-example-squad-ids");
+  } catch { /* ignore */ }
   localStorage.setItem("fpl-edge-squad", JSON.stringify(team.squadIds));
   if (team.entry) localStorage.setItem("fpl-edge-entry", team.entry);
   else localStorage.removeItem("fpl-edge-entry");
@@ -101,6 +108,7 @@ export function collectSyncPayload() {
     if (viceMatch) (captainVice[viceMatch[1]] ??= {}).viceId = Number(localStorage.getItem(key));
   }
   return {
+    // Real draft only — demo uses fpl-edge-example-squad-ids and must never sync.
     squadIds: safeParse<number[]>(localStorage.getItem("fpl-edge-squad"), []),
     watchlist: safeParse<number[]>(localStorage.getItem("fpl-edge-watchlist"), []),
     locks: safeParse<unknown[]>(localStorage.getItem("fpl-edge-locks"), []),
@@ -125,6 +133,8 @@ async function pushToServer() {
 }
 
 function schedulePush() {
+  // Never push while the labelled demo is active — example ids live in isolated storage.
+  if (isExampleSquadActive()) return;
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(pushToServer, 800);
 }
@@ -163,6 +173,10 @@ export function hydrateFromServer(server: {
   plans: unknown[];
   plannedChips: unknown[];
 }) {
+  try {
+    localStorage.removeItem("fpl-edge-example-squad");
+    localStorage.removeItem("fpl-edge-example-squad-ids");
+  } catch { /* ignore */ }
   localStorage.setItem("fpl-edge-squad", JSON.stringify(server.squadIds));
   localStorage.setItem("fpl-edge-watchlist", JSON.stringify(server.watchlist));
   localStorage.setItem("fpl-edge-locks", JSON.stringify(server.locks));

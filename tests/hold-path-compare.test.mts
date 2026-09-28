@@ -44,11 +44,12 @@ test("compareTransferToHold: HOLD row is zero vs itself", () => {
   assert.equal(cmp.freeTransfersAfter, 2);
 });
 
-test("compareTransferToHold: MAKE uses nextGwGross − holdNextGwGross before action copy", () => {
+test("compareTransferToHold: free transfer this-GW is gross delta (hitCost 0)", () => {
   const move = stubTransfer({
     classification: "MAKE",
-    nextGwGross: 51.2,
-    holdNextGwGross: 51.2,
+    nextGwGross: 52.0,
+    holdNextGwGross: 51.0,
+    hitCost: 0,
     fiveGwNetVsHold: 1.2,
     riskAdjustedFiveGwNetVsHold: 1.05,
     netEv5: 1.2,
@@ -56,9 +57,39 @@ test("compareTransferToHold: MAKE uses nextGwGross − holdNextGwGross before ac
   });
   const cmp = compareTransferToHold(move);
   assert.equal(cmp.isHold, false);
-  assert.equal(cmp.thisGwVsHold, 0);
+  assert.equal(cmp.thisGwVsHold, 1.0);
   assert.equal(cmp.fiveGwNetVsHold, 1.2);
   assert.equal(cmp.riskAdjustedFiveGwNetVsHold, 1.05);
+});
+
+test("compareTransferToHold: hit transfer subtracts hitCost from this-GW vs HOLD", () => {
+  const move = stubTransfer({
+    classification: "LEAN",
+    nextGwGross: 53.0,
+    holdNextGwGross: 51.0,
+    hitCost: 4,
+    hitLabel: "−4",
+    fiveGwNetVsHold: 0.5,
+    riskAdjustedFiveGwNetVsHold: 0.4,
+  });
+  const cmp = compareTransferToHold(move);
+  // Gross +2.0 this GW, but −4 hit → net −2.0 (matches Immediate net (gross−hit) wording)
+  assert.equal(cmp.thisGwVsHold, -2.0);
+  assert.equal(cmp.fiveGwNetVsHold, 0.5);
+});
+
+test("compareTransferToHold: gain1 fallback also nets hitCost", () => {
+  const move = stubTransfer({
+    classification: "WATCH",
+    gain1: 1.5,
+    hitCost: 4,
+    // no nextGwGross / holdNextGwGross
+    nextGwGross: undefined,
+    holdNextGwGross: undefined,
+    fiveGwNetVsHold: -1,
+  });
+  const cmp = compareTransferToHold(move);
+  assert.equal(cmp.thisGwVsHold, 1.5 - 4);
 });
 
 test("selectBestDecision prefers HOLD when no MAKE/LEAN", () => {

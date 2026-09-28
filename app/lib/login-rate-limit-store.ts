@@ -1,12 +1,12 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb, isMissingTableError } from "../../db";
 import { loginRateLimits } from "../../db/schema";
 import {
+  LOGIN_RATE_LIMIT,
   RateLimitBucket,
   clearLoginRateLimitBucket,
   evaluateLoginRateLimit,
   rateLimitKeys,
-  registerLoginFailure,
   type RateLimitDecision,
 } from "./login-rate-limit";
 
@@ -57,6 +57,58 @@ async function writeBucket(bucket: RateLimitBucket): Promise<void> {
   }
 }
 
+/**
+ * Atomic failed-attempt increment (single SQL statement).
+ * Avoids read-modify-write races where concurrent failures could all read failCount=4 and never lock.
+ * Window reset + block-at-maxFails are expressed in SQL so concurrent writers serialize on the row.
+ */
+export async function incrementLoginFailureAtomic(
+  key: string,
+  kind: "email" | "ip",
+  nowMs: number = Date.now(),
+): Promise<void> {
+  const nowIso = new Date(nowMs).toISOString();
+  const windowStartCutoff = new Date(nowMs - LOGIN_RATE_LIMIT.windowMs).toISOString();
+  const blockUntil = new Date(nowMs + LOGIN_RATE_LIMIT.blockMs).toISOString();
+  const maxFails = LOGIN_RATE_LIMIT.maxFails;
+  try {
+    const db = await getDb();
+    // SQLite evaluates SET expressions using pre-update column values; nest the same
+    // fail_count CASE inside blocked_until so the threshold sees the post-increment count.
+    await db.run(sql`
+      INSERT INTO login_rate_limits (key, kind, fail_count, window_started_at, blocked_until, updated_at)
+      VALUES (${key}, ${kind}, 1, ${nowIso}, ${maxFails <= 1 ? blockUntil : null}, ${nowIso})
+      ON CONFLICT(key) DO UPDATE SET
+        kind = ${kind},
+        fail_count = CASE
+          WHEN login_rate_limits.window_started_at >= ${windowStartCutoff}
+          THEN login_rate_limits.fail_count + 1
+          ELSE 1
+        END,
+        window_started_at = CASE
+          WHEN login_rate_limits.window_started_at >= ${windowStartCutoff}
+          THEN login_rate_limits.window_started_at
+          ELSE ${nowIso}
+        END,
+        blocked_until = CASE
+          WHEN (
+            CASE
+              WHEN login_rate_limits.window_started_at >= ${windowStartCutoff}
+              THEN login_rate_limits.fail_count + 1
+              ELSE 1
+            END
+          ) >= ${maxFails}
+          THEN ${blockUntil}
+          ELSE NULL
+        END,
+        updated_at = ${nowIso}
+    `);
+  } catch (error) {
+    if (isMissingTableError(error)) return;
+    throw error;
+  }
+}
+
 export async function assertLoginAllowed(email: string, ip: string): Promise<RateLimitDecision> {
   const { emailKey, ipKey } = rateLimitKeys(email, ip);
   const [emailBucket, ipBucket] = await Promise.all([readBucket(emailKey), readBucket(ipKey)]);
@@ -70,10 +122,9 @@ export async function assertLoginAllowed(email: string, ip: string): Promise<Rat
 
 export async function recordLoginFailure(email: string, ip: string): Promise<void> {
   const { emailKey, ipKey } = rateLimitKeys(email, ip);
-  const [emailBucket, ipBucket] = await Promise.all([readBucket(emailKey), readBucket(ipKey)]);
   await Promise.all([
-    writeBucket(registerLoginFailure(emailBucket, emailKey, "email")),
-    writeBucket(registerLoginFailure(ipBucket, ipKey, "ip")),
+    incrementLoginFailureAtomic(emailKey, "email"),
+    incrementLoginFailureAtomic(ipKey, "ip"),
   ]);
 }
 

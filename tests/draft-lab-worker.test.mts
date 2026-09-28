@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { executeDraftLabOptimizeRequest } from "../app/lib/draft-lab-worker.ts";
 import type { FplData, FplPlayer } from "../app/lib/fpl.ts";
 
@@ -106,4 +107,63 @@ test("executeDraftLabOptimizeRequest preserves requestId on failure", () => {
   });
   assert.equal(result.type, "error");
   if (result.type === "error") assert.equal(result.requestId, 99);
+});
+
+test("LiveDraftBuilder rebinds worker handlers per run and terminates on cancel", () => {
+  const src = readFileSync(new URL("../app/components/LiveDraftBuilder.tsx", import.meta.url), "utf8");
+  assert.match(src, /draftWorkerRef\.current\.onmessage=/);
+  assert.match(src, /runSettings/);
+  assert.match(src, /setOptimizedSettings\(runSettings\)/);
+  assert.match(src, /cancelBuildBestSquad/);
+  assert.match(src, /draftWorkerRef\.current\?\.terminate/);
+  assert.match(src, /Previous result stays visible/);
+  // onmessage must be rebound after the create-if (not trapped inside first-create only).
+  assert.match(
+    src,
+    /if\(!draftWorkerRef\.current\)\{[\s\S]*?\}\s*draftWorkerRef\.current\.onmessage=/,
+  );
+});
+
+test("executeDraftLabOptimizeRequest labels follow the request's own settings", () => {
+  const squad = baseSquad();
+  const data = makeData(squad);
+  const a = executeDraftLabOptimizeRequest({
+    type: "optimize",
+    requestId: 1,
+    data,
+    horizonMode: "GW1 Attack",
+    riskMode: "Safe",
+    philosophy: "Differential",
+    resultMode: "Pure Optimum",
+    squad,
+    pinnedIds: [],
+    practicalMaxChanges: 3,
+    keepCoreMaxChanges: 4,
+  });
+  assert.equal(a.type, "result");
+  if (a.type === "result") {
+    assert.match(a.modeLabel, /GW1 Attack/);
+    assert.match(a.modeLabel, /Safe/);
+    assert.match(a.modeLabel, /Differential/);
+  }
+  const b = executeDraftLabOptimizeRequest({
+    type: "optimize",
+    requestId: 2,
+    data,
+    horizonMode: "Long-term 8 GWs",
+    riskMode: "Aggressive",
+    philosophy: "Maximum xPts",
+    resultMode: "Pure Optimum",
+    squad,
+    pinnedIds: [],
+    practicalMaxChanges: 3,
+    keepCoreMaxChanges: 4,
+  });
+  assert.equal(b.type, "result");
+  if (b.type === "result") {
+    assert.match(b.modeLabel, /Long-term 8 GWs/);
+    assert.match(b.modeLabel, /Aggressive/);
+    assert.match(b.modeLabel, /Maximum xPts/);
+    assert.notEqual(b.modeLabel, a.type === "result" ? a.modeLabel : "");
+  }
 });

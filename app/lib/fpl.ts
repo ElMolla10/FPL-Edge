@@ -397,4 +397,4 @@ export function optimizeSquad(data:FplData,eventIds:number[]){
 }
 
 export async function fetchFplData():Promise<FplData>{const response=await fetch(`/api/fpl?refresh=${Date.now()}`,{cache:"no-store"});const json=await response.json();if(!response.ok)throw new Error(json.error||"Could not load official FPL data");return json}
-export const savedSquad=(data:FplData)=>{try{const ids=JSON.parse(localStorage.getItem("fpl-edge-squad")||"[]");return ids.map((id:number)=>data.players.find(p=>p.id===id)).filter(Boolean) as FplPlayer[]}catch{return[]}}
+export const savedSquad=(data:FplData)=>{try{let raw=localStorage.getItem("fpl-edge-squad")||"[]";try{if(localStorage.getItem("fpl-edge-example-squad")==="1"){const demo=localStorage.getItem("fpl-edge-example-squad-ids");if(demo)raw=demo}}catch{}const ids=JSON.parse(raw);return ids.map((id:number)=>data.players.find(p=>p.id===id)).filter(Boolean) as FplPlayer[]}catch{return[]}}

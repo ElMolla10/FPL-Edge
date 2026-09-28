@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { buildExampleSquad, EXAMPLE_SQUAD_FLAG_KEY, EXAMPLE_SQUAD_LABEL } from "../app/lib/example-squad.ts";
+import {
+  activateExampleSquad,
+  buildExampleSquad,
+  clearExampleSquadFlag,
+  EXAMPLE_SQUAD_FLAG_KEY,
+  EXAMPLE_SQUAD_IDS_KEY,
+  EXAMPLE_SQUAD_LABEL,
+  isExampleSquadActive,
+  readActiveSquadIds,
+  readRealSquadIds,
+  REAL_SQUAD_KEY,
+} from "../app/lib/example-squad.ts";
 import { isCompleteSquad, type FplData, type FplPlayer } from "../app/lib/fpl.ts";
 
 function makePlayer(overrides: Partial<FplPlayer> & { id: number; positionId: number; positionShort: string; teamId: number; price: number }): FplPlayer {
@@ -54,6 +65,19 @@ function miniData(): FplData {
   } as unknown as FplData;
 }
 
+const memory = new Map<string, string>();
+function installMemoryStorage() {
+  const store: Storage = {
+    get length() { return memory.size; },
+    clear() { memory.clear(); },
+    getItem(key) { return memory.has(key) ? memory.get(key)! : null; },
+    setItem(key, value) { memory.set(key, String(value)); },
+    removeItem(key) { memory.delete(key); },
+    key(index) { return [...memory.keys()][index] ?? null; },
+  };
+  (globalThis as any).localStorage = store;
+}
+
 test("buildExampleSquad returns a complete legal 15", () => {
   const data = miniData();
   const squad = buildExampleSquad(data);
@@ -75,4 +99,29 @@ test("Open Demo path and example label are wired in UI sources", () => {
   assert.match(coach, /example-squad-banner/);
   assert.equal(EXAMPLE_SQUAD_FLAG_KEY, "fpl-edge-example-squad");
   assert.match(EXAMPLE_SQUAD_LABEL, /Example squad/);
+});
+
+test("activateExampleSquad does not overwrite a saved manual draft", () => {
+  installMemoryStorage();
+  const manual = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  memory.set(REAL_SQUAD_KEY, JSON.stringify(manual));
+  const data = miniData();
+  assert.equal(activateExampleSquad(data), true);
+  assert.equal(isExampleSquadActive(), true);
+  assert.deepEqual(readRealSquadIds(), manual);
+  assert.notDeepEqual(readActiveSquadIds(), manual);
+  assert.equal(readActiveSquadIds().length, 15);
+  assert.ok(memory.has(EXAMPLE_SQUAD_IDS_KEY));
+  clearExampleSquadFlag();
+  assert.equal(isExampleSquadActive(), false);
+  assert.deepEqual(readActiveSquadIds(), manual);
+});
+
+test("persistence sync payload ignores example storage keys", () => {
+  const src = readFileSync(new URL("../app/lib/persistence.ts", import.meta.url), "utf8");
+  assert.match(src, /isExampleSquadActive/);
+  assert.match(src, /Never push while the labelled demo is active/);
+  assert.match(src, /fpl-edge-example-squad-ids/);
+  // collectSyncPayload still reads real draft key only
+  assert.match(src, /localStorage\.getItem\("fpl-edge-squad"\)/);
 });

@@ -1,7 +1,21 @@
 import { FplData, FplPlayer, futureEvents, isCompleteSquad, playerProjection } from "./fpl";
 
+/** Flag: desk is showing the labelled visitor demo squad (not the real draft). */
 export const EXAMPLE_SQUAD_FLAG_KEY = "fpl-edge-example-squad";
+/** Isolated storage for demo XV ids — never written to fpl-edge-squad / account sync. */
+export const EXAMPLE_SQUAD_IDS_KEY = "fpl-edge-example-squad-ids";
+/** Real / manual draft key (account sync + Draft Lab save). */
+export const REAL_SQUAD_KEY = "fpl-edge-squad";
 export const EXAMPLE_SQUAD_LABEL = "Example squad — not your FPL team";
+
+function parseIds(key: string): number[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(raw) ? raw.filter((id): id is number => typeof id === "number") : [];
+  } catch {
+    return [];
+  }
+}
 
 /** True when the desk is showing the labelled visitor demo squad. */
 export function isExampleSquadActive(): boolean {
@@ -15,9 +29,27 @@ export function isExampleSquadActive(): boolean {
 export function clearExampleSquadFlag(): void {
   try {
     localStorage.removeItem(EXAMPLE_SQUAD_FLAG_KEY);
+    localStorage.removeItem(EXAMPLE_SQUAD_IDS_KEY);
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Active squad ids for the desk: demo storage when the example flag is on, otherwise the real draft.
+ * Opening demo never reads/writes REAL_SQUAD_KEY, so visitor manuals survive.
+ */
+export function readActiveSquadIds(): number[] {
+  if (isExampleSquadActive()) {
+    const demo = parseIds(EXAMPLE_SQUAD_IDS_KEY);
+    if (demo.length) return demo;
+  }
+  return parseIds(REAL_SQUAD_KEY);
+}
+
+/** Real draft only — used by account sync so example players never upload. */
+export function readRealSquadIds(): number[] {
+  return parseIds(REAL_SQUAD_KEY);
 }
 
 /**
@@ -72,18 +104,34 @@ export function buildExampleSquad(data: FplData): FplPlayer[] {
   return squad;
 }
 
-/** Persist example squad locally for visitors (no account write). Returns false if incomplete. */
+/**
+ * Persist example squad in isolated demo storage only.
+ * Does NOT touch fpl-edge-squad, manager, entry, or account sync paths.
+ * Returns false if incomplete or storage fails.
+ */
 export function activateExampleSquad(data: FplData): boolean {
   const squad = buildExampleSquad(data);
   if (!isCompleteSquad(squad, data)) return false;
   try {
-    localStorage.setItem("fpl-edge-squad", JSON.stringify(squad.map((p) => p.id)));
+    localStorage.setItem(EXAMPLE_SQUAD_IDS_KEY, JSON.stringify(squad.map((p) => p.id)));
     localStorage.setItem(EXAMPLE_SQUAD_FLAG_KEY, "1");
-    localStorage.removeItem("fpl-edge-manager");
-    localStorage.removeItem("fpl-edge-entry");
-    localStorage.setItem("fpl-edge-free-transfers", "1");
+    // Demo FT default for transfer UI — does not clear real draft / manager / entry.
+    if (localStorage.getItem("fpl-edge-free-transfers") === null) {
+      localStorage.setItem("fpl-edge-free-transfers", "1");
+    }
     return true;
   } catch {
     return false;
   }
+}
+
+/** Persist squad ids for the active desk mode (demo vs real). Demo never uses persist/sync. */
+export function writeActiveSquadIds(ids: number[], opts?: { syncReal?: (key: string, value: string) => void }): void {
+  if (isExampleSquadActive()) {
+    localStorage.setItem(EXAMPLE_SQUAD_IDS_KEY, JSON.stringify(ids));
+    return;
+  }
+  const value = JSON.stringify(ids);
+  if (opts?.syncReal) opts.syncReal(REAL_SQUAD_KEY, value);
+  else localStorage.setItem(REAL_SQUAD_KEY, value);
 }
