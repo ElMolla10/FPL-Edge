@@ -63,7 +63,7 @@ export type AccuracyReport = {
 
 type ReceiptPlayerTuple = [
   number, number, string, string | null, number, number, number, number, number, number, number,
-  number[], number?, string?, string | null?, boolean | null?,
+  number[]?, number?, string?, (string | null)?, (boolean | null)?,
 ];
 
 const receiptNumber = (value: number, places = 2) => Number(value.toFixed(places));
