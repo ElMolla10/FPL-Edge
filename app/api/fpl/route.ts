@@ -38,6 +38,7 @@ export async function GET() {
       throw new Error(`Official FPL feed returned ${bootstrapResponse.status}/${fixturesResponse.status}`);
     }
 
+    const officialFetchedAt = new Date().toISOString();
     const bootstrap = await bootstrapResponse.json();
     const fixtures = await fixturesResponse.json();
     const statsEvents = bootstrap.events.filter((event: any) => event.is_current || event.started || event.finished);
@@ -82,8 +83,12 @@ export async function GET() {
     const teamSeasonStatsById=new Map<number,any>(teamQualityInputs.map((input:any)=>[input.id,input]));
     const teamQualityProfiles=new Map(buildTeamQualityProfiles(teamQualityInputs).map(profile=>[profile.id,profile]));
 
+    const edgeCalculatedAt = new Date().toISOString();
     const payload = {
-      updatedAt: new Date().toISOString(),
+      updatedAt: edgeCalculatedAt,
+      edgeCalculatedAt,
+      officialFetchedAt,
+      cacheMaxAgeSeconds: 300,
       source: BOOTSTRAP_URL,
       seasonStatsThrough: seasonStatsThroughEvent(bootstrap.events, fixtures),
       rules: {

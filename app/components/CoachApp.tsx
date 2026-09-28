@@ -43,11 +43,33 @@ import { ClubFixtureRow, computeClubFixtureRows, difficultyScoreOutOf10 } from "
 import { SeasonLocked } from "./SeasonPass";
 import { formatSeasonPassPrice } from "../lib/season-pass";
 import { qualityPopulation, qualityScoreOutOf10 } from "../lib/team-quality";
+import { computeDataFreshness } from "../lib/data-freshness";
+import { buildAccuracyReport, horizonAccuracyRows, type AccuracyPlayerRow } from "../lib/model-accuracy";
+import { minutesRiskBand } from "../lib/minutes-risk";
 
 // View name map (Kevin IA lock): Home=overview, My Squad=team, Final check=deadline,
 // Players=players, Coach=coach. Desktop primary includes Transfers + Final check; phone nests
 // Transfers under My Squad (see ia/phone-squad-transfers).
-type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures"|"season-stats";
+export type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures"|"season-stats";
+const VALID_VIEWS: ReadonlySet<View> = new Set(["overview","team","transfers","league","draft","board","players","fixtures","news","deadline","chips","model","history","ownership","coach","squad-fixtures","season-stats"]);
+export function parseCoachView(raw:string|null|undefined):View|null{
+  if(!raw)return null;
+  const value=raw.trim().toLowerCase() as View;
+  return VALID_VIEWS.has(value)?value:null;
+}
+export function coachViewFromLocation(search:string):View|null{
+  try{return parseCoachView(new URLSearchParams(search).get("view"))}catch{return null}
+}
+function writeCoachViewToUrl(view:View){
+  try{
+    const url=new URL(window.location.href);
+    if(view==="overview")url.searchParams.delete("view");
+    else url.searchParams.set("view",view);
+    // Preserve app/demo entry flags used by the marketing shell.
+    if(!url.searchParams.has("app")&&!url.searchParams.has("demo"))url.searchParams.set("app","1");
+    window.history.pushState({fplEdgeView:view},"",url.pathname+url.search+url.hash);
+  }catch{/* ignore */}
+}
 type Desk="unknown"|"visitor"|"free"|"season";
 // Signed-in users without an active season pass see these views as the full desk, not the free move.
 const PRO_VIEWS: ReadonlySet<View> = new Set(["news", "draft", "board", "chips", "history"]);
@@ -151,11 +173,18 @@ function PhoneMoreCrumb({view,onOpenMore}:{view:View;onOpenMore:()=>void}){
   return <nav className="phone-more-crumb" aria-label="More destination"><button type="button" onClick={onOpenMore}>More</button><span aria-hidden="true">›</span><strong>{label}</strong></nav>;
 }
 
-function freshness(updatedAt:string){const minutes=Math.max(0,Math.floor((Date.now()-Date.parse(updatedAt))/60000));return{minutes,label:minutes<2?"just now":`${minutes}m ago`,tone:minutes<=10?"fresh":minutes<=30?"aging":"stale"}}
+function freshness(data:FplData){
+  const f=computeDataFreshness({
+    edgeCalculatedAt:data.edgeCalculatedAt||data.updatedAt,
+    officialFetchedAt:data.officialFetchedAt||data.updatedAt,
+    cacheMaxAgeSeconds:data.cacheMaxAgeSeconds,
+  });
+  return{minutes:f.effectiveAgeMinutes,label:f.summaryLabel,tone:f.tone,edgeLabel:f.edgeLabel,officialLabel:f.officialLabel};
+}
 function expectedMins(p:FplPlayer,event:number,data:FplData){return Math.round(projectionMetrics(p,event,data.fixtures,event).expectedMinutes)}
 
 export default function CoachApp({onBack,startAuth=false,startExample=false}:{onBack:()=>void;startAuth?:boolean;startExample?:boolean}){
-  const[view,setView]=useState<View>("overview");const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const[revision,setRevision]=useState(0);
+  const[view,setView]=useState<View>(()=>typeof window!=="undefined"?(coachViewFromLocation(window.location.search)??"overview"):"overview");const[data,setData]=useState<FplData|null>(null);const[error,setError]=useState("");const[loading,setLoading]=useState(true);const[revision,setRevision]=useState(0);
   const[desk,setDesk]=useState<Desk>("unknown");
   const[exampleActive,setExampleActive]=useState(false);
   const openPay=()=>{window.location.assign("/pay")};
@@ -191,8 +220,16 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   useEffect(()=>{if(!data)return;let cancelled=false;refreshConnectedTeamFromApi(data,{force:true}).then(live=>{if(!cancelled&&live.updated)setRevision(x=>x+1)});return()=>{cancelled=true}},[data]);
   // After sign-in desk flips, force-refresh again so account hydrate cannot leave stale bank/squad.
   useEffect(()=>{if(!data||(desk!=="free"&&desk!=="season"))return;let cancelled=false;refreshConnectedTeamFromApi(data,{force:true}).then(live=>{if(!cancelled&&live.updated)setRevision(x=>x+1)});return()=>{cancelled=true}},[data,desk]);
-  const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(null);window.scrollTo({top:0,behavior:"smooth"})};
-  const fresh=data?freshness(data.updatedAt):null;
+  const go=(next:View)=>{setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(null);writeCoachViewToUrl(next);window.scrollTo({top:0,behavior:"smooth"})};
+  useEffect(()=>{
+    const onPop=()=>{
+      const next=coachViewFromLocation(window.location.search)??"overview";
+      setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(null);
+    };
+    window.addEventListener("popstate",onPop);
+    return()=>window.removeEventListener("popstate",onPop);
+  },[]);
+  const fresh=data?freshness(data):null;
   const allNav=navGroups.flatMap(g=>[...g.items]);
   const proItems=(["draft","board","chips","news","history"] as const).map(key=>allNav.find(([id])=>id===key)!);
   // Research disclosure: everything under Research/League except Players (already primary) and PRO locks.
@@ -220,7 +257,7 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   // Phase 1 chrome-strip: sticky header = Wordmark · GW countdown · Sign in/Account only.
   // Season pass lives under More; floating Coach pill removed; freshness owned by sidebar (desktop) / slim line (phone).
   return <TeamLinkAuthProvider value={teamAuth}><main className={desk==="visitor"?"coach-shell signed-out":"coach-shell"}>
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" className={researchRest.some(([key])=>key===view)?"active":sidebarMenu==="research"?"open":""} onClick={()=>setSidebarMenu(m=>m==="research"?null:"research")}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" className={proItems.some(([key])=>key===view)?"sidebar-pro-btn active":sidebarMenu==="pro"?"sidebar-pro-btn open":"sidebar-pro-btn"} onClick={()=>setSidebarMenu(m=>m==="pro"?null:"pro")}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?`Data ${fresh.label}`:"Connecting…"}</b><small>Official FPL feed</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" className={researchRest.some(([key])=>key===view)?"active":sidebarMenu==="research"?"open":""} onClick={()=>setSidebarMenu(m=>m==="research"?null:"research")}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" className={proItems.some(([key])=>key===view)?"sidebar-pro-btn active":sidebarMenu==="pro"?"sidebar-pro-btn open":"sidebar-pro-btn"} onClick={()=>setSidebarMenu(m=>m==="pro"?null:"pro")}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?fresh.label:"Connecting…"}</b><small>Edge recalculation · official fetch · ≤5m cache</small></div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><span className="brand header-wordmark"><Wordmark/></span><div className="header-tools">{data&&<DeadlineClock data={data}/>}{desk==="visitor"?<div className="signin-action"><a className="team-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a></div>:<AccountBar onAuthChange={runSync} onAccount={onAccount} initialOpen={startAuth}/>}</div></header>
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading} phoneQuiet/>{phoneMoreChild&&<PhoneMoreCrumb view={view} onOpenMore={()=>setMobileOverlay("More")}/>}{exampleActive&&<p className="example-squad-banner" role="status">{EXAMPLE_SQUAD_LABEL}. Transfers, captaincy and explanations use this demo XV — sign in to connect your real team.</p>}<Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay} onLoadExample={()=>{if(activateExampleSquad(data)){setExampleActive(true);setRevision(x=>x+1)}}} exampleActive={exampleActive} onClearExample={()=>{clearExampleSquadFlag();setExampleActive(false);setRevision(x=>x+1)}}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
     </section>
@@ -270,7 +307,7 @@ function TeamQualityPanel({data}:{data:FplData}){
   return <section className="team-quality-panel"><header><div><span>TEAM QUALITY MODEL</span><h2>Attack and defence are separate signals.</h2><p>League-normalized official priors update gradually from completed Premier League results. A single clean sheet or haul cannot rewrite a club's rating. Scores are 0-10, 10 = best, relative to the 20 clubs modeled this season -- the top and bottom club will always read close to 10 and 0 even in a tightly-matched league.</p></div><div className="segmented"><button className={dimension==="attack"?"active":""} onClick={()=>setDimension("attack")}>Attack</button><button className={dimension==="defence"?"active":""} onClick={()=>setDimension("defence")}>Defence</button></div></header><div className="team-quality-grid">{rows.map((row,index)=><article key={row.team.id}><i>{index+1}</i><b>{row.team.short}<small>{row.team.name}</small></b><p><span>HOME</span><strong>{qualityScoreOutOf10(row.home,homePopulation).toFixed(1)}/10</strong></p><p><span>AWAY</span><strong>{qualityScoreOutOf10(row.away,awayPopulation).toFixed(1)}/10</strong></p><p><span>CONFIDENCE</span><strong>{Math.round(row.quality.confidence*100)}%</strong></p><em className={row.quality.lowPlContinuity?"provisional":"established"}>{row.quality.lowPlContinuity?"LOW-CONTINUITY PRIOR":`${row.quality.matches} PL MATCH${row.quality.matches===1?"":"ES"}`}</em></article>)}</div><footer>Scores are relative to the 20 clubs modeled this season, not a fixed baseline. Ratings use genuine Premier League evidence only; promoted and low-continuity squads start conservatively and gain authority as completed top-flight matches accumulate.</footer></section>;
 }
 function DeadlineClock({data}:{data:FplData}){const next=futureEvents(data,1)[0];const[now,setNow]=useState(Date.now());useEffect(()=>{const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[]);if(!next)return <div className="deadline-chip"><small>NEXT DEADLINE</small><b>Season complete</b><em className="deadline-compact">Season complete</em></div>;const total=Math.max(0,Date.parse(next.deadline)-now);const d=Math.floor(total/86400000),h=Math.floor(total/3600000)%24,m=Math.floor(total/60000)%60,s=Math.floor(total/1000)%60;const gw=next.name.replace(/^Gameweek\s+/i,"GW");const clock=`${d?`${d}d `:""}${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;return <div className="deadline-chip"><small>{next.name.toUpperCase()} DEADLINE</small><b>{clock}</b><span>{new Date(next.deadline).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</span><em className="deadline-compact">{gw} {clock}</em></div>}
-function Freshness({data,onRefresh,loading,phoneQuiet=false}:{data:FplData;onRefresh:()=>void;loading:boolean;phoneQuiet?:boolean}){const f=freshness(data.updatedAt);const warnings=data.dataIntegrityWarnings??[];const urgent=f.tone==="stale"||warnings.length>0;return <section className={`freshness-strip ${f.tone}${phoneQuiet?" phone-quiet":""}${urgent?" has-urgent":""}`}><div><span className={`fresh-dot ${f.tone}`}/><b>FPL data updated {f.label}</b></div>{f.tone==="stale"&&<strong>Data is stale—verify before acting.</strong>}{warnings.length>0&&<strong className="integrity-warning">⚠ Data integrity issue: {warnings[0]}{warnings.length>1?` (+${warnings.length-1} more)`:""}</strong>}<button onClick={onRefresh} disabled={loading}>{loading?"Refreshing…":"Refresh"}</button></section>}
+function Freshness({data,onRefresh,loading,phoneQuiet=false}:{data:FplData;onRefresh:()=>void;loading:boolean;phoneQuiet?:boolean}){const f=freshness(data);const warnings=data.dataIntegrityWarnings??[];const urgent=f.tone==="stale"||warnings.length>0;return <section className={`freshness-strip ${f.tone}${phoneQuiet?" phone-quiet":""}${urgent?" has-urgent":""}`}><div><span className={`fresh-dot ${f.tone}`}/><b>{f.label}</b></div>{f.tone==="stale"&&<strong>Data is stale—verify before acting.</strong>}{warnings.length>0&&<strong className="integrity-warning">⚠ Data integrity issue: {warnings[0]}{warnings.length>1?` (+${warnings.length-1} more)`:""}</strong>}<button onClick={onRefresh} disabled={loading}>{loading?"Refreshing…":"Refresh"}</button></section>}
 
 // Squad/watchlist/locks persist to the server (see app/lib/persistence.ts) when signed in via
 // either method below; both resolve to the same account (see app/lib/auth.ts).
@@ -1933,7 +1970,7 @@ export function createProjectionReceipt({data,eventIds,deadline,capturedAt,squad
   return{schemaVersion:8,receiptId:`gw${first}-${Date.parse(capturedAt)}`,modelVersion:PROJECTION_MODEL_VERSION,event:first,eventIds:horizon,plannedChip,deadline,capturedAt,dataUpdatedAt:data.updatedAt,dataSource:data.source,seasonStatsThrough:data.seasonStatsThrough,assumptions:{bank:receiptNumber(bank,1),freeTransfers,transferHorizon:horizon.length},squad:{squadIds:squad.map(player=>player.id),xiIds:[...xiIds],benchIds:frozenBenchIds,captainId,viceId,predictedTotal:receiptNumber(predictedTotal),captainXPts:receiptNumber(captainXPts),viceXPts:receiptNumber(viceXPts)},playerEncoding:"tuple-v4",players,transfers,routes};
 }
 
-export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;receipt?:ProjectionReceipt};
+export type LockRecord={event:number;lockedAt:string;dataUpdatedAt:string;predicted:number;squadIds:number[];xiIds:number[];benchIds?:number[];captainId:number;viceId:number;receipt?:ProjectionReceipt;source?:"manual"|"auto"};
 export type LockStatus="none"|"matches"|"mismatch";
 // Pure so the mismatch detection is directly unit-testable (tests/finalcheck.test.mts) without
 // rendering. Order-independent on xiIds since bestXi's internal ordering isn't semantically meaningful.
@@ -2157,6 +2194,20 @@ export function captaincyRiskFraming(candidates:CaptainCandidate[],defaultCaptai
   return{defaultRole,safeAlternative,differentialAlternative};
 }
 
+
+/** Runs once per GW when Final Check has a complete analysis — stores pre-deadline receipt if missing. */
+function AutoProjectionSnapshot({enabled,run}:{enabled:boolean;run:()=>void}){
+  const runRef=useRef(run);runRef.current=run;
+  useEffect(()=>{
+    if(!enabled)return;
+    let cancelled=false;
+    const kick=()=>{if(!cancelled)runRef.current()};
+    const idle=typeof requestIdleCallback==="function"?requestIdleCallback(kick,{timeout:4000}):window.setTimeout(kick,800);
+    return()=>{cancelled=true;if(typeof cancelIdleCallback==="function"&&typeof idle==="number"){try{cancelIdleCallback(idle as number)}catch{window.clearTimeout(idle as number)}}else window.clearTimeout(idle as number)};
+  },[enabled]);
+  return null;
+}
+
 function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
   const[meta,setMeta]=useManager(revision);
   const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);
@@ -2188,10 +2239,14 @@ function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>v
   const lockStatus=reconcileLock(existingLock,{xiIds,benchIds,captainId:captain.id,viceId:vice.id});
   const locked=lockStatus==="matches";
   const fullReceiptSaved=locked&&existingLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&existingLock.receipt.schemaVersion===8&&existingLock.receipt.dataUpdatedAt===data.updatedAt;
-  const lock=()=>{
+  const lock=(source:"manual"|"auto"="manual")=>{
     setLockError("");
     const event=data.events.find(item=>item.id===a.first),capturedAt=new Date().toISOString();
-    if(!event||Date.parse(capturedAt)>=Date.parse(event.deadline)){setLockError("The official deadline has passed. A pre-deadline receipt was not created.");return}
+    if(!event||Date.parse(capturedAt)>=Date.parse(event.deadline)){if(source==="manual")setLockError("The official deadline has passed. A pre-deadline receipt was not created.");return}
+    let locksNow:LockRecord[]=[];try{locksNow=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
+    const currentLock=locksNow.find(item=>item.event===a.first);
+    // Auto-snapshots only fill a missing current-model receipt; never overwrite a manual or existing receipt.
+    if(source==="auto"&&currentLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&currentLock.receipt.schemaVersion===8)return;
     try{
       const freeTransfers=readFreeTransfers();
       const finance=deriveSandboxFinancialContext(squad,data.rules.budget,meta);
@@ -2200,10 +2255,13 @@ function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>v
       const transferRows=withModelUtilityChange(baseRows,squad,createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"));
       const routeRows=solveTransferRoutes(data,squad,bank,{horizon:5,freeTransfers,maxWeeklyHit:4,sellingPrices:finance.baselineSellingPrices,resultLimit:4,plannedChips});
       const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,benchIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows,routeRows,plannedChip});
-      const record:LockRecord={event:a.first,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:squad.map(p=>p.id),xiIds,benchIds,captainId:captain.id,viceId:vice.id,receipt};
-      persist("fpl-edge-locks",JSON.stringify([...existingLocks.filter(item=>item.event!==a.first),record]));setLockVersion(v=>v+1);
-    }catch(error){setLockError(error instanceof Error?error.message:"Could not create the projection receipt.")}
+      const record:LockRecord={event:a.first,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:squad.map(p=>p.id),xiIds,benchIds,captainId:captain.id,viceId:vice.id,receipt,source};
+      persist("fpl-edge-locks",JSON.stringify([...locksNow.filter(item=>item.event!==a.first),record]));setLockVersion(v=>v+1);
+    }catch(error){if(source==="manual")setLockError(error instanceof Error?error.message:"Could not create the projection receipt.")}
   };
+
+  const autoSnapshotEnabled=!fullReceiptSaved&&!!data.events.find(item=>item.id===a.first&&Date.parse(item.deadline)>Date.now());
+  const runAutoSnapshot=()=>lock("auto");
   const modelCaptain=a.xi.captain;
   const captainDisagreement=modelCaptain&&modelCaptain.id!==captain.id?modelCaptain:null;
   const riskNote=captainRiskNote(captain,vice,startPct(captain,a.first,data),startPct(vice,a.first,data),captainTerm,viceTerm,captainMultiplier);
@@ -2226,8 +2284,8 @@ function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>v
     </div>
     <section className="deadline-grid"><article><span>LATEST TEAM NEWS</span>{squad.filter(p=>p.news||p.status!=="a").length?squad.filter(p=>p.news||p.status!=="a").map(p=><p key={p.id}><b>{p.name}</b> · {p.news||"Officially flagged"}</p>):<p>No official squad-specific news.</p>}</article><article><span>RISK FLAGS</span>{a.issues.length?a.issues.map(p=><p key={p.id}><b>{p.name}</b> · {startPct(p,a.first,data)}% start probability</p>):<p>No player is below the 68% start threshold.</p>}</article></section>
     <CaptainCompare xi={a.xi.players} captain={captain} vice={vice} data={data} event={a.first}/>
-    {lockError&&<p className="lock-error">{lockError}</p>}
-    <button className={`lock-button ${fullReceiptSaved?"locked":""}`} onClick={lock}>{fullReceiptSaved?"FULL RECEIPT SAVED ✓":locked?"REFRESH FULL RECEIPT":"LOCK THIS TEAM"}<small>{fullReceiptSaved?`${existingLock!.receipt!.players.length} player projections · ${existingLock!.receipt!.transfers.length} single moves · ${existingLock!.receipt!.routes?.length??0} complete routes · ${existingLock!.receipt!.modelVersion}`:"Save the XI, captaincy, every player projection and complete transfer routes before the deadline."}</small></button>
+    {autoSnapshotEnabled&&<AutoProjectionSnapshot enabled={autoSnapshotEnabled} run={runAutoSnapshot}/>}{lockError&&<p className="lock-error">{lockError}</p>}
+    <button className={`lock-button ${fullReceiptSaved?"locked":""}`} onClick={()=>lock("manual")}>{fullReceiptSaved?"FULL RECEIPT SAVED ✓":locked?"REFRESH FULL RECEIPT":"LOCK THIS TEAM"}<small>{fullReceiptSaved?`${existingLock!.receipt!.players.length} player projections · ${existingLock!.receipt!.transfers.length} single moves · ${existingLock!.receipt!.routes?.length??0} complete routes · ${existingLock!.receipt!.modelVersion}`:"Save the XI, captaincy, every player projection and complete transfer routes before the deadline. A background snapshot also runs automatically each GW when this page opens."}</small></button>
   </div>;
 }
 function CaptainCompare({xi,captain,vice,data,event}:{xi:FplPlayer[];captain:FplPlayer;vice:FplPlayer;data:FplData;event:number}){
@@ -2285,7 +2343,7 @@ function ModelAudit({data,revision}:{data:FplData;revision:number}){
   return <><AccuracyDashboard data={data} rows={rows}/><DecisionSnapshots data={data} rows={rows} loading={loading} error={error} refresh={refresh}/></>;
 }
 
-function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
+function AccuracyDashboard({data,rows,weeks=[]}:{data:FplData;rows:EvaluationRow[];weeks?:HistoryWeek[]}){
   const allEvaluated=rows.filter(row=>row.evaluation.status==="evaluated");
   const[selectedVersion,setSelectedVersion]=useState(PROJECTION_MODEL_VERSION);
   const groupedVersions=groupByModelVersion(allEvaluated,row=>row.evaluation.modelVersion);
@@ -2309,6 +2367,26 @@ function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
   const teamName=new Map(data.teams.map(team=>[String(team.id),team.name]));
   const byClub=grouped(row=>row.teamId===null?"LEGACY":String(row.teamId),key=>key==="LEGACY"?"Legacy / unknown":teamName.get(key)??`Team ${key}`).sort((a,b)=>b.metric.activeRows-a.metric.activeRows||((b.metric.pointsMae??0)-(a.metric.pointsMae??0)));
   const byEvent=grouped(row=>String(row.event),key=>`GW${key}`).sort((a,b)=>Number(a.key)-Number(b.key));
+  const byMinutesRisk=(()=>{
+    const map=new Map<string,ProjectionPlayerEvaluationRow[]>();
+    playerRows.forEach(row=>{const key=minutesRiskBand(row.startProbability);map.set(key,[...(map.get(key)??[]),row])});
+    return["Secure","Moderate","Risky"].filter(key=>map.has(key)).map(key=>({key,label:key==="Secure"?"Secure minutes (≥80% start)":key==="Moderate"?"Moderate minutes (50–79%)":"Risky minutes (<50%)",metric:aggregateAccuracy(map.get(key)!)}));
+  })();
+  const horizonRows=evaluated.flatMap(({lock,evaluation})=>{
+    const receipt=lock.receipt;
+    if(!receipt||evaluation.status!=="evaluated"||evaluation.completedEvents<1)return[];
+    const completedEventIds=receipt.eventIds.slice(0,evaluation.completedEvents);
+    const actualByEventPlayer=new Map<string,number>();
+    for(const eventId of completedEventIds){
+      const week=weeks.find(item=>item.event===eventId&&!item.unavailable);
+      if(!week?.playerStats)continue;
+      for(const [playerId,stats] of Object.entries(week.playerStats))actualByEventPlayer.set(`${eventId}:${Number(playerId)}`,stats.points);
+    }
+    // Fall back to one-GW actuals from evaluation rows when history weeks lack multi-event stats.
+    if(!actualByEventPlayer.size)evaluation.playerRows.forEach(row=>actualByEventPlayer.set(`${row.event}:${row.playerId}`,row.actualPoints));
+    return horizonAccuracyRows({event:evaluation.event,receiptPlayers:receipt.players as any,actualByEventPlayer,completedEventIds});
+  });
+  const byHorizon=buildAccuracyReport(selectedVersion,playerRows as AccuracyPlayerRow[],evaluated.length,horizonRows).byHorizon;
   const fmtMetric=(value:number|null,places=2)=>value===null?"—":value.toFixed(places);
   const versionSummaries=availableVersions.map(version=>{
     const versionRows=groupedVersions.get(version)??[];
@@ -2323,7 +2401,7 @@ function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
     <nav className="model-version-tabs" aria-label="Accuracy model version">{availableVersions.map(version=><button className={selectedVersion===version?"active":""} onClick={()=>setSelectedVersion(version)} key={version}><span>{modelDisplayName(version)}</span><small>{groupedVersions.get(version)?.length??0} evaluated GW</small></button>)}</nav>
     <p className="model-comparability-note"><b>{modelDisplayName(selectedVersion)}</b> only. Metrics below never combine forecasts made by different model generations.</p>
     {versionSummaries.length>1&&<section className="version-comparison"><header><span>VERSION COMPARISON</span><small>Separate cohorts · lower error is better · fewer than 5 GWs is early evidence</small></header><div>{versionSummaries.map(summary=><button className={selectedVersion===summary.version?"active":""} onClick={()=>setSelectedVersion(summary.version)} key={summary.version}><strong>{modelDisplayName(summary.version)}</strong><span>{summary.rows} GW{summary.rows===1?"":"s"}{summary.rows<5?" · early sample":""}</span><dl><div><dt>xPts MAE</dt><dd>{fmtMetric(summary.metric.pointsMae)}</dd></div><div><dt>Start Brier</dt><dd>{fmtMetric(summary.metric.startBrier,3)}</dd></div><div><dt>Captain MAE</dt><dd>{fmtMetric(summary.captainMae)}</dd></div><div><dt>Top route</dt><dd>{summary.topGain===null?"—":`${summary.topGain>=0?"+":""}${summary.topGain.toFixed(2)}`}</dd></div></dl></button>)}</div></section>}
-    {!playerRows.length?<div className="accuracy-empty"><b>No calibration sample yet.</b><p>Lock a full projection receipt before a deadline and connect your FPL Team ID. This dashboard activates after FPL publishes the finished gameweek.</p></div>:<>
+    {!playerRows.length?<div className="accuracy-empty"><b>No calibration sample yet.</b><p>Final Check auto-stores a pre-deadline snapshot each GW (and Lock This Team refreshes it). Connect your FPL Team ID; this dashboard activates after FPL publishes the finished gameweek.</p></div>:<>
       <div className="accuracy-kpis">
         <article><span>xPTS MAE</span><b>{fmtMetric(overall.pointsMae)}</b><small>{overall.activeRows} active player forecasts</small></article>
         <article><span>START BRIER</span><b>{fmtMetric(overall.startBrier,3)}</b><small>0 is perfect · {overall.rows} probabilities</small></article>
@@ -2335,7 +2413,8 @@ function AccuracyDashboard({data,rows}:{data:FplData;rows:EvaluationRow[]}){
       {evaluated.length<5&&<p className="accuracy-warning"><b>Small sample:</b> {evaluated.length} evaluated gameweek{evaluated.length===1?"":"s"}. Treat these measurements as early calibration evidence, not proof of long-run accuracy.</p>}
       <SliceTable title="GAMEWEEK TREND" items={byEvent}/>
       <SliceTable title="BY PRIOR-EVIDENCE GROUP" items={byCalibration}/>
-      <div className="accuracy-breakdowns"><SliceTable title="BY POSITION" items={byPosition}/><SliceTable title="BY PROJECTION EVIDENCE" items={byConfidence}/></div>
+      <div className="accuracy-breakdowns"><SliceTable title="BY POSITION" items={byPosition}/><SliceTable title="BY MINUTES RISK" items={byMinutesRisk}/></div>
+      <div className="accuracy-breakdowns"><SliceTable title="BY PROJECTION EVIDENCE" items={byConfidence}/><SliceTable title="BY HORIZON" items={byHorizon}/></div>
       <SliceTable title="BY CLUB" items={byClub}/>
       <section className="accuracy-transfer"><header><div><span>TRANSFER RECOMMENDATION GAINS</span><h3>Frozen routes through completed horizon weeks</h3></div><small>Recommendations are evaluated as scenarios, not claimed as transfers the manager made.</small></header><div><p><span>All-route forecast</span><b>{transfer.projectedAverage===null?"—":`${transfer.projectedAverage>=0?"+":""}${transfer.projectedAverage.toFixed(2)}`}</b></p><p><span>All-route actual</span><b>{transfer.actualAverage===null?"—":`${transfer.actualAverage>=0?"+":""}${transfer.actualAverage.toFixed(2)}`}</b></p><p><span>After-hit actual</span><b>{transfer.netAfterHitAverage===null?"—":`${transfer.netAfterHitAverage>=0?"+":""}${transfer.netAfterHitAverage.toFixed(2)}`}</b></p><p><span>Top-route positive</span><b>{topTransfer.positivePct===null?"—":`${topTransfer.positivePct.toFixed(1)}%`}</b></p></div></section>
     </>}

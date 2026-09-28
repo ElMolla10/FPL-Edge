@@ -101,3 +101,13 @@ export const personalFplAuth = sqliteTable("personal_fpl_auth", {
   refreshLeaseUntil: text("refresh_lease_until"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Password sign-in rate limits (per-email + per-IP). No secrets beyond existing DB binding.
+export const loginRateLimits = sqliteTable("login_rate_limits", {
+  key: text("key").primaryKey(), // email:… or ip:…
+  kind: text("kind").notNull(), // email | ip
+  failCount: integer("fail_count").notNull().default(0),
+  windowStartedAt: text("window_started_at").notNull(),
+  blockedUntil: text("blocked_until"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
