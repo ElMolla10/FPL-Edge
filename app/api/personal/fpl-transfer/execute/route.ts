@@ -8,17 +8,14 @@ import {
   persistPersonalRefreshToken,
   postTransfers,
 } from "../../../../lib/personal-fpl-transfer";
+import { bodyErrorResponse, parseTransferExecuteBody, readJsonBody, rejectCrossSite } from "../../../../lib/request-guards";
 import { readRuntimeEnv } from "../../../../lib/runtime-env";
 
-type Body = {
-  elementOut?: number;
-  elementIn?: number;
-  event?: number;
-  purchasePriceTenths?: number;
-  confirmed?: boolean;
-};
-
 export async function POST(request: Request) {
+  // FIRST check, before auth/env/FPL calls: this route can place a real transfer on a real FPL team.
+  // Session cookie is SameSite=Lax; this is defence in depth (docs/SECURITY.md).
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   const env = await readRuntimeEnv();
   const user = await getCurrentUser();
   const gate = evaluatePersonalTransferGate(env, user?.email ?? null);
@@ -31,21 +28,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "FPL refresh token is not configured.", reason: "missing-refresh-token" }, { status: 503 });
   }
 
-  let body: Body;
+  let parsed;
   try {
-    body = (await request.json()) as Body;
-  } catch {
-    return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+    parsed = parseTransferExecuteBody(await readJsonBody(request));
+  } catch (error) {
+    const response = bodyErrorResponse(error);
+    if (response) return response;
+    throw error;
   }
-
-  const elementOut = Number(body.elementOut);
-  const elementIn = Number(body.elementIn);
-  const event = Number(body.event);
-  const purchasePriceTenths = Number(body.purchasePriceTenths);
-  const confirmed = body.confirmed === true;
-  if (![elementOut, elementIn, event, purchasePriceTenths].every((n) => Number.isFinite(n) && n > 0)) {
-    return Response.json({ error: "elementOut, elementIn, event, and purchasePriceTenths are required." }, { status: 400 });
-  }
+  const { elementOut, elementIn, event, purchasePriceTenths, confirmed } = parsed;
 
   try {
     const tokens = await createRotatingTokenProvider(refreshToken, persistPersonalRefreshToken);

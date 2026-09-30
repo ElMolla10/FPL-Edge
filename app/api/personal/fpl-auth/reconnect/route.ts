@@ -5,6 +5,7 @@ import {
   extractRefreshToken,
   persistPersonalAuthSession,
 } from "../../../../lib/personal-fpl-transfer";
+import { BodyError, isPlainObject, readJsonBody, rejectCrossSite } from "../../../../lib/request-guards";
 import { readRuntimeEnv } from "../../../../lib/runtime-env";
 
 /**
@@ -14,6 +15,8 @@ import { readRuntimeEnv } from "../../../../lib/runtime-env";
  * Does not require EXEC kill switch (live overlay reconnect).
  */
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   const env = await readRuntimeEnv();
   const user = await getCurrentUser();
   const gate = evaluatePersonalAuthManageGate(env, user?.email ?? null);
@@ -26,8 +29,11 @@ export async function POST(request: Request) {
 
   let body: { token?: unknown };
   try {
-    body = (await request.json()) as { token?: unknown };
-  } catch {
+    const parsed = await readJsonBody(request);
+    if (!isPlainObject(parsed)) return Response.json({ ok: false, error: "invalid-json" }, { status: 400 });
+    body = parsed as { token?: unknown };
+  } catch (error) {
+    if (error instanceof BodyError) return Response.json({ ok: false, error: error.status === 413 ? "too-large" : "invalid-json" }, { status: error.status });
     return Response.json({ ok: false, error: "invalid-json" }, { status: 400 });
   }
 

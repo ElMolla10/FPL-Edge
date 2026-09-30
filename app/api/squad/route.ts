@@ -2,8 +2,8 @@ import { eq } from "drizzle-orm";
 import { getDb, isMissingTableError } from "../../../db";
 import { squadData } from "../../../db/schema";
 import { getCurrentUser } from "../../lib/auth";
-import { MAX_PLANS, PersistedPlan } from "../../lib/strategy-plans";
-import { PlannedChip } from "../../lib/chip-portfolio";
+import { MAX_PLANS } from "../../lib/strategy-plans";
+import { MAX_SQUAD_BODY_BYTES, bodyErrorResponse, parseSquadBody, readJsonBody, rejectCrossSite } from "../../lib/request-guards";
 
 // One row per chip name is the real invariant (see chip-portfolio.ts's planChip) -- this is just
 // the same server-side defensive clamp MAX_PLANS already gets, so a stale tab or a manual API call
@@ -37,20 +37,20 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   try {
     const user = await getCurrentUser();
     if (!user) return Response.json({ error: "Not signed in." }, { status: 401 });
 
-    const body = (await request.json()) as {
-      squadIds?: number[];
-      watchlist?: number[];
-      locks?: unknown[];
-      captainVice?: Record<string, { captainId?: number; viceId?: number }>;
-      entry?: string | null;
-      manager?: unknown | null;
-      plans?: PersistedPlan[];
-      plannedChips?: PlannedChip[];
-    };
+    let body;
+    try {
+      body = parseSquadBody(await readJsonBody(request, MAX_SQUAD_BODY_BYTES));
+    } catch (error) {
+      const response = bodyErrorResponse(error);
+      if (response) return response;
+      throw error;
+    }
 
     const db = await getDb();
     const now = new Date().toISOString();
