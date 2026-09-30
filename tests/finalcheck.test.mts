@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { LockRecord, reconcileLock } from "../app/components/CoachApp.tsx";
+import { LockRecord } from "../app/components/CoachApp.tsx";
+import { reconcileLock } from "../app/components/coach/FinalCheckPanel.tsx";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 function makeLock(overrides: Partial<LockRecord> = {}): LockRecord {
   return {
@@ -77,7 +79,7 @@ test("reconcileLock: a changed bench order invalidates an otherwise identical de
 // real call site (e.g. accidentally passing a different event id in) -- this scans the actual source
 // for that, the same technique transfer-routes.test.mts already uses for ROLE_SECURITY_FLOOR.
 test("FutureGameweekView resolves its planned-chip badge from plannedChipFor keyed on event.id -- the correct event, not a stale or unrelated one",()=>{
-  const source=readFileSync(new URL("../app/components/CoachApp.tsx",import.meta.url),"utf-8");
+  const source=readCoachSource();
   const start=source.indexOf("function FutureGameweekView(");
   assert.notEqual(start,-1,"FutureGameweekView must still exist in CoachApp.tsx -- if it moved or was renamed, update this scan target too");
   const end=source.indexOf("\nfunction ",start+1);

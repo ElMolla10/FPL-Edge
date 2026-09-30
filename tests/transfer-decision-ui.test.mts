@@ -4,6 +4,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import TransferSensitivityPanel from "../app/components/TransferSensitivityPanel.tsx";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 const assumptions = ["Each factor varies independently while the plan stays frozen."];
 const available = {
@@ -59,7 +60,7 @@ test("sensitivity panel offers retries for interrupted and transient failures, b
 });
 
 test("Transfers integration suppresses Decision Confidence for ROLL and never persists analysis results", () => {
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   const hook = readFileSync(new URL("../app/components/useTransferDecisionConfidence.ts", import.meta.url), "utf8");
   assert.match(coach, /!roll&&[^]*DecisionConfidencePanel/);
   assert.doesNotMatch(hook, /localStorage|sessionStorage|persist\(/);

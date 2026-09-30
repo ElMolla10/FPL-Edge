@@ -10,8 +10,9 @@ import {
   rankTransfersForBestDecision,
 } from "../app/components/CoachApp.tsx";
 import type { FplData, FplPlayer } from "../app/lib/fpl.ts";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
-const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+const coach = readCoachSource();
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
 function overviewSource(): string {

@@ -5,6 +5,9 @@ const FPL = "https://fantasy.premierleague.com/api";
 const TARGET_SEASON = process.env.FPL_PRIOR_SEASON || "2025/26";
 const OUTPUT = resolve("app/data/prior-season-2025-26.json");
 const CONCURRENCY = 24;
+// Only the fields app/api/fpl/route.ts reads, stored as column-ordered tuples.
+// Keep in sync with PRIOR_SEASON_COLUMNS in app/lib/prior-season.ts (tests enforce it).
+const COLUMNS = ["id", "code", "totalPoints", "minutes", "starts", "expectedGoals", "expectedAssists", "bonus", "saves", "penaltiesSaved", "defensiveContribution"];
 
 async function getJson(url) {
   const response = await fetch(url, {
@@ -26,10 +29,9 @@ async function worker() {
     const summary = await getJson(`${FPL}/element-summary/${player.id}/`);
     const prior = summary.history_past?.find((row) => row.season_name === TARGET_SEASON);
     if (!prior) continue;
-    records[index] = {
+    const source = {
       id: player.id,
       code: player.code,
-      season: TARGET_SEASON,
       totalPoints: Number(prior.total_points) || 0,
       minutes: Number(prior.minutes) || 0,
       starts: Number(prior.starts) || 0,
@@ -39,10 +41,8 @@ async function worker() {
       saves: Number(prior.saves) || 0,
       penaltiesSaved: Number(prior.penalties_saved) || 0,
       defensiveContribution: Number(prior.defensive_contribution) || 0,
-      cleanSheets: Number(prior.clean_sheets) || 0,
-      goalsConceded: Number(prior.goals_conceded) || 0,
-      expectedGoalsConceded: Number(prior.expected_goals_conceded) || 0,
     };
+    records[index] = COLUMNS.map((column) => source[column]);
   }
 }
 
@@ -52,9 +52,13 @@ const data = {
   competition: "Premier League",
   generatedAt: new Date().toISOString(),
   source: `${FPL}/element-summary/{element_id}/`,
-  players: records.filter(Boolean).sort((a, b) => a.id - b.id),
+  columns: COLUMNS,
+  players: records.filter(Boolean).sort((a, b) => a[0] - b[0]),
 };
 
 await mkdir(dirname(OUTPUT), { recursive: true });
-await writeFile(OUTPUT, `${JSON.stringify(data, null, 2)}\n`);
+const { players: rows, ...header } = data;
+const headerLines = Object.entries(header).map(([key, value]) => `  ${JSON.stringify(key)}: ${JSON.stringify(value)},`);
+const body = rows.map((row) => `    ${JSON.stringify(row)}`).join(",\n");
+await writeFile(OUTPUT, `{\n${headerLines.join("\n")}\n  "players": [\n${body}\n  ]\n}\n`);
 console.log(`Saved ${data.players.length}/${players.length} official ${TARGET_SEASON} Premier League priors to ${OUTPUT}`);

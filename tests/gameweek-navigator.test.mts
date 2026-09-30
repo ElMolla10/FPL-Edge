@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplFixture, FplPlayer, bestXi } from "../app/lib/fpl.ts";
-import { HistoryWeek, LockRecord, resolveBenchDisplay, resolveCurrentXi, resolvePastGameweek } from "../app/components/CoachApp.tsx";
+import { HistoryWeek, LockRecord } from "../app/components/CoachApp.tsx";
+import { resolveBenchDisplay, resolveCurrentXi } from "../app/components/coach/PanelShared.tsx";
+import { resolvePastGameweek } from "../app/components/coach/TeamPanel.tsx";
 
 function makePlayer(overrides: Partial<FplPlayer> & { id: number; name: string }): FplPlayer {
   return {

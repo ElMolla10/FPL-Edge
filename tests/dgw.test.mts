@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplEvent, FplFixture, FplPlayer, isValidSquad, projectionMetrics } from "../app/lib/fpl.ts";
-import { ChipHorizonRow, Transfer, bestTransfers, chipVerdictAcrossHorizon, opponent, transferHoldNote } from "../app/components/CoachApp.tsx";
+import { ChipHorizonRow, Transfer, bestTransfers, opponent } from "../app/components/CoachApp.tsx";
+import { chipVerdictAcrossHorizon } from "../app/components/coach/FinalCheckPanel.tsx";
+import { transferHoldNote } from "../app/components/coach/TransfersPanel.tsx";
 import { ChipScores } from "../app/components/LiveIntelligence.tsx";
 import { DoubleGameweek, detectFixtureAnomalies, nearestInHorizon } from "../app/lib/dgw.ts";
 

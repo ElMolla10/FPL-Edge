@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplPlayer } from "../app/lib/fpl.ts";
-import { OfficialScoringAuthority, resolveCaptainMultiplier, resolveLiveScoring } from "../app/components/CoachApp.tsx";
+import { OfficialScoringAuthority } from "../app/components/CoachApp.tsx";
+import { resolveCaptainMultiplier, resolveLiveScoring } from "../app/components/coach/PanelShared.tsx";
 
 function makePlayer(id:number,name:string,positionShort:string,eventPoints=1,eventMinutes=90):FplPlayer{
   const positionId=positionShort==="GKP"?1:positionShort==="DEF"?2:positionShort==="MID"?3:4;

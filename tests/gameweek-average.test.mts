@@ -12,7 +12,7 @@ async function subject() {
   const [routeModule, fplModule, coachModule] = await Promise.all([
     import("../app/api/fpl/route.ts"),
     import("../app/lib/fpl.ts"),
-    import("../app/components/CoachApp.tsx"),
+    import("../app/components/coach/TeamPanel.tsx"),
   ]);
   return {
     mapOfficialEvent: (routeModule as unknown as { mapOfficialEvent?: (event: Record<string, unknown>) => AverageEvent }).mapOfficialEvent,

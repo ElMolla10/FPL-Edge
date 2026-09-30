@@ -18,6 +18,7 @@ import {
   isRankingFinanceUnavailable,
   type ManagerMeta,
 } from "../app/lib/squad-comparison.ts";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 test("personal transfer kill switch defaults off", () => {
   assert.equal(isPersonalTransferExecEnabled({}), false);
@@ -98,7 +99,7 @@ test("marketing trust copy stays read-only and personal module is isolated", () 
   assert.match(readme, /FPL_EDGE_PERSONAL_TRANSFER_EXEC/);
   assert.match(readme, /account\.premierleague\.com\/as\/token/);
   assert.match(readme, /\/api\/transfers\//);
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   assert.match(coach, /PersonalTransferPlace/);
   assert.match(coach, /Read-only\. We never ask for your FPL password/);
   assert.match(coach, /Places this ranked route/);
@@ -236,7 +237,7 @@ test("README documents reconnect path and cron keep-alive", () => {
   assert.match(readme, /rankingFinance.*unavailable|bankSource.*unavailable/i);
   assert.match(readme, /bookmark|Send FPL session to Edge/i);
   assert.doesNotMatch(readme, /DevTools/);
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   assert.match(coach, /ReconnectFplPanel/);
   assert.match(coach, /ReconnectFplPanel/);
   const wrangler = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
