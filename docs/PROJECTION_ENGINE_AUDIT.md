@@ -389,7 +389,7 @@ riskAdjNet5      = net5>0 ? net5 * clamp(0.55 + 0.25*start + 0.2*conf, 0.55, 1) 
 
 ## Appendix B — Confirmation
 
-- Audit file path: **`/workspace/FPL-Edge/PROJECTION_ENGINE_AUDIT.md`**
+- Audit file path: **`docs/PROJECTION_ENGINE_AUDIT.md`**
 - **No application code was modified** in this pass; **no commit / PR**.
 - Working tree aside from this new audit file: pre-existing untracked `qa-screenshots/`, `wrangler.pr57.jsonc` only.
 

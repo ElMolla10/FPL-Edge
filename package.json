@@ -13,6 +13,8 @@
     "test": "npm run build && node --test tests/rendered-html.test.mjs && node --import tsx --test tests/*.test.mts",
     "data:prior": "node scripts/sync-prior-season.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
+    "lint:ratchet": "node scripts/lint-ratchet.mjs",
+    "typecheck": "tsc --noEmit",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },
   "dependencies": {
