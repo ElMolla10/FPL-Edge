@@ -9,7 +9,7 @@
 | **Live** | https://fpl-edge.elmolla10.workers.dev — Cloudflare Workers via `.github/workflows/deploy.yml` (auto-deploy on every push to `main`) |
 | **Tip as of this handoff write** | `f715390` — Merge PR #35 (`personal/any-transfer-place`). App mode: `/?app=1` |
 | **iOS shell** | **Separate** repo **FPL-Edge-iOS** (Capacitor). Rodri owns it. Not built or deployed from this web repo. Shell applies WebView bottom safe-area inset and window background `#14181A` (canvas); web PRs 27–34 handle `viewport-fit`, header/tab floors, Switch team flush, and html/body canvas overscroll. Capacitor often reports `env(safe-area-inset-*)` as `0` inside the WebView — do not rely on CSS env alone. |
-| **Sites (secondary)** | Independently managed OpenAI Sites host may still exist (`README.md` / `README.SITES.md`); it is **not** what this handoff’s push/deploy status tracks. |
+| **Sites (secondary)** | Independently managed OpenAI Sites host may still exist (`README.md` / `docs/README.SITES.md`); it is **not** what this handoff’s push/deploy status tracks. |
 
 This supersedes earlier handoffs that stopped at Decision Confidence / Mini-League / Season Simulator, or at fpl.page redesign Step 5 (`1d212f4`). Process Rules (§1) and the older architecture/process lessons below remain in force. Read **Process Rules** first.
 

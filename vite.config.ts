@@ -16,7 +16,7 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
 // A real, personal `vinext deploy` (outside the Sites platform -- e.g. to the developer's own
 // Cloudflare account) generates a real wrangler.jsonc with its own real D1/R2 bindings. The Sites
-// platform's own remote builder never reads wrangler.jsonc at all (confirmed in README.SITES.md:
+// platform's own remote builder never reads wrangler.jsonc at all (confirmed in docs/README.SITES.md:
 // "This starter does not use wrangler.jsonc" -- it gets real bindings from .openai/hosting.json
 // via its own external deploy mechanism), so this placeholder injection below only ever matters
 // for a personal deploy path, and must defer to a real binding of the same name if one already
@@ -35,7 +35,11 @@ function existingBindingNames(key: "d1_databases" | "r2_buckets"): Set<string> {
       .replace(/(^|[^:])\/\/.*$/gm, "$1");
     const parsed = JSON.parse(withoutComments);
     const entries = Array.isArray(parsed[key]) ? parsed[key] : [];
-    return new Set(entries.map((entry: { binding?: string }) => entry.binding).filter(Boolean));
+    return new Set(
+      entries
+        .map((entry: { binding?: string }) => entry.binding)
+        .filter((name: string | undefined): name is string => Boolean(name)),
+    );
   } catch {
     return new Set();
   }
