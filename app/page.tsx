@@ -3,68 +3,15 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Wordmark } from "./components/Wordmark";
 import { formatSeasonPassPrice } from "./lib/season-pass";
-import { fetchFplData, futureEvents, playerProjection } from "./lib/fpl";
-import type { FplData, FplPlayer } from "./lib/fpl";
+import { fetchFplData } from "./lib/fpl";
+import type { FplData } from "./lib/fpl";
+import { exampleDeskSummary } from "./lib/example-squad";
 
 // Lazy: CoachApp pulls in the entire connected-app tree (LiveDraftBuilder, LiveIntelligence, the
 // optimizer). A static import here bundled all of that into this marketing page's own chunk, so
 // every visitor downloaded it even if appMode never becomes true. Loaded only once someone
 // actually enters the app.
 const CoachApp = lazy(() => import("./components/CoachApp"));
-
-type ExampleDesk = {
-  name: string;
-  deadline: string;
-  total: number | null;
-  captain: FplPlayer | null;
-  captainPoints: number | null;
-};
-
-// No team is connected on the public homepage, so this is not a manager's XI. It is the model's
-// best legal formation from this deadline's live player pool, with the captain counted twice the
-// way the desk's projected total does. Budget and a real 15-man squad are not applied. The card
-// says Example for that reason.
-function exampleDesk(data: FplData): ExampleDesk | null {
-  const event = futureEvents(data, 1)[0];
-  if (!event) return null;
-  const scores = new Map<number, number>();
-  for (const player of data.players) scores.set(player.id, playerProjection(player, event.id, data.fixtures, event.id));
-  const limit = data.rules?.teamLimit || 3;
-  const ranked = data.players
-    .filter((player) => player.status !== "u" && player.chance !== 0)
-    .sort((a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0));
-  const formations: [number, number, number][] = [[3, 4, 3], [3, 5, 2], [4, 3, 3], [4, 4, 2], [4, 5, 1], [5, 2, 3], [5, 3, 2], [5, 4, 1]];
-  const pick = (position: string, count: number, used: Set<number>, clubs: Map<number, number>) => {
-    const chosen: FplPlayer[] = [];
-    for (const player of ranked) {
-      if (player.positionShort !== position || used.has(player.id)) continue;
-      const club = clubs.get(player.teamId) ?? 0;
-      if (club >= limit) continue;
-      chosen.push(player);
-      used.add(player.id);
-      clubs.set(player.teamId, club + 1);
-      if (chosen.length === count) break;
-    }
-    return chosen;
-  };
-  let best: { total: number; captain: FplPlayer | null } = { total: -1, captain: null };
-  for (const [def, mid, fwd] of formations) {
-    const used = new Set<number>();
-    const clubs = new Map<number, number>();
-    const xi = [...pick("GKP", 1, used, clubs), ...pick("DEF", def, used, clubs), ...pick("MID", mid, used, clubs), ...pick("FWD", fwd, used, clubs)];
-    if (xi.length !== 11) continue;
-    const captain = xi.reduce((top, player) => ((scores.get(player.id) ?? 0) > (scores.get(top.id) ?? 0) ? player : top));
-    const total = xi.reduce((sum, player) => sum + (scores.get(player.id) ?? 0), 0) + (scores.get(captain.id) ?? 0);
-    if (total > best.total) best = { total, captain };
-  }
-  return {
-    name: event.name,
-    deadline: event.deadline,
-    total: best.captain ? best.total : null,
-    captain: best.captain,
-    captainPoints: best.captain ? scores.get(best.captain.id) ?? null : null,
-  };
-}
 
 function countdown(deadline: string, now: number) {
   const total = Math.max(0, Date.parse(deadline) - now);
@@ -104,7 +51,7 @@ export default function Home() {
   }, [appMode]);
   const desk = useMemo(() => {
     if (!data) return null;
-    try { return exampleDesk(data); } catch { return null; }
+    try { return exampleDeskSummary(data); } catch { return null; }
   }, [data]);
   if (appMode) return <Suspense fallback={<div className="coach-loading"><b>Opening the desk…</b></div>}><CoachApp onBack={() => { setAppMode(null); setStartExample(false); }} startAuth={appMode === "signin"} startExample={startExample} /></Suspense>;
 
@@ -205,6 +152,7 @@ export default function Home() {
       </footer>
     </div>
     <div className="paper-dock">
+      <p className="paper-dock-trust">Official FPL data · No password needed</p>
       <button type="button" className="paper-btn" onClick={openDesk}>Check my team</button>
       <button type="button" className="paper-btn paper-demo" onClick={openDemo}>Open Demo</button>
     </div>

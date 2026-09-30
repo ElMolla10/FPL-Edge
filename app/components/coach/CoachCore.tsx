@@ -65,6 +65,20 @@ export async function connectTeam(id:string,data:FplData):Promise<ManagerMeta>{
   return json.manager as ManagerMeta;
 }
 
+/**
+ * Shared structure for the empty desk screens (Squad, Coach, History): a labelled card with a
+ * one-line reason, the three steps that unlock the screen, and exactly ONE primary button.
+ */
+export function EmptyDeskState({eyebrow,title,lede,steps,actionLabel,onAction}:{eyebrow:string;title:string;lede:string;steps:readonly string[];actionLabel:string;onAction:()=>void}){
+  return <section className="empty-desk-card" aria-label={title}>
+    <span className="empty-desk-eyebrow">{eyebrow}</span>
+    <h2>{title}</h2>
+    <p>{lede}</p>
+    <ol className="empty-desk-steps">{steps.map((step,i)=><li key={step}><b>{i+1}</b><span>{step}</span></li>)}</ol>
+    <button type="button" className="empty-desk-action" onClick={onAction}>{actionLabel}</button>
+  </section>;
+}
+
 export function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:ManagerMeta)=>void}){const teamAuth=useTeamLinkAuth();const[id,setId]=useState("");const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const connect=async()=>{setBusy(true);setMsg("");try{const manager=await connectTeam(id,data);setMsg(`${manager.teamName} connected. Your coach is ready.`);onConnected?.(manager)}catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}finally{setBusy(false)}};if(teamAuth!=="in")return <section className="connect-hero"><div><span>START HERE</span><h2>Sign in to connect your team</h2><p>Your official FPL team id belongs to your email account. Sign in first, then connect it. The next time you sign in, on any browser, that team loads automatically.</p><small className="trust-note">Read-only. We never ask for your FPL password.</small></div></section>;return <section className="connect-hero"><div><span>START HERE</span><h2>Connect your official FPL team</h2><p>Enter the number in your FPL team URL. Read-only: we never ask for your password or make changes to your official team.</p></div><div><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect my team →"}</button><small>{msg||"Current public squad becomes available after its deadline."}</small></div></section>}
 
 export function benchOrderForEvent(xi:FplPlayer[],bench:FplPlayer[],eventId:number,data:Pick<FplData,"fixtures">):BenchOrderResult{

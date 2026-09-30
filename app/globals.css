@@ -544,8 +544,6 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .coach-about{background:var(--surface-card);border:1px solid var(--line);border-radius:8px;padding:10px 14px;color:var(--text-muted);font-size:14px;line-height:1.55}
 .coach-about>summary{cursor:pointer;font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--text)}
 .coach-about>p{margin:10px 0 0}
-.pro-benefit-line{font-size:14px;line-height:1.45;color:var(--text-muted);margin:8px 0 12px;max-width:36rem}
-.pitch-empty .pro-benefit-line{color:rgba(255,255,255,.78)}
 .segmented.pitch-first>button:first-child{font-weight:900}
 .squad-title{margin-bottom:4px}
 .research-filters input[type="range"]{-webkit-appearance:none;appearance:none;accent-color:var(--lime);width:100%;height:22px;background:transparent}
@@ -1271,3 +1269,87 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .paper-sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @keyframes paper-loading-pulse{0%,100%{opacity:.25}50%{opacity:.7}}
 @media (prefers-reduced-motion:reduce){.paper-loading-bar{animation:none;opacity:.5}}
+
+/* === UX review (priority 1-6) ============================================ */
+
+/* 1. Mobile homepage: the fixed dock must never cover content. Bottom clearance = dock height
+      (trust line + buttons + padding) + the home-indicator inset, applied to the page itself, and
+      in-page anchors stop above the dock. The footer is the last thing on the page, so it clears. */
+.paper-dock{gap:8px 10px}
+.paper-dock-trust{grid-column:1/-1;margin:0;text-align:center;font-size:13px;line-height:1.3;color:var(--text-muted)}
+@media(max-width:899px){
+  .paper{padding-bottom:calc(132px + env(safe-area-inset-bottom))}
+  html{scroll-padding-bottom:calc(132px + env(safe-area-inset-bottom))}
+  .paper-footer{padding-bottom:16px}
+}
+
+/* 3. Decision desk (desktop): body and label sizes up ~1-2px, layout unchanged. */
+@media(min-width:851px){
+  .coach-shell{font-size:15px}
+  .coach-sidebar nav button,.sidebar-menus>button,.sidebar-pro-btn,.sidebar-drop button{font-size:15px}
+  .coach-data-note b{font-size:14px}
+  .coach-data-note small{font-size:13px}
+  .theme-toggle,.coach-sidebar .back-link{font-size:14px}
+  .deadline-chip small{font-size:13px}
+  .deadline-chip span{font-size:14px}
+  .team-signin,.signin-action .team-signin{font-size:14px}
+  .example-squad-banner,.coach-main:has(.overview-command) .example-squad-banner{font-size:14px;line-height:1.45}
+  .coach-trust,.template-lede,.empty-why{font-size:15px}
+  .overview-deadline span,.overview-status-strip span,.overview-jumps span,.call-label span{font-size:14px}
+  .overview-deadline p,.overview-deadline-when{font-size:14px!important}
+  .overview-status-strip small,.command-metrics span,.command-metrics small{font-size:13px}
+  .overview-status-strip b{font-size:18px}
+  .call-label b{font-size:13px}
+  .overview-best-decision .best-decision-lede,.overview-best-decision .engine-why .engine-reason-hero{font-size:15px!important;line-height:1.45!important}
+  .engine-why>span,.best-decision-metrics small{font-size:13px}
+  .best-decision-metrics b{font-size:17px}
+  .overview-captain-metrics b{font-size:19px}
+  .urgent-card article b{font-size:15px}
+  .urgent-card article span{font-size:13px}
+  .urgent-card article p{font-size:14px}
+  .urgent-card>header span,.changed-card span{font-size:14px}
+  .changed-card p,.price-value-alert p,.dgw-alert p{font-size:15px}
+  .overview-jumps button b{font-size:15px}
+  .overview-best-decision .overview-transfers-link,.urgent-card>header button{font-size:15px}
+  .truth-note{font-size:14px}
+  .segmented button,.coach-intent-picker button{font-size:14px}
+  .screen-title{font-size:30px}
+}
+
+/* 4. Empty desk screens: a structured card (label, reason, 3 steps, ONE primary button) beside a
+      muted preview, instead of a small box floating in an empty canvas. */
+.empty-desk-layout{display:grid;gap:14px;align-items:start}
+.empty-desk-card{background:var(--surface-card);border:1px solid var(--line);border-left:3px solid var(--lime);border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:12px}
+.empty-desk-eyebrow{font-size:13px;font-weight:900;letter-spacing:.13em;color:var(--success-text)}
+.empty-desk-card h2{margin:0;font-size:26px;line-height:1.15;letter-spacing:-.02em;color:var(--text)}
+.empty-desk-card>p{margin:0;font-size:15px;line-height:1.5;color:var(--text-muted);max-width:40rem}
+.empty-desk-steps{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:10px}
+.empty-desk-steps li{display:flex;align-items:center;gap:12px;font-size:15px;line-height:1.4;color:var(--text)}
+.empty-desk-steps b{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--surface-sunken);border:1px solid var(--line);font-size:13px}
+.empty-desk-action{align-self:flex-start;min-height:46px;padding:0 22px;border:0;border-radius:8px;background:var(--lime);color:var(--ink);font-size:15px;font-weight:800;cursor:pointer;margin-top:6px}
+.empty-desk-action:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
+.empty-desk-layout .pitch-outline{margin:0;opacity:.85}
+.empty-desk-layout .coach-intent-picker.is-dimmed{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
+.empty-desk-layout .coach-intent-picker.is-dimmed button{text-align:left;min-height:44px}
+@media(min-width:851px){
+  .empty-desk-layout:has(.pitch-outline){grid-template-columns:minmax(320px,420px) minmax(0,1fr);gap:20px}
+  .empty-desk-layout .pitch-outline{height:min(560px,calc(100dvh - 210px));min-height:440px}
+  .empty-desk-card{padding:30px}
+  .empty-desk-card h2{font-size:30px}
+  .empty-desk-card>p,.empty-desk-steps li{font-size:16px}
+  .empty-desk-layout .coach-intent-picker.is-dimmed{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:850px){
+  .empty-desk-action{align-self:stretch;width:100%}
+  .empty-desk-layout .pitch-outline{height:260px;min-height:0}
+}
+.coach-page>.empty-desk-card{max-width:none}
+
+/* 6. Payment: sign in → phone → pay, read as a sequence. */
+.paper-steps{list-style:none;margin:20px 0 0;padding:0;display:flex;gap:8px;flex-wrap:wrap}
+.paper-steps li{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted)}
+.paper-steps li+li::before{content:"";width:14px;height:1px;background:var(--line);display:inline-block}
+.paper-steps b{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line);font-size:12px}
+.paper-steps li.is-current{color:var(--text);font-weight:560}
+.paper-steps li.is-current b{background:var(--lime);border-color:var(--lime);color:var(--ink)}
+.paper-steps li.is-done b{background:var(--surface-sunken);color:var(--text)}

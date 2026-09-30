@@ -12,7 +12,7 @@ import {ManagerMeta} from "../../lib/squad-comparison";
 import {SeasonLocked} from "../SeasonPass";
 import {CaptaincyPicker,average,formation,resolveCurrentXi,resolveLiveScoring,useCaptaincy} from "./PanelShared";
 import type {HistoryWeek,LiveScoringResult,LockRecord,OfficialScoringAuthority} from "./PanelShared";
-import {ConnectTeam,PhoneSquadNav,analysis,benchOrderForEvent,connectTeam,useManager} from "./CoachCore";
+import {ConnectTeam,EmptyDeskState,PhoneSquadNav,analysis,benchOrderForEvent,connectTeam,useManager} from "./CoachCore";
 import type {View} from "./CoachCore";
 
 export type OfficialRank={rank:number;asOfEvent:number};
@@ -173,7 +173,7 @@ export function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:Fp
   const currentBench=currentResolution?.bench??[];
   const currentCaptaincy=useCaptaincy(currentXi,currentAnchor?.id??0,currentResolution?.modelCaptain,currentResolution?.modelVice);
 
-  if(!a&&teamAuth!=="in")return <div className="coach-page"><PhoneSquadNav active="team" go={go}/><PitchOutline onBuild={()=>go("draft")}/></div>;if(!a)return <div className="coach-page"><PhoneSquadNav active="team" go={go}/><ConnectTeam data={data} onConnected={m=>{setManager(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></div>;
+  if(!a&&teamAuth!=="in")return <div className="coach-page"><PhoneSquadNav active="team" go={go}/><div className="empty-desk-layout"><EmptyDeskState eyebrow="MY SQUAD" title="No squad yet" lede="Your XI, bench and captain show up here once a 15-man squad is saved." steps={["Build your 15 (or sign in to connect your FPL team)","See your XI, bench and captain on the pitch","Plan transfers from Transfers"]} actionLabel="Build a squad" onAction={()=>go("draft")}/><PitchOutline/></div></div>;if(!a)return <div className="coach-page"><PhoneSquadNav active="team" go={go}/><ConnectTeam data={data} onConnected={m=>{setManager(m);onTeamChange()}}/><button className="wide-action" onClick={()=>go("draft")}>Or build manually →</button></div>;
 
   const goBack=()=>setNavEventId(id=>Math.max(backwardBoundId,id-1));
   const goForward=()=>setNavEventId(id=>Math.min(forwardBoundId,id+1));
@@ -348,7 +348,7 @@ export function FutureGameweekView({data,event,squad,tab,setTab,selected,setSele
 // "any saved squad players at all" (not a complete 15-man squad, unlike analysis()'s gate
 // elsewhere) -- a partial squad still has real owned clubs worth showing here.
 
-function PitchOutline({onBuild}:{onBuild:()=>void}){
+function PitchOutline(){
   const rows=[["GKP",1],["DEF",4],["MID",4],["FWD",2]] as const;
-  return <section className="coach-pitch pitch-outline" aria-label="Empty pitch"><div className="pitch-markings"/>{rows.map(([pos,count])=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{Array.from({length:count},(_,i)=><span className="pitch-slot" key={i}/>)}</div>)}<div className="pitch-empty"><b>No squad yet</b><p className="pro-benefit-line">Pitch-first Squad: connect or build to see your XI, then plan transfers under My Squad.</p><button type="button" onClick={onBuild}>Build a squad</button></div></section>;
+  return <section className="coach-pitch pitch-outline" aria-label="Empty pitch preview"><div className="pitch-markings"/>{rows.map(([pos,count])=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{Array.from({length:count},(_,i)=><span className="pitch-slot" key={i}/>)}</div>)}</section>;
 }

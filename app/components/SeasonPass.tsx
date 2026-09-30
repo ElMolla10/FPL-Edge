@@ -96,6 +96,11 @@ export function SeasonUpgrade({ checkoutReturn, onDismiss }: { checkoutReturn?: 
       <li>Decision history</li>
     </ul>
     {checkoutReturn && <p className="paper-form-message">You are back from Paymob. If the payment succeeded, refresh in a moment. This return does not unlock the desk by itself.</p>}
+    <ol className="paper-steps" aria-label="Checkout steps">
+      <li className={signedIn ? "is-done" : "is-current"} aria-current={signedIn ? undefined : "step"}><b>1</b><span>Sign in</span></li>
+      <li className={signedIn ? "is-current" : ""} aria-current={signedIn ? "step" : undefined}><b>2</b><span>Phone number</span></li>
+      <li><b>3</b><span>Pay</span></li>
+    </ol>
     {signedIn === false && <div className="paper-form-step">
       <p>Step 1: sign in or create an account. Your pass is attached to it.</p>
       <div className="paper-form-actions">
@@ -104,7 +109,8 @@ export function SeasonUpgrade({ checkoutReturn, onDismiss }: { checkoutReturn?: 
       </div>
     </div>}
     {signedIn && accountEmail && <p className="paper-form-switch">Signed in as {accountEmail}. The pass is attached to this account.</p>}
-    <label className="paper-field">Egyptian mobile<input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="01xxxxxxxxx" autoComplete="tel" /></label>
+    {/* The phone field only appears once the session is confirmed (sign in → phone → pay). */}
+    {signedIn === true && <label className="paper-field">Egyptian mobile number<input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="01xxxxxxxxx" autoComplete="tel" /></label>}
     {disconnected && <p className="paper-form-message">Checkout is not connected yet.</p>}
     {message && !disconnected && <p className="paper-form-message" role="alert">{message}</p>}
     <div className="paper-form-actions">
