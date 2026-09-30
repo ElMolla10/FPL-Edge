@@ -1,6 +1,7 @@
 import { isMissingTableError } from "../../../../db";
 import { getCurrentUser } from "../../../lib/auth";
 import { paymobConfigFromEnv, createPaymobIntention } from "../../../lib/paymob";
+import { isPlainObject, readJsonBody, rejectCrossSite } from "../../../lib/request-guards";
 import { readRuntimeEnv } from "../../../lib/runtime-env";
 import { attachPaymobOrder, insertPendingCheckout, seasonPassSummaryForUser } from "../../../lib/season-access";
 import { loadSeasonDeadlines } from "../../../lib/season-events";
@@ -9,6 +10,8 @@ import { SEASON_PASS_PRICE_PIASTERS, normalizeCheckoutPhone, resolveSeasonWindow
 const NOT_CONNECTED = "Checkout is not connected yet.";
 
 export async function POST(request: Request) {
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "Sign in before checkout. A payment is attached to your account, not this browser." }, { status: 401 });
 
@@ -18,8 +21,9 @@ export async function POST(request: Request) {
 
   let phone = "";
   try {
-    const body = (await request.json()) as { phone?: string };
-    phone = normalizeCheckoutPhone(body.phone ?? "") ?? "";
+    const body = await readJsonBody(request);
+    const raw = isPlainObject(body) && typeof body.phone === "string" && body.phone.length <= 32 ? body.phone : "";
+    phone = normalizeCheckoutPhone(raw) ?? "";
   } catch {
     phone = "";
   }

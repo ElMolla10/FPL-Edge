@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // Email is the single identity anchor across both auth methods (password and ChatGPT
 // sign-in) -- see app/lib/auth.ts for the resolution rules that keep this one coherent
@@ -19,7 +19,7 @@ export const sessions = sqliteTable("sessions", {
   userId: text("user_id").notNull().references(() => users.id),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   expiresAt: text("expires_at").notNull(),
-});
+}, (table) => [index("sessions_expires_at_idx").on(table.expiresAt)]);
 
 export const squadData = sqliteTable("squad_data", {
   userId: text("user_id").primaryKey().references(() => users.id),
@@ -110,4 +110,4 @@ export const loginRateLimits = sqliteTable("login_rate_limits", {
   windowStartedAt: text("window_started_at").notNull(),
   blockedUntil: text("blocked_until"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [index("login_rate_limits_window_started_at_idx").on(table.windowStartedAt)]);

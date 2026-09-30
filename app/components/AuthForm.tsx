@@ -9,6 +9,8 @@ function nextPath(): string {
   return raw;
 }
 
+const SIGNUP_FOLLOWUP_FAILED = "We could not finish setting up this account. If you already have an account with this email, sign in with your existing password.";
+
 export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,13 +32,23 @@ export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
     setBusy(true);
     setMessage("");
     try {
-      const response = await fetch(mode === "signup" ? "/api/auth/signup" : "/api/auth/login", {
+      const post = (path: string) => fetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
+      const response = await post(mode === "signup" ? "/api/auth/signup" : "/api/auth/login");
       const json = await response.json() as { error?: string };
       if (!response.ok) throw new Error(json.error || (mode === "signup" ? "Could not create account." : "Could not sign in."));
+      if (mode === "signup") {
+        // Signup answers identically for new and existing emails and sets no session (no account-existence oracle),
+        // so sign in explicitly. This succeeds for a new account (or an existing one with this same password).
+        const login = await post("/api/auth/login");
+        if (!login.ok) {
+          const loginJson = await login.json().catch(() => ({})) as { error?: string };
+          throw new Error(login.status === 429 && loginJson.error ? loginJson.error : SIGNUP_FOLLOWUP_FAILED);
+        }
+      }
       window.location.assign(destination);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not sign in.");
@@ -52,7 +64,7 @@ export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
       ? "Your season pass is attached to this account. Sign in, then come back to pay if you still need it."
       : "Free this gameweek. The season pass opens the rest."}</p>
     <label className="paper-field">Email<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-    <label className="paper-field">Password<input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} placeholder={mode === "signup" ? "At least 8 characters" : ""} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+    <label className="paper-field">Password<input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} placeholder={mode === "signup" ? "8 to 128 characters" : ""} maxLength={mode === "signup" ? 128 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
     {message && <p className="paper-form-message" role="alert">{message}</p>}
     <div className="paper-form-actions">
       <button type="submit" className="paper-btn paper-form-submit" disabled={busy}>{busy ? "…" : mode === "signin" ? "Sign in" : "Create account"}</button>

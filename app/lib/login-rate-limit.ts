@@ -142,3 +142,51 @@ export function clearLoginRateLimitBucket(
     blockedUntil: null,
   };
 }
+
+// --- Signup rate limit (per client IP) -------------------------------------------------------
+// Signup runs a 100k-iteration PBKDF2 per request and used to have no limit at all. Every signup
+// ATTEMPT (not just failures) counts. Same login_rate_limits table + same one-statement atomic
+// upsert pattern as the login limiter, but a separate key namespace ("signup:ip:...") so signup
+// traffic can never lock anyone out of sign-in and vice versa.
+
+export const SIGNUP_RATE_LIMIT = {
+  /** Signup attempts allowed per IP inside one window. Generous: mobile carriers NAT many users behind one IP. */
+  maxAttempts: 10,
+  /** Fixed window length (ms). Once maxAttempts is exceeded the caller is blocked until the window ends. */
+  windowMs: 60 * 60 * 1000,
+} as const;
+
+export function signupIpKey(ip: string): string {
+  return `signup:ip:${ip || "unknown"}`;
+}
+
+/**
+ * Pure mirror of the SQL in consumeSignupAttemptAtomic (login-rate-limit-store.ts).
+ * Returns the post-increment counters; `blocked` is true once the attempt count exceeds maxAttempts.
+ */
+export function applyAtomicSignupIncrement(
+  existing: Pick<RateLimitBucket, "failCount" | "windowStartedAt"> | null,
+  nowMs: number = Date.now(),
+): { failCount: number; windowStartedAt: string } {
+  const cutoff = nowMs - SIGNUP_RATE_LIMIT.windowMs;
+  const inWindow = existing != null && Date.parse(existing.windowStartedAt) >= cutoff;
+  return inWindow && existing
+    ? { failCount: existing.failCount + 1, windowStartedAt: existing.windowStartedAt }
+    : { failCount: 1, windowStartedAt: new Date(nowMs).toISOString() };
+}
+
+export function evaluateSignupAttempt(
+  counters: { failCount: number; windowStartedAt: string },
+  nowMs: number = Date.now(),
+): RateLimitDecision {
+  if (counters.failCount <= SIGNUP_RATE_LIMIT.maxAttempts) return { ok: true };
+  const windowEnd = parseIso(counters.windowStartedAt) + SIGNUP_RATE_LIMIT.windowMs;
+  return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil((windowEnd - nowMs) / 1000)), reason: "ip" };
+}
+
+/**
+ * A row is stale (safe to delete) when its counting window has fully elapsed and it is not
+ * currently blocked. Uses the longest window of any namespace, so it is valid for login + signup rows.
+ * Rows cleared by clearLoginFailures (window_started_at = epoch) are stale immediately.
+ */
+export const RATE_LIMIT_MAX_WINDOW_MS = Math.max(LOGIN_RATE_LIMIT.windowMs, SIGNUP_RATE_LIMIT.windowMs);

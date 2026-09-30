@@ -1,5 +1,6 @@
 import { isMissingTableError } from "../../../../db";
 import { getCurrentUser } from "../../../lib/auth";
+import { rejectCrossSite } from "../../../lib/request-guards";
 import { readRuntimeEnv } from "../../../lib/runtime-env";
 import { insertSeasonPass, seasonPassSummaryForUser } from "../../../lib/season-access";
 import { loadSeasonDeadlines } from "../../../lib/season-events";
@@ -7,7 +8,9 @@ import { SEASON_PASS_PRICE_PIASTERS, devSeasonGrantEnabled, resolveSeasonWindow 
 
 // Not linked from the UI. Refuses unless FPL_EDGE_DEV_SEASON_GRANT=1 and NODE_ENV is
 // development or test. Production and an unset NODE_ENV cannot hit this.
-export async function POST() {
+export async function POST(request: Request) {
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   const env = await readRuntimeEnv();
   if (!devSeasonGrantEnabled(env)) return Response.json({ error: "Not found." }, { status: 404 });
 

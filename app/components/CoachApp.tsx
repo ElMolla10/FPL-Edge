@@ -368,9 +368,15 @@ function AccountBar({onAuthChange,onAccount,initialOpen=false}:{onAuthChange:()=
     if(!form.email||!form.password){setMsg("Enter email and password.");return}
     setBusy(true);setMsg("");
     try{
-      const res=await fetch(mode==="signup"?"/api/auth/signup":"/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});
+      const post=(path:string)=>fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});
+      const res=await post(mode==="signup"?"/api/auth/signup":"/api/auth/login");
       const json=await res.json();
       if(!res.ok)throw new Error(json.error||"Could not sign in.");
+      if(mode==="signup"){
+        // Signup is a non-oracle endpoint (same reply for new/existing email, no session), so sign in explicitly.
+        const login=await post("/api/auth/login");
+        if(!login.ok){const lj=await login.json().catch(()=>({}));throw new Error(login.status===429&&lj.error?lj.error:"We could not finish setting up this account. If you already have an account with this email, sign in with your existing password.")}
+      }
       setOpen(false);setForm({email:"",password:""});onAuthChange();refresh();
     }catch(e){setMsg(e instanceof Error?e.message:"Could not sign in.")}
     finally{setBusy(false)}

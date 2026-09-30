@@ -5,6 +5,7 @@ import { sessions, users } from "../../db/schema";
 import {
   UserRecord,
   UserRepo,
+  registerAccountWith,
   signInWithPasswordWith,
   signUpWithPasswordWith,
   toBase64Url,
@@ -31,7 +32,9 @@ export function makeD1UserRepo(): UserRepo {
   };
 }
 
+// Legacy (throws on duplicate = existence oracle). The signup route uses registerAccount instead.
 export const signUpWithPassword = (email: string, password: string) => signUpWithPasswordWith(makeD1UserRepo(), email, password);
+export const registerAccount = (email: string, password: string) => registerAccountWith(makeD1UserRepo(), email, password);
 export const signInWithPassword = (email: string, password: string) => signInWithPasswordWith(makeD1UserRepo(), email, password);
 
 // --- Sessions: D1-backed (not stateless), so sign-out is an immediate, real revocation. ---

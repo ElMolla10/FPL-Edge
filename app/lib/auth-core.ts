@@ -16,6 +16,24 @@ export type UserRepo = {
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
+/** Longest password accepted when SETTING one (signup). PBKDF2 cost does not depend on length, but an unbounded value is free request-size abuse. */
+export const MAX_PASSWORD_LENGTH = 128;
+export const MIN_PASSWORD_LENGTH = 8;
+/**
+ * Longest password accepted when CHECKING one (login). Deliberately looser than MAX_PASSWORD_LENGTH:
+ * signup had no cap before, so an existing account may carry a >128-char password and must keep
+ * signing in. This bound only exists to reject absurd payloads.
+ */
+export const MAX_LOGIN_PASSWORD_LENGTH = 1024;
+export const MAX_EMAIL_LENGTH = 254;
+
+/** Returns a user-facing error for an unacceptable NEW password, or null when fine. */
+export function validateNewPassword(password: string): string | null {
+  if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+  if (password.length > MAX_PASSWORD_LENGTH) return `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`;
+  return null;
+}
+
 export async function signUpWithPasswordWith(repo: UserRepo, email: string, password: string): Promise<UserRecord> {
   const normalizedEmail = normalizeEmail(email);
   const existing = await repo.findByEmail(normalizedEmail);
@@ -31,9 +49,44 @@ export async function signUpWithPasswordWith(repo: UserRepo, email: string, pass
   return user;
 }
 
+/**
+ * Non-oracle signup: identical outcome whether or not the email is already registered.
+ * - New email: creates the account (caller must NOT start a session -- that would be an oracle).
+ * - Existing email (or a concurrent insert racing us on the unique index): no-op.
+ * The duplicate path still burns one PBKDF2 hash so response time is roughly equal.
+ * `created` is for tests/logging only and must never reach the HTTP response.
+ */
+export async function registerAccountWith(repo: UserRepo, email: string, password: string): Promise<{ created: boolean }> {
+  const normalizedEmail = normalizeEmail(email);
+  const existing = await repo.findByEmail(normalizedEmail);
+  const passwordHash = await hashPassword(password);
+  if (existing) return { created: false };
+  const user: UserRecord = { id: crypto.randomUUID(), email: normalizedEmail, passwordHash, chatgptLinkedAt: null };
+  try {
+    await repo.insert(user);
+  } catch (error) {
+    if (isUniqueConstraintError(error)) return { created: false };
+    throw error;
+  }
+  return { created: true };
+}
+
+export function isUniqueConstraintError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : "";
+  return /UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(`${message} ${cause}`);
+}
+
+let dummyHashPromise: Promise<string> | null = null;
+
 export async function signInWithPasswordWith(repo: UserRepo, email: string, password: string): Promise<UserRecord> {
   const user = await repo.findByEmail(normalizeEmail(email));
-  if (!user || !user.passwordHash) throw new AuthError("Incorrect email or password.");
+  if (!user || !user.passwordHash) {
+    // Equalise timing with the real-user path so response time does not reveal whether the email exists.
+    dummyHashPromise ??= hashPassword("timing-equaliser-not-a-real-password");
+    await verifyPassword(password, await dummyHashPromise);
+    throw new AuthError("Incorrect email or password.");
+  }
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) throw new AuthError("Incorrect email or password.");
   return user;

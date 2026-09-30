@@ -127,6 +127,10 @@ npm run dev
 | `npm run db:generate` | Generate Drizzle migrations from `db/schema.ts` |
 | `npm run install:ci` | Run the guarded, integrity-checked dependency install |
 
+## Security
+
+Security headers, CSRF checks, signup/login rate limits and the cron prune job are documented in `docs/SECURITY.md`. Password reset / email verification is a proposal only: `docs/PROPOSAL-password-reset-email-verification.md`.
+
 ## Environment variables
 
 Core FPL features run without application secrets. Checkout and personal transfer need operator-set secrets (never commit; never paste into chat).
@@ -153,6 +157,7 @@ Core FPL features run without application secrets. Checkout and personal transfe
 | `FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST` | Personal Place | Comma-separated emails (e.g. Mohamed’s). Case-insensitive exact match |
 | `FPL_EDGE_PERSONAL_FPL_ENTRY_ID` | Personal Place | Numeric FPL team / entry id for the allowlisted manager |
 | `FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN` | Personal Place | Seed refresh token (bare token or whole `oidc.user:…` JSON). Rotations persist in D1 `personal_fpl_auth` |
+| `FPL_EDGE_CSP_MODE` | No | Set to `report-only` to downgrade the enforcing `Content-Security-Policy` to `Content-Security-Policy-Report-Only` (rollback switch; other security headers stay enforced). See `docs/SECURITY.md`. |
 
 ### Personal transfer token (operator)
 

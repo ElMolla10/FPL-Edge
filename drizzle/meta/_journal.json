@@ -71,6 +71,13 @@
       "when": 1789730000000,
       "tag": "0009_login_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1789740000000,
+      "tag": "0010_prune_indexes",
+      "breakpoints": true
     }
   ]
 }

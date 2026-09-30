@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
+import { nonceFromCsp } from "./lib/security-headers";
 
 // Feed the --font-ui/--font-display tokens in globals.css (fpl.page redesign, step 1). vinext's
 // next/font/google support is CDN-runtime-loading, not build-time self-hosted/subsetted the way
@@ -43,14 +45,17 @@ export const viewport: Viewport = {
 // ThemeToggle's own initial read mirrors this same "light" isn't dark logic.
 const themeInitScript = `try{var t=localStorage.getItem("fpl-edge-theme");document.documentElement.setAttribute("data-theme",t==="light"?"light":"dark")}catch(e){}`;
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Per-request CSP nonce, minted in worker/index.ts and passed down as a request header (never trusted from the client:
+  // the worker overwrites it). Undefined outside the worker (tests, dev) -> no nonce attribute, script still renders.
+  const nonce = nonceFromCsp((await headers()).get("content-security-policy"));
   return (
     <html lang="en" className={`${inter.variable} ${fraunces.variable}`} suppressHydrationWarning>
       <head>
         {/* vinext ViewportHead omits viewport-fit; keep export above and pin the meta here. */}
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="theme-color" content="#14181A" />
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>{children}</body>
     </html>
