@@ -10,7 +10,7 @@ import {computeClubFixtureRows,ClubFixtureRow,difficultyScoreOutOf10} from "../.
 import {qualityPopulation,qualityScoreOutOf10} from "../../lib/team-quality";
 import {horizonAccuracyRows,buildAccuracyReport,type AccuracyPlayerRow} from "../../lib/model-accuracy";
 import {minutesRiskBand} from "../../lib/minutes-risk";
-import {ConnectTeam,PhoneSquadNav,clamp} from "./CoachCore";
+import {ConnectTeam,EmptyDeskState,PhoneSquadNav,clamp} from "./CoachCore";
 import type {View} from "./CoachCore";
 import {average,receiptNumber} from "./PanelShared";
 import type {HistoryPlayerStats,HistoryWeek,LockRecord} from "./PanelShared";
@@ -321,12 +321,13 @@ export function PointsModel({data}:{data:FplData}){
 
 type EvaluationRow={lock:LockRecord;evaluation:ProjectionEvaluation};
 
-export function ModelAudit({data,revision}:{data:FplData;revision:number}){
+export function ModelAudit({data,revision,go}:{data:FplData;revision:number;go?:(v:View)=>void}){
   const[rows,setRows]=useState<{lock:LockRecord;evaluation:ProjectionEvaluation}[]>([]);
   const[loading,setLoading]=useState(false);const[error,setError]=useState("");const[refreshToken,setRefreshToken]=useState(0);
   useEffect(()=>{let cancelled=false;const run=async()=>{let locks:LockRecord[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}const entry=localStorage.getItem("fpl-edge-entry");let weeks:HistoryWeek[]=[];setLoading(!!entry);setError("");if(entry)try{const response=await fetch(`/api/fpl/history?entry=${entry}`,{cache:"no-store"});const json=await response.json();if(!response.ok)throw new Error(json.error||"Could not load official history");weeks=json.weeks||[]}catch(e){if(!cancelled)setError(e instanceof Error?e.message:"Could not load official history")}finally{if(!cancelled)setLoading(false)}const mapped=locks.map(lock=>({lock,evaluation:evaluateProjectionReceipt(lock,weeks)})).sort((a,b)=>b.lock.event-a.lock.event);if(!cancelled)setRows(mapped)};run();return()=>{cancelled=true}},[revision,refreshToken]);
   const refresh=()=>setRefreshToken(value=>value+1);
-  return <><AccuracyDashboard data={data} rows={rows}/><DecisionSnapshots data={data} rows={rows} loading={loading} error={error} refresh={refresh}/></>;
+  const noHistory=!rows.length&&!loading&&!error;
+  return <>{noHistory&&go&&<EmptyDeskState eyebrow="DECISION HISTORY" title="No graded forecasts yet" lede="Every locked plan is graded against official results once its gameweek finishes. Nothing is shown until there is a real receipt." steps={["Open Final check and lock your team before the deadline","The gameweek plays out","Your forecast is graded here against the official result"]} actionLabel="Open Final check" onAction={()=>go("deadline")}/>}<AccuracyDashboard data={data} rows={rows}/><DecisionSnapshots data={data} rows={rows} loading={loading} error={error} refresh={refresh}/></>;
 }
 
 function AccuracyDashboard({data,rows,weeks=[]}:{data:FplData;rows:EvaluationRow[];weeks?:HistoryWeek[]}){
@@ -456,6 +457,6 @@ function DecisionSnapshots({data,rows,loading,error,refresh}:{data:FplData;rows:
 // Views the shell's Page() lazy-loads as single units (they compose several panels).
 export function FixturesView({data}:{data:FplData}){return <div className="coach-page"><TeamQualityPanel data={data}/><TeamQualityFixtures data={data}/><LineupIntelligencePanel data={data}/></div>}
 export function ModelView({data}:{data:FplData}){return <div className="coach-page"><ModelVersionPanel/><TeamQualityPanel data={data}/><PointsModel data={data}/></div>}
-export function HistoryView({data,revision}:{data:FplData;revision:number}){return <div className="coach-page"><ModelAudit data={data} revision={revision}/><LiveHistory officialData={data}/></div>}
+export function HistoryView({data,revision,go}:{data:FplData;revision:number;go?:(v:View)=>void}){return <div className="coach-page"><ModelAudit data={data} revision={revision} go={go}/><LiveHistory officialData={data}/></div>}
 export function ChipsView(){return <><LiveChips/><ChipPortfolioPanel/></>}
 

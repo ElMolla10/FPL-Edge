@@ -329,7 +329,7 @@ function PageContent({view,data,go,revision,onTeamChange,desk,onUpgrade,onLoadEx
   if(view==="deadline")return <LazyFinalCheck data={data} go={go} revision={revision} onTeamChange={onTeamChange}/>;
   if(view==="chips")return <LazyChipsView/>;
   if(view==="model")return <LazyModelView data={data}/>;
-  return <LazyHistoryView data={data} revision={revision}/>;
+  return <LazyHistoryView data={data} revision={revision} go={go}/>;
 }
 function Page(props:Parameters<typeof PageContent>[0]){
   return <Suspense fallback={<PanelFallback/>}><PageContent {...props}/></Suspense>;

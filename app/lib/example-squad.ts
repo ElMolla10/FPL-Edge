@@ -1,4 +1,4 @@
-import { FplData, FplPlayer, futureEvents, isCompleteSquad, playerProjection } from "./fpl";
+import { FplData, FplPlayer, bestXi, futureEvents, isCompleteSquad, playerProjection } from "./fpl";
 
 /** Flag: desk is showing the labelled visitor demo squad (not the real draft). */
 export const EXAMPLE_SQUAD_FLAG_KEY = "fpl-edge-example-squad";
@@ -66,6 +66,12 @@ export function buildExampleSquad(data: FplData): FplPlayer[] {
   const clubs = new Map<number, number>();
   let spent = 0;
 
+  const cheapest = new Map<number, number>();
+  for (const player of data.players) {
+    if (player.status === "u" || player.chance === 0) continue;
+    cheapest.set(player.positionId, Math.min(cheapest.get(player.positionId) ?? Infinity, player.price));
+  }
+
   for (const rule of data.rules.positions) {
     const pool = data.players
       .filter((p) => p.positionId === rule.id && p.status !== "u" && p.chance !== 0)
@@ -74,9 +80,18 @@ export function buildExampleSquad(data: FplData): FplPlayer[] {
       if (squad.filter((p) => p.positionId === rule.id).length >= rule.squad) break;
       if (squad.some((p) => p.id === player.id)) continue;
       if ((clubs.get(player.teamId) ?? 0) >= teamLimit) continue;
-      const remainingSlots = data.rules.squadSize - squad.length - 1;
-      // Leave ~£4.0m per remaining empty slot so later positions still fit.
-      if (spent + player.price + remainingSlots * 4.0 > budget + 0.05) continue;
+      // Reserve the cheapest price that can still fill every remaining slot of each position, so
+      // a late position (3 forwards, where nobody costs under £4.5m) cannot be starved of budget.
+      // The old flat £4.0m per slot let the greedy fill run dry and fall back to the bargain-bin
+      // squad, which is what made the demo look like a ~15-point team.
+      const afterThis = squad.filter((p) => p.positionId === rule.id).length + 1;
+      let reserve = Math.max(0, rule.squad - afterThis) * (cheapest.get(rule.id) ?? 4.0);
+      for (const later of data.rules.positions) {
+        if (later.id === rule.id) continue;
+        const have = squad.filter((p) => p.positionId === later.id).length;
+        reserve += Math.max(0, later.squad - have) * (cheapest.get(later.id) ?? 4.0);
+      }
+      if (spent + player.price + reserve > budget + 0.05) continue;
       squad.push(player);
       clubs.set(player.teamId, (clubs.get(player.teamId) ?? 0) + 1);
       spent += player.price;
@@ -134,4 +149,31 @@ export function writeActiveSquadIds(ids: number[], opts?: { syncReal?: (key: str
   const value = JSON.stringify(ids);
   if (opts?.syncReal) opts.syncReal(REAL_SQUAD_KEY, value);
   else localStorage.setItem(REAL_SQUAD_KEY, value);
+}
+
+export type ExampleDeskSummary = {
+  /** Gameweek name, e.g. "Gameweek 6". */
+  name: string;
+  deadline: string;
+  /** Projected points the decision desk headlines for the demo squad (XI plus the captain counted twice). */
+  total: number;
+  captain: FplPlayer;
+  captainPoints: number;
+};
+
+/**
+ * The one example both the public homepage card and the decision desk's demo show. It is computed from
+ * the same labelled demo squad (buildExampleSquad) with the same bestXi and the same
+ * "XI + captain counted twice" arithmetic the desk's Overview uses, so the two can never drift.
+ * Returns null while the pool cannot produce a complete legal demo squad.
+ */
+export function exampleDeskSummary(data: FplData): ExampleDeskSummary | null {
+  const event = futureEvents(data, 1)[0];
+  if (!event) return null;
+  const squad = buildExampleSquad(data);
+  if (!isCompleteSquad(squad, data)) return null;
+  const xi = bestXi(squad, event.id, data.fixtures, event.id);
+  if (!xi.captain || xi.players.length !== 11) return null;
+  const captainPoints = playerProjection(xi.captain, event.id, data.fixtures, event.id);
+  return { name: event.name, deadline: event.deadline, total: xi.total, captain: xi.captain, captainPoints };
 }
