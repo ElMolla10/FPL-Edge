@@ -129,7 +129,6 @@ export default function Home() {
           <div className="paper-hero-actions">
             <button type="button" className="paper-btn paper-open" onClick={openDesk}>Check your FPL team</button>
             <button type="button" className="paper-btn paper-demo" onClick={openDemo}>Open Demo</button>
-            <a className="paper-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a>
           </div>
         </div>
         <article className="paper-card" aria-label="Example decision">
@@ -141,6 +140,18 @@ export default function Home() {
           <p className="paper-card-number">{points(desk?.total ?? null)}</p>
           <p className="paper-call">Save the transfer.</p>
           <p className="paper-why">A connected squad is what makes a move worth more than rolling.</p>
+          <div className="paper-compare" aria-label="Roll or move">
+            <div className="paper-option is-pick">
+              <span className="paper-label">Roll</span>
+              <b>{points(desk?.total ?? null)}</b>
+              <small>Recommended</small>
+            </div>
+            <div className="paper-option">
+              <span className="paper-label">Move</span>
+              <b>—</b>
+              <small>Connect a team to compare</small>
+            </div>
+          </div>
           <div className="paper-captain">
             <div className="paper-captain-name">
               <b>{desk?.captain?.name ?? "—"}</b>
