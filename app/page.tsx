@@ -205,7 +205,7 @@ export default function Home() {
       </footer>
     </div>
     <div className="paper-dock">
-      <button type="button" className="paper-btn" onClick={openDesk}>Check your FPL team</button>
+      <button type="button" className="paper-btn" onClick={openDesk}>Check my team</button>
       <button type="button" className="paper-btn paper-demo" onClick={openDemo}>Open Demo</button>
     </div>
   </main>;

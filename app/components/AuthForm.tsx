@@ -45,18 +45,18 @@ export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
     }
   };
 
-  return <section className="season-upgrade">
-    <span>{mode === "signin" ? "SIGN IN" : "CREATE ACCOUNT"}</span>
-    <h2>{mode === "signin" ? "Sign in to your desk." : "Create your FPL Edge account."}</h2>
-    <p>{mode === "signin"
-      ? "The season pass is attached to this account. Sign in, then come back to pay if you still need it."
-      : "Use an email and a password of at least 8 characters. The free desk is this gameweek. The season pass opens the rest."}</p>
-    <label>Email<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-    <label>Password<input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} placeholder={mode === "signup" ? "At least 8 characters" : ""} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-    <div className="season-upgrade-actions">
-      <button type="button" onClick={submit} disabled={busy}>{busy ? "…" : mode === "signin" ? "Sign in" : "Create account"}</button>
+  return <form className="paper-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <p className="paper-label">{mode === "signin" ? "Sign in" : "Create account"}</p>
+    <h1 className="paper-form-title">{mode === "signin" ? "Sign in to your desk." : "Create your FPL Edge account."}</h1>
+    <p className="paper-form-lead">{mode === "signin"
+      ? "Your season pass is attached to this account. Sign in, then come back to pay if you still need it."
+      : "Free this gameweek. The season pass opens the rest."}</p>
+    <label className="paper-field">Email<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+    <label className="paper-field">Password<input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} placeholder={mode === "signup" ? "At least 8 characters" : ""} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+    {message && <p className="paper-form-message" role="alert">{message}</p>}
+    <div className="paper-form-actions">
+      <button type="submit" className="paper-btn paper-form-submit" disabled={busy}>{busy ? "…" : mode === "signin" ? "Sign in" : "Create account"}</button>
     </div>
-    <p className="season-note">{mode === "signin" ? "New here?" : "Already have an account?"} <a href={otherHref}>{mode === "signin" ? "Create an account" : "Sign in"}</a></p>
-    {message && <p className="season-note">{message}</p>}
-  </section>;
+    <p className="paper-form-switch">{mode === "signin" ? "New here?" : "Already have an account?"} <a href={otherHref}>{mode === "signin" ? "Create an account" : "Sign in"}</a></p>
+  </form>;
 }

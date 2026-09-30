@@ -11,13 +11,15 @@ export default function PayPage() {
     setCheckoutReturn(params.get("checkout") === "return");
   }, []);
 
-  return <main className="marketing-page pay-page">
-    <header className="site-header">
-      <a className="brand" href="/" aria-label="FPL Edge home"><Wordmark/></a>
-      <a className="text-link" href="/">Back to site</a>
+  return <main className="paper paper-form-page">
+    <header className="paper-header">
+      <div className="paper-wrap paper-header-inner">
+        <a className="paper-wordmark" href="/" aria-label="FPL Edge home"><Wordmark/></a>
+        <a className="paper-signin" href="/">Back to site</a>
+      </div>
     </header>
-    <section className="section pay-section">
+    <div className="paper-wrap paper-form-wrap">
       <SeasonUpgrade checkoutReturn={checkoutReturn} onDismiss={() => { window.location.assign("/"); }} />
-    </section>
+    </div>
   </main>;
 }

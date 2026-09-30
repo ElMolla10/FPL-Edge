@@ -3,14 +3,16 @@
 import { AuthForm } from "../components/AuthForm";
 import { Wordmark } from "../components/Wordmark";
 
-export default function SignInPage() {
-  return <main className="marketing-page pay-page">
-    <header className="site-header">
-      <a className="brand" href="/" aria-label="FPL Edge home"><Wordmark/></a>
-      <a className="text-link" href="/signup?return_to=%2F%3Fapp%3D1">Sign up</a>
+export default function Page() {
+  return <main className="paper paper-form-page">
+    <header className="paper-header">
+      <div className="paper-wrap paper-header-inner">
+        <a className="paper-wordmark" href="/" aria-label="FPL Edge home"><Wordmark/></a>
+        <a className="paper-signin" href="/signup?return_to=%2F%3Fapp%3D1">Sign up</a>
+      </div>
     </header>
-    <section className="section pay-section">
+    <div className="paper-wrap paper-form-wrap">
       <AuthForm mode="signin" />
-    </section>
+    </div>
   </main>;
 }

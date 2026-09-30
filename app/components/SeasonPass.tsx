@@ -83,19 +83,34 @@ export function SeasonUpgrade({ checkoutReturn, onDismiss }: { checkoutReturn?: 
     }
   };
 
-  return <section className="season-upgrade">
-    <span>SEASON PASS · {formatSeasonPassPrice()}</span>
-    <h2>Your full decision desk, for the rest of this season.</h2>
-    <p>Multi-week transfer planning, safe and aggressive alternatives, news impact alerts, draft and chip optimization, and decision history. Paying sends you to Paymob. Access turns on only after Paymob's verified callback — this page cannot mark the pass active.</p>
-    {checkoutReturn && <p className="season-note">You are back from Paymob. If the payment succeeded, refresh in a moment. This return does not unlock the desk by itself.</p>}
-    {signedIn === false && <p className="season-note">Sign in or create an account, then pay. <a href="/signin?return_to=%2Fpay">Sign in</a> · <a href="/signup?return_to=%2Fpay">Sign up</a></p>}
-    {signedIn && accountEmail && <p className="season-note">Signed in as {accountEmail}. The pass is attached to this account.</p>}
-    <label>Egyptian mobile<input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="01xxxxxxxxx" autoComplete="tel" /></label>
-    <div className="season-upgrade-actions">
-      <button type="button" onClick={pay} disabled={busy || signedIn !== true}>{busy ? "Opening Paymob…" : `Pay ${formatSeasonPassPrice()}`}</button>
-      <button type="button" className="season-dismiss" onClick={onDismiss}>Not now</button>
+  return <section className="paper-form">
+    <p className="paper-label">Season pass</p>
+    <p className="paper-amount">{formatSeasonPassPrice()}</p>
+    <h1 className="paper-form-title">Your full decision desk, for the rest of this season.</h1>
+    <p className="paper-form-lead">One payment, not a monthly plan.</p>
+    <ul className="paper-lines paper-form-list">
+      <li>Multi-week transfer planning</li>
+      <li>Safe and aggressive alternatives</li>
+      <li>News impact alerts</li>
+      <li>Draft and chip optimization</li>
+      <li>Decision history</li>
+    </ul>
+    {checkoutReturn && <p className="paper-form-message">You are back from Paymob. If the payment succeeded, refresh in a moment. This return does not unlock the desk by itself.</p>}
+    {signedIn === false && <div className="paper-form-step">
+      <p>Step 1: sign in or create an account. Your pass is attached to it.</p>
+      <div className="paper-form-actions">
+        <a className="paper-btn" href="/signin?return_to=%2Fpay">Sign in</a>
+        <a className="paper-btn paper-demo" href="/signup?return_to=%2Fpay">Create account</a>
+      </div>
+    </div>}
+    {signedIn && accountEmail && <p className="paper-form-switch">Signed in as {accountEmail}. The pass is attached to this account.</p>}
+    <label className="paper-field">Egyptian mobile<input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="01xxxxxxxxx" autoComplete="tel" /></label>
+    {disconnected && <p className="paper-form-message">Checkout is not connected yet.</p>}
+    {message && !disconnected && <p className="paper-form-message" role="alert">{message}</p>}
+    <div className="paper-form-actions">
+      <button type="button" className="paper-btn paper-form-submit" onClick={pay} disabled={busy || signedIn !== true}>{busy ? "Opening Paymob…" : `Pay ${formatSeasonPassPrice()}`}</button>
+      <button type="button" className="paper-btn paper-demo" onClick={onDismiss}>Not now</button>
     </div>
-    {disconnected && <p className="season-note">Checkout is not connected yet.</p>}
-    {message && !disconnected && <p className="season-note">{message}</p>}
+    <p className="paper-form-switch">Paying opens Paymob. Your pass turns on only after Paymob confirms the payment.</p>
   </section>;
 }

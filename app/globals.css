@@ -700,7 +700,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
    data-theme="dark" (app/layout.tsx) paints this page the same dark as the app.
    Scoped to .paper so the app shell is untouched. */
 .paper{min-height:100vh;background:var(--canvas);color:var(--text);font-family:var(--font-ui)}
-.paper p{margin:0}
+:where(.paper) p{margin:0}
 .paper h1,.paper h2{font-family:var(--font-ui);font-style:normal;font-weight:560;letter-spacing:0;color:var(--text)}
 .paper h1{margin:0;font-size:32px;line-height:36px}
 .paper h2{margin:0 0 4px;font-size:22px;line-height:1.2}
@@ -1320,3 +1320,36 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   gap: 0.5rem 1rem;
   align-items: baseline;
 }
+
+/* Site-wide consistency pass: sign in, sign up, pay and 404 share the homepage (.paper) look;
+   calmer app overview surfaces. */
+.paper-form-wrap{padding:32px 0 64px}
+.paper-form{max-width:480px;margin:0 auto;background:var(--surface-card);border:1px solid var(--line);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:0}
+.paper .paper-form-title{margin:8px 0 0;font-size:28px;line-height:1.15;white-space:normal}
+.paper-form .paper-amount{margin-top:4px;font-size:40px}
+.paper-form-lead{margin-top:8px;color:var(--text-muted);font-size:16px;line-height:1.5}
+.paper-form-list{margin-top:16px}
+.paper-form-list li{padding-left:22px;position:relative}
+.paper-form-list li::before{content:"";position:absolute;left:4px;top:.6em;width:6px;height:6px;border-radius:50%;background:var(--lime)}
+.paper-field{margin-top:20px;display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:560;color:var(--text)}
+.paper-field+.paper-field{margin-top:14px}
+.paper-field input{width:100%;box-sizing:border-box;height:48px;border-radius:10px;border:1px solid var(--line);background:var(--canvas);color:var(--text);padding:0 14px;font:inherit;font-size:16px;font-weight:400}
+.paper-field input:focus{outline:2px solid var(--lime);outline-offset:1px;border-color:transparent}
+.paper-form-actions{margin-top:20px;display:flex;gap:10px;flex-wrap:wrap}
+.paper-form-actions .paper-btn{flex:1 1 140px}
+.paper-btn.paper-demo{background:transparent;color:var(--text);border:1px solid var(--line)}
+.paper-btn:disabled{opacity:.5;cursor:not-allowed}
+.paper-form-step{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);color:var(--text-muted);font-size:15px;line-height:1.5}
+.paper-form-step .paper-form-actions{margin-top:12px}
+.paper-form-message{margin-top:16px;padding:10px 12px;border-radius:10px;background:var(--surface-sunken);color:var(--text);font-size:14px;line-height:1.5}
+.paper-form-switch{margin-top:16px;color:var(--text-muted);font-size:14px;line-height:1.5}
+.paper-form-switch a{color:var(--lime);text-decoration:underline;text-underline-offset:3px}
+.paper-form-page{padding-bottom:0}
+@media(min-width:720px){.paper-form-wrap{padding:64px 0 96px}.paper-form{padding:32px}}
+.paper .paper-note{margin-top:20px}
+
+.example-squad-banner{background:var(--surface-card);color:var(--text-muted);border:1px solid var(--line);border-left:3px solid var(--lime)}
+.coach-shell .best-decision-metrics{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);width:100%;max-width:none}
+.coach-shell .overview-captain-metrics{grid-template-columns:repeat(2,minmax(0,1fr));width:100%;max-width:none}
+.price-value-alert span{color:var(--warning-text)}
+.price-value-alert p{background:var(--surface-sunken);color:var(--text);border-left:3px solid var(--warning-text)}
