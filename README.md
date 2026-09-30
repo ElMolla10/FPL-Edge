@@ -7,9 +7,9 @@ Fantasy Premier League decision tools: projections, transfers, Draft Lab, chips,
 - **Production (primary):** https://fpl-edge.elmolla10.workers.dev  
   App shell: https://fpl-edge.elmolla10.workers.dev/?app=1  
   Deploy: GitHub Actions `.github/workflows/deploy.yml` on every push to `main` (tests + D1 migrations + `wrangler deploy`).
-- **Tip documented in `docs/HANDOFF.md`:** `f715390` (Merge PR #35) as of the Sept 2026 handoff refresh.
+- **Tip documented in `HANDOFF.md`:** `f715390` (Merge PR #35) as of the Sept 2026 handoff refresh.
 - **iOS:** Capacitor wrapper lives in a **separate** repo (**FPL-Edge-iOS**, Rodri). This package is web-only.
-- **OpenAI Sites (secondary / legacy snapshot path):** project `fpl-edge`, historically hosted at `https://fpl-edge.moehab.chatgpt.site`. Sites identity and starter docs remain in `.openai/hosting.json` and `docs/README.SITES.md`. Sites is **not** the Workers CI deploy tracked above and may lag `main`.
+- **OpenAI Sites (secondary / legacy snapshot path):** project `fpl-edge`, historically hosted at `https://fpl-edge.moehab.chatgpt.site`. Sites identity and starter docs remain in `.openai/hosting.json` and `README.SITES.md`. Sites is **not** the Workers CI deploy tracked above and may lag `main`.
 
 ## What is included
 
@@ -210,19 +210,10 @@ If you move the app to another Cloudflare account, provision equivalent `ASSETS`
 - Keep `package-lock.json` committed and use `npm ci` for deterministic dependency installation.
 - Do not commit local `.env*` files, Wrangler state, or runtime caches.
 
-## Documentation index
+## Source preservation / session handoff
 
-Long-form reports and handoff notes live under [`docs/`](docs/). `README.md` stays at the repo root as the entry point.
-
-| Doc | What it is |
-|---|---|
-| [`docs/HANDOFF.md`](docs/HANDOFF.md) | Session continuity for agents and humans: process rules, architecture lessons, Sept 2026 ship log |
-| [`docs/OVERVIEW_HANG_HOTFIX.md`](docs/OVERVIEW_HANG_HOTFIX.md) | Overview hang-prevention hotfix (shallow sync Overview, deferred Transfers deep, budgets) |
-| [`docs/PROJECTION_ENGINE_AUDIT.md`](docs/PROJECTION_ENGINE_AUDIT.md) | Projection engine audit (source of truth for the report below) |
-| [`docs/PROJECTION_ENGINE_REPORT.md`](docs/PROJECTION_ENGINE_REPORT.md) | Projection engine improvement report |
-| [`docs/SHELL_IA_REVIEW_PACKAGE.md`](docs/SHELL_IA_REVIEW_PACKAGE.md) | Shell / information-architecture review package |
-| [`docs/TRANSFER_DECISION_REFINE_REPORT.md`](docs/TRANSFER_DECISION_REFINE_REPORT.md) | Transfer decision refinement report |
-| [`docs/README.SITES.md`](docs/README.SITES.md) | Original OpenAI Sites starter README (legacy hosting path) |
+- Original Sites starter README is preserved as `README.SITES.md`.
+- Session continuity for agents and humans: **`HANDOFF.md`** (process rules, architecture lessons, Sept 2026 ship log).
 
 
 ### Deep links (`?view=`)

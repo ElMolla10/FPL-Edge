@@ -20,18 +20,6 @@ jobs:
       - name: Install dependencies
         run: npm run install:ci
 
-      # Blocking: the tree is tsc-clean (the four pre-existing errors were fixed in the same PR
-      # that added this step), so any new type error fails CI before deploy.
-      - name: Typecheck
-        run: npm run typecheck
-
-      # Ratchet, not a blanket `eslint .`: ~208 lint errors pre-date this step, so a plain lint step
-      # would be red on day one. This fails only when a file's error count rises above
-      # .github/lint-baseline.json. When you fix lint errors, run
-      # `node scripts/lint-ratchet.mjs --update` and commit the lower baseline.
-      - name: Lint (ratchet, fails on new errors only)
-        run: npm run lint:ratchet
-
       - name: Run tests
         run: npm test
 

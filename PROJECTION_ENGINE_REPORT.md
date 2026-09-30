@@ -294,4 +294,4 @@ Lightweight: model version bumped so deadline receipts isolate r7; registry `MOD
 - [x] Model version bumped  
 - [x] Draft PR (see PR URL in commit message / gh output)  
 
-**Report path:** `docs/PROJECTION_ENGINE_REPORT.md`
+**Report path:** `/workspace/FPL-Edge/PROJECTION_ENGINE_REPORT.md`

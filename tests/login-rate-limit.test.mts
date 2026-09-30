@@ -76,8 +76,7 @@ test("applyAtomicLoginFailureIncrement: concurrent same-key increments hit thres
   // Simulate parallel writers that each apply the atomic CASE once (SQLite serializes ON CONFLICT).
   // A naive RMW (all read failCount=4 then write 5) would under-count; this mirror must not.
   const t0 = Date.parse("2026-09-28T12:00:00.000Z");
-  // Cast: TS cannot see assignments made inside the async closures below and would narrow this to `never`.
-  let shared = null as ReturnType<typeof applyAtomicLoginFailureIncrement> | null;
+  let shared: ReturnType<typeof applyAtomicLoginFailureIncrement> | null = null;
   const queue: Promise<void> = Promise.resolve();
   let chain = queue;
   const tasks = Array.from({ length: LOGIN_RATE_LIMIT.maxFails }, (_, i) => {

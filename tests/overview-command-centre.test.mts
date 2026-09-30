@@ -51,7 +51,7 @@ function moveRow(classification: "MAKE" | "LEAN" | "WATCH", net: number, ids = {
     fiveGwNetVsHold: net, riskAdjustedFiveGwNetVsHold: net,
     engineReason: `${classification} move`,
     hitLabel: "Free",
-  } as unknown as Transfer;
+  } as Transfer;
 }
 
 test("Overview BEST DECISION selector matches Transfers vocabulary (MAKE/LEAN/HOLD)", () => {

@@ -1,0 +1,20 @@
+FPL Edge source snapshot
+
+Sites project: fpl-edge
+Sites project ID: appgprj_6a883fd49dbc81919b1dd1ccccf9e728
+Hosted version: v15
+Source commit: 8fe6bbaa10f86d80c56b2933102eb946e4b0d419
+Commit time: 2026-08-21T17:20:01+03:00
+Commit subject: Add saved captain and vice-captain controls
+
+The project tree was exported directly from the clean Git commit above.
+README.SITES.md is the original README.md from that commit.
+README.md is the packaging-specific setup and architecture guide requested for this archive.
+
+Excluded reproducible/generated content:
+- .git object database and local Git metadata
+- node_modules
+- dist and .next build output
+- .sites-runtime and .wrangler local runtime state
+
+The exact dependency graph remains reproducible through package-lock.json.
