@@ -14,6 +14,7 @@ const SIGNUP_FOLLOWUP_FAILED = "We could not finish setting up this account. If 
 export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [destination, setDestination] = useState("/?app=1");
@@ -64,7 +65,13 @@ export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
       ? "Your season pass is attached to this account. Sign in, then come back to pay if you still need it."
       : "Free this gameweek. The season pass opens the rest."}</p>
     <label className="paper-field">Email<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-    <label className="paper-field">Password<input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} placeholder={mode === "signup" ? "8 to 128 characters" : ""} maxLength={mode === "signup" ? 128 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+    <div className="paper-field">
+      <label htmlFor="auth-password">Password</label>
+      <span className="paper-password">
+        <input id="auth-password" type={showPassword ? "text" : "password"} autoComplete={mode === "signup" ? "new-password" : "current-password"} placeholder={mode === "signup" ? "8 to 128 characters" : ""} maxLength={mode === "signup" ? 128 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} />
+        <button type="button" className="paper-password-toggle" aria-pressed={showPassword} aria-controls="auth-password" aria-label="Show password" onClick={() => setShowPassword((value) => !value)}>{showPassword ? "Hide" : "Show"}</button>
+      </span>
+    </div>
     {message && <p className="paper-form-message" role="alert">{message}</p>}
     <div className="paper-form-actions">
       <button type="submit" className="paper-btn paper-form-submit" disabled={busy}>{busy ? "…" : mode === "signin" ? "Sign in" : "Create account"}</button>

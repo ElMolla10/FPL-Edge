@@ -40,6 +40,16 @@ const COACH_INTENTS:readonly{id:CoachIntent;label:string}[]=[
   {id:"build",label:"Build me a squad"},
 ];
 
+// The same nine questions, grouped by topic so the list scans instead of reading as one wall of
+// look-alike buttons. Pure presentation: every id still routes to the same intent handler.
+const COACH_INTENT_GROUPS:readonly{title:string;ids:readonly CoachIntent[]}[]=[
+  {title:"This gameweek",ids:["captain","chip","live"]},
+  {title:"Transfers & prices",ids:["transfer-best","transfer-for","price"]},
+  {title:"Squad & rank",ids:["differentials","rank","build"]},
+];
+const intentLabel=(id:CoachIntent)=>COACH_INTENTS.find(item=>item.id===id)?.label??id;
+
+
 export function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=>void;revision:number;onTeamChange:()=>void}){
   const teamAuth=useTeamLinkAuth();
   const squad=useMemo(()=>savedSquad(data),[data,revision]);
@@ -162,7 +172,7 @@ export function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=
   return <div className="coach-page">
     <h1 className="screen-title">Coach</h1>
     <p className="coach-trust">Pick a question. Every answer is a real number from this app's own engines — no free text, no LLM.</p>
-    <section className="coach-intent-picker" aria-label="Coach questions">{COACH_INTENTS.map(item=><button key={item.id} className={intent===item.id?"active":""} onClick={()=>setIntent(item.id)}>{item.label}</button>)}</section>
+    <div className="coach-intent-groups" aria-label="Coach questions">{COACH_INTENT_GROUPS.map(group=><section key={group.title} className="coach-intent-group" aria-label={group.title}><h2>{group.title}</h2><div className="coach-intent-picker">{group.ids.map(id=><button type="button" key={id} className={intent===id?"active":""} aria-pressed={intent===id} onClick={()=>setIntent(id)}>{intentLabel(id)}</button>)}</div></section>)}</div>
     <details className="coach-about"><summary>About these answers</summary><p>No free text in v1, no LLM anywhere on this page — pick a question and (if it needs one) a real player or chip from your own data. Can't answer: effective ownership / real captaincy rates (FPL doesn't publish them until after a gameweek's own deadline has passed), price moves beyond FPL's real 3-day window, or predicting an actual match result (this app projects player points, never a match winner).</p></details>
 
     {intent==="captain"&&<CoachAnswerCard label="Captaincy">

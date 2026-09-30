@@ -13,9 +13,15 @@ import { nonceFromCsp } from "./lib/security-headers";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 const fraunces = Fraunces({ subsets: ["latin"], weight: ["300"], variable: "--font-fraunces", display: "swap" });
 
+const HOME_TITLE = "FPL Edge — weekly FPL lineup, captain and transfer call";
+const HOME_DESCRIPTION = "A lineup, a captain, and whether to transfer. Free this gameweek.";
+
+// The homepage is a client component (it cannot export its own metadata), so the root metadata IS the
+// homepage's. /signin, /signup and /pay (audit C) and the 404 set their own full titles, so the template
+// is a pass-through: it only exists so a child's title is used verbatim.
 export const metadata: Metadata = {
-  title: "FPL Edge",
-  description: "A lineup, a captain, and whether to transfer. Free this gameweek.",
+  title: { default: HOME_TITLE, template: "%s" },
+  description: HOME_DESCRIPTION,
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
@@ -24,8 +30,8 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
-  openGraph: { title: "FPL Edge", description: "A lineup, a captain, and whether to transfer. Free this gameweek.", type: "website", images: ["/og.png"] },
-  twitter: { card: "summary_large_image", title: "FPL Edge", description: "A lineup, a captain, and whether to transfer. Free this gameweek.", images: ["/og.png"] },
+  openGraph: { title: HOME_TITLE, description: HOME_DESCRIPTION, type: "website", images: ["/og.png"] },
+  twitter: { card: "summary_large_image", title: HOME_TITLE, description: HOME_DESCRIPTION, images: ["/og.png"] },
 };
 
 // viewport-fit=cover so env(safe-area-inset-*) is non-zero on notched iPhones

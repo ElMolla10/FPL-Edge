@@ -1,7 +1,21 @@
+import type { Metadata } from "next";
 import { Wordmark } from "./components/Wordmark";
+
+// vinext does not apply a not-found file's `metadata` export to the 404 response, so the same title is
+// also rendered as a React 19 <title>, which is hoisted into <head> and replaces the root default.
+const NOT_FOUND_TITLE = "Page not found — FPL Edge";
+
+export const metadata: Metadata = {
+  title: NOT_FOUND_TITLE,
+  description: "This page does not exist. Head back to FPL Edge for this week's lineup, captain and transfer call.",
+  robots: { index: false, follow: true },
+};
+
 
 export default function NotFound() {
   return <main className="paper paper-form-page">
+    <title>{NOT_FOUND_TITLE}</title>
+    <meta name="robots" content="noindex, follow" />
     <header className="paper-header">
       <div className="paper-wrap paper-header-inner">
         <a className="paper-wordmark" href="/" aria-label="FPL Edge home"><Wordmark/></a>

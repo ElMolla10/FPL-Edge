@@ -28,7 +28,7 @@ test("renders production site metadata", async () => {
     /^text\/html\b/i,
   );
   const html = await response.text();
-  assert.match(html, /<title>FPL Edge<\/title>/i);
+  assert.match(html, /<title>FPL Edge — weekly FPL lineup, captain and transfer call<\/title>/i);
   assert.match(html, /<meta(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']A lineup, a captain, and whether to transfer\. Free this gameweek\.["'])[^>]*>/i);
   assert.doesNotMatch(html, /<meta(?=[^>]*\bname=["']codex-preview["'])[^>]*>/i);
 });
