@@ -79,6 +79,11 @@ const navGroups:readonly NavGroup[]=[
   {label:"League & History",items:[["league","Mini-League","◎"],["history","History","↗"]]},
 ];
 
+// Sidebar disclosures: which group a destination belongs to, so navigating keeps its group open
+// (and shows where you are) instead of collapsing it and losing the active context.
+const RESEARCH_VIEWS:ReadonlySet<View>=new Set(navGroups.filter(g=>g.label==="Research"||g.label==="League & History").flatMap(g=>g.items.map(([key])=>key)).filter(key=>key!=="players"&&!PRO_VIEWS.has(key)));
+const sidebarGroupFor=(view:View):"pro"|"research"|null=>PRO_VIEWS.has(view)?"pro":RESEARCH_VIEWS.has(view)?"research":null;
+
 const fmt=(n:number|null|undefined)=>n?Math.round(n).toLocaleString():"—";
 
 // Tightened cadence while a gameweek is genuinely live (deadline passed, not yet finished). Note
@@ -217,11 +222,11 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   useEffect(()=>{if(!data)return;let cancelled=false;refreshConnectedTeamFromApi(data,{force:true}).then(live=>{if(!cancelled&&live.updated)setRevision(x=>x+1)});return()=>{cancelled=true}},[data]);
   // After sign-in desk flips, force-refresh again so account hydrate cannot leave stale bank/squad.
   useEffect(()=>{if(!data||(desk!=="free"&&desk!=="season"))return;let cancelled=false;refreshConnectedTeamFromApi(data,{force:true}).then(live=>{if(!cancelled&&live.updated)setRevision(x=>x+1)});return()=>{cancelled=true}},[data,desk]);
-  const go=(next:View)=>{preloadView(next);setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(null);writeCoachViewToUrl(next);window.scrollTo({top:0,behavior:"smooth"})};
+  const go=(next:View)=>{preloadView(next);setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(sidebarGroupFor(next));writeCoachViewToUrl(next);window.scrollTo({top:0,behavior:"smooth"})};
   useEffect(()=>{
     const onPop=()=>{
       const next=coachViewFromLocation(window.location.search)??"overview";
-      preloadView(next);setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(null);
+      preloadView(next);setView(next);setRevision(x=>x+1);setMobileOverlay(null);setSidebarMenu(sidebarGroupFor(next));
     };
     window.addEventListener("popstate",onPop);
     return()=>window.removeEventListener("popstate",onPop);
@@ -234,6 +239,13 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   // Desktop primary is exactly PRIMARY_NAV — no injected squadRest duplicates (Final check already primary).
   const sideNav=PRIMARY_NAV;
   const toggleMobileOverlay=(label:string)=>setMobileOverlay(current=>current===label?null:label);
+  // Opening a group while you are somewhere else also opens its first destination, so the click
+  // visibly does something (content changes, the row highlights). Closing never navigates.
+  const toggleSidebarGroup=(group:"pro"|"research",items:readonly(readonly[View,string,string])[])=>{
+    if(sidebarMenu===group){setSidebarMenu(null);return}
+    if(sidebarGroupFor(view)!==group&&items.length)go(items[0][0]);
+    else setSidebarMenu(group);
+  };
   const teamAuth=desk==="unknown"?"loading":desk==="visitor"?"out":"in";
   // Phone 5-tab destinations are partitioned (no overlap). When a sheet is open, ONLY that
   // sheet's tab is active (clears Home/Coach/content tabs). Final check stays in More.
@@ -254,7 +266,7 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   // Phase 1 chrome-strip: sticky header = Wordmark · GW countdown · Sign in/Account only.
   // Season pass lives under More; floating Coach pill removed; freshness owned by sidebar (desktop) / slim line (phone).
   return <TeamLinkAuthProvider value={teamAuth}><main className={desk==="visitor"?"coach-shell signed-out":"coach-shell"}>
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" className={researchRest.some(([key])=>key===view)?"active":sidebarMenu==="research"?"open":""} onClick={()=>setSidebarMenu(m=>m==="research"?null:"research")}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" className={proItems.some(([key])=>key===view)?"sidebar-pro-btn active":sidebarMenu==="pro"?"sidebar-pro-btn open":"sidebar-pro-btn"} onClick={()=>setSidebarMenu(m=>m==="pro"?null:"pro")}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note" aria-label="Data connection"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?fresh.label:(error&&!data?"Not connected":"Connecting…")}</b>{fresh?.showDetail?<small className="freshness-debug">{fresh.detailLabel}</small>:null}</div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" id="sidebar-research-btn" aria-expanded={sidebarMenu==="research"} aria-controls="sidebar-research-menu" className={(researchRest.some(([key])=>key===view)?"active":"")+(sidebarMenu==="research"?" open":"")} onClick={()=>toggleSidebarGroup("research",researchRest)}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop" id="sidebar-research-menu" role="group" aria-labelledby="sidebar-research-btn">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" id="sidebar-pro-btn" aria-expanded={sidebarMenu==="pro"} aria-controls="sidebar-pro-menu" className={"sidebar-pro-btn"+(proItems.some(([key])=>key===view)?" active":"")+(sidebarMenu==="pro"?" open":"")} onClick={()=>toggleSidebarGroup("pro",proItems)}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop" id="sidebar-pro-menu" role="group" aria-labelledby="sidebar-pro-btn">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note" aria-label="Data connection"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?fresh.label:(error&&!data?"Not connected":"Connecting…")}</b>{fresh?.showDetail?<small className="freshness-debug">{fresh.detailLabel}</small>:null}</div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><span className="brand header-wordmark"><Wordmark/></span><div className="header-tools">{data&&<DeadlineClock data={data}/>}{desk==="visitor"?<div className="signin-action"><a className="team-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a></div>:<AccountBar onAuthChange={runSync} onAccount={onAccount} initialOpen={startAuth}/>}</div></header>
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading} phoneQuiet/>{phoneMoreChild&&<PhoneMoreCrumb view={view} onOpenMore={()=>setMobileOverlay("More")}/>}{exampleActive&&<p className="example-squad-banner" role="status">{EXAMPLE_SQUAD_LABEL}. Transfers, captaincy and explanations use this demo XV — sign in to connect your real team.</p>}<Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay} onLoadExample={()=>{if(activateExampleSquad(data)){setExampleActive(true);setRevision(x=>x+1)}}} exampleActive={exampleActive} onClearExample={()=>{clearExampleSquadFlag();setExampleActive(false);setRevision(x=>x+1)}}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
     </section>
