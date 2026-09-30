@@ -6,6 +6,7 @@ import {
   coachViewSearchParams,
   parseCoachView,
 } from "../app/components/CoachApp.tsx";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 test("parseCoachView accepts known views and rejects junk", () => {
   assert.equal(parseCoachView("transfers"), "transfers");
@@ -38,7 +39,7 @@ test("parse/write round-trip for players and transfers (client-side deep links)"
 });
 
 test("popstate handler is wired for ?view= deep links", () => {
-  const src = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const src = readCoachSource();
   assert.match(src, /addEventListener\("popstate"/);
   assert.match(src, /coachViewFromLocation\(window\.location\.search\)/);
   assert.match(src, /writeCoachViewToUrl|coachViewSearchParams/);

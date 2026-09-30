@@ -10,6 +10,7 @@ import {
   parseLeagueIdInput,
 } from "../app/lib/mini-league-client.ts";
 import type { MiniLeagueStandingsResult, MiniLeagueUiState } from "../app/lib/mini-league.ts";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 const availableResult: MiniLeagueStandingsResult = {
   source: "official-fpl",
@@ -50,7 +51,7 @@ test("Coach navigation exposes a Mini-League destination", () => {
   assert.doesNotMatch(html, />Mini-League</);
   assert.doesNotMatch(html, />Draft lab</);
   // It remains a destination, opened from Research with the other league tools.
-  const source = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const source = readCoachSource();
   assert.match(source, /\["league","Mini-League"/);
   const researchRest = source.slice(source.indexOf("const researchRest"), source.indexOf("const inGroup"));
   assert.match(researchRest, /League & History/);

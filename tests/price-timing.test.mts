@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplPlayer, PriceOutlookDay } from "../app/lib/fpl.ts";
-import { MEANINGFUL_PRICE_PRESSURE, priceOutlookSignal, priceProtectionAlerts, priceTimingSignal } from "../app/components/CoachApp.tsx";
+import { MEANINGFUL_PRICE_PRESSURE, priceOutlookSignal, priceProtectionAlerts } from "../app/components/CoachApp.tsx";
+import { priceTimingSignal } from "../app/components/coach/TransfersPanel.tsx";
 
 function outlook(today: number, tomorrow = 0, dayAfter = 0): PriceOutlookDay[] {
   const day = (offsetDays: number, projectedPercent: number): PriceOutlookDay => ({ offsetDays, projectedPercent, likelihood: Math.sign(projectedPercent) * (Math.abs(projectedPercent) >= MEANINGFUL_PRICE_PRESSURE ? 3 : 0) });

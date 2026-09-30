@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplPlayer, ProjectionMetrics } from "../app/lib/fpl.ts";
-import { buyTriggerMessage, watchlistCandidatePool } from "../app/components/CoachApp.tsx";
+import { buyTriggerMessage, watchlistCandidatePool } from "../app/components/coach/TransfersPanel.tsx";
 
 function makePlayer(overrides:Partial<FplPlayer>={}):FplPlayer{return{
   id:1,name:"Target",firstName:"Target",secondName:"Player",teamId:1,teamName:"Test FC",teamShort:"TFC",positionId:3,position:"Midfielder",positionShort:"MID",price:6,status:"a",chance:null,

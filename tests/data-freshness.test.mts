@@ -7,6 +7,7 @@ import {
   officialFetchedAtFromResponses,
   publicConnectionStatus,
 } from "../app/lib/data-freshness.ts";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 test("computeDataFreshness never says just now and separates Edge vs official ages", () => {
   const now = Date.parse("2026-09-28T12:10:00.000Z");
@@ -110,7 +111,7 @@ test("missing Date/Age → officialFetchedAt null and UI shows Official unknown 
   assert.match(ldb, /Official unknown/);
   assert.match(live, /Official unknown/);
   // Public chips must not lead with the long Edge/Official/cache summary.
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   assert.match(coach, /publicConnectionStatus/);
   assert.match(coach, /Connected/);
   assert.doesNotMatch(coach, /Edge recalculation · official fetch · ≤5m cache/);

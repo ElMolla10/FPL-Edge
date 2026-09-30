@@ -16,8 +16,11 @@ import {
   plRosterContinuity,
   projectionMetrics,
 } from "../app/lib/fpl.ts";
-import { HistoryWeek, LockRecord, ProjectionPlayerEvaluationRow, ProjectionTransferEvaluation, aggregateAccuracy, aggregateTransferAccuracy, analysis, bestTransfers, createProjectionReceipt, evaluateProjectionReceipt, evaluateTransferQuality, projectionConfidenceBand, selectPrimaryTransfer, sortTransfersByQuality, Transfer, withModelUtilityChange } from "../app/components/CoachApp.tsx";
+import { HistoryWeek, LockRecord, ProjectionPlayerEvaluationRow, ProjectionTransferEvaluation, analysis, bestTransfers, evaluateTransferQuality, selectPrimaryTransfer, sortTransfersByQuality, Transfer, withModelUtilityChange } from "../app/components/CoachApp.tsx";
+import { aggregateAccuracy, aggregateTransferAccuracy, evaluateProjectionReceipt, projectionConfidenceBand } from "../app/components/coach/ResearchPanels.tsx";
+import { createProjectionReceipt } from "../app/components/coach/FinalCheckPanel.tsx";
 import { TransferRoute } from "../app/lib/transfer-routes.ts";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {
   return {
@@ -399,7 +402,7 @@ test("transfer quality gate: blocked and watchlist rows cannot become the primar
 // Overview BEST DECISION must share Transfers' selectBestDecision selector (MAKE/LEAN/HOLD),
 // not reinvent a local threshold. Floating CoachDock stays removed.
 test("Overview BEST DECISION uses selectBestDecision, not an independently duplicated threshold",()=>{
-  const source=readFileSync(new URL("../app/components/CoachApp.tsx",import.meta.url),"utf-8");
+  const source=readCoachSource();
   assert.ok(!source.includes("function CoachDock("),"floating CoachDock was removed; do not restore it for this invariant");
   const overviewStart=source.indexOf("function Overview(");
   const overviewEnd=source.indexOf("function WhatChanged(");

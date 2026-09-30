@@ -4,6 +4,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Wordmark } from "../app/components/Wordmark.tsx";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 test("wordmark is one line, FPL then EDGE, with no italic E or tile", () => {
   const html = renderToStaticMarkup(createElement(Wordmark));
@@ -25,7 +26,7 @@ test("headers and the sidebar use the wordmark, not the old italic E", () => {
     assert.match(source, /<Wordmark\/>/, file);
     assert.doesNotMatch(source, /brand-mark|>FPL EDGE<|>FPL Edge</, file);
   }
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   const sidebar = coach.slice(coach.indexOf("coach-sidebar"), coach.indexOf("coach-main"));
   const header = coach.slice(coach.indexOf("coach-header"), coach.indexOf("header-tools"));
   assert.match(sidebar, /sidebar-brand[\s\S]*<Wordmark\/>/);

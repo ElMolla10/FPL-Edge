@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 test("Draft Lab: one BEST DECISION headline; optimized-squad compare demoted after Build", () => {
   const src = readFileSync(new URL("../app/components/LiveDraftBuilder.tsx", import.meta.url), "utf8");
@@ -18,7 +19,7 @@ test("Draft Lab: one BEST DECISION headline; optimized-squad compare demoted aft
 });
 
 test("Players table defaults sort to Next GW xPts while keeping both columns", () => {
-  const src = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const src = readCoachSource();
   assert.match(src, /\["Player","Next GW","5 gameweeks","Price","Ownership","Actions"\]/);
   assert.match(src, /players-xpts/);
   assert.match(src, /useState\("xPts1"\)/);
@@ -26,7 +27,7 @@ test("Players table defaults sort to Next GW xPts while keeping both columns", (
 });
 
 test("Transfers hero surfaces Immediate net near 5-GW NET primary", () => {
-  const src = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const src = readCoachSource();
   assert.match(src, /IMMEDIATE NET \(THIS GW\)/);
   assert.match(src, /immediate-net-chip/);
   assert.match(src, /best-decision-immediate/);

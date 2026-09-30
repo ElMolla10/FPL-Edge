@@ -15,6 +15,7 @@ import {
   writeActiveSquadIds,
 } from "../app/lib/example-squad.ts";
 import { isCompleteSquad, type FplData, type FplPlayer } from "../app/lib/fpl.ts";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 function makePlayer(overrides: Partial<FplPlayer> & { id: number; positionId: number; positionShort: string; teamId: number; price: number }): FplPlayer {
   return {
@@ -90,7 +91,7 @@ test("buildExampleSquad returns a complete legal 15", () => {
 
 test("Open Demo path and example label are wired in UI sources", () => {
   const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   assert.match(page, /Open Demo/);
   assert.match(page, /startExample/);
   assert.match(page, /Opening the desk/);

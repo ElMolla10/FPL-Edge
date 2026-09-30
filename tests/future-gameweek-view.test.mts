@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { FutureGameweekView } from "../app/components/CoachApp.tsx";
+import { FutureGameweekView } from "../app/components/coach/TeamPanel.tsx";
 import { FplData, FplPlayer } from "../app/lib/fpl.ts";
 import { writePlannedChips } from "../app/lib/chip-portfolio.ts";
 

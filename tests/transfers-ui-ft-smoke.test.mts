@@ -1,22 +1,23 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 test("Transfers UI: confidence label uses full copy", () => {
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   // r7+: evidence strength labelled "projection evidence" (not abbreviated "conf")
   assert.match(coach, /% projection evidence · \{r\.risk\} risk/);
   assert.doesNotMatch(coach, /% conf ·/);
 });
 
 test("Transfers UI: wires authoritative live FT (limit − made) into rankings", () => {
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   assert.match(coach, /resolveAuthoritativeFreeTransfers/);
   assert.match(coach, /authoritativeFreeTransfers/);
   assert.match(coach, /HOLD[\s\S]*NO TRANSFER/);
   // Must import client-safe ft-state — barrel pulls store → db → cloudflare:workers into Vite client.
-  assert.match(coach, /from ["']\.\.\/lib\/personal-fpl-transfer\/ft-state["']/);
-  assert.doesNotMatch(coach, /from ["']\.\.\/lib\/personal-fpl-transfer["']/);
+  assert.match(coach, /from ["'](?:\.\.\/)+lib\/personal-fpl-transfer\/ft-state["']/);
+  assert.doesNotMatch(coach, /from ["'](?:\.\.\/)+lib\/personal-fpl-transfer["']/);
   // Overview must not hardcode FT=1 into bestTransfers anymore
   assert.doesNotMatch(coach, /bestTransfers\(data,squad,finance\.baselineBank,1,/);
 });
@@ -27,7 +28,7 @@ test("team API exposes freeTransferLimit from live my-team", () => {
 });
 
 test("Transfers UI: PriceIntel skips HOLD and priceOutlookSignal defaults missing arrays", () => {
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   assert.match(coach, /priceOutlookDays/);
   assert.match(coach, /Array\.isArray\(raw\)\?raw:\[\]/);
   assert.match(coach, /!r\.isHold&&r\.classification!=="HOLD"/);
@@ -36,7 +37,7 @@ test("Transfers UI: PriceIntel skips HOLD and priceOutlookSignal defaults missin
 });
 
 test("Transfers UI: Wildcard Optimization mode switch (not Free transfer labels)", () => {
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   assert.match(coach, /isWildcardActive/);
   assert.match(coach, /managerWildcardActive/);
   assert.match(coach, /wildcardActive/);
@@ -46,7 +47,7 @@ test("Transfers UI: Wildcard Optimization mode switch (not Free transfer labels)
   // Must not show FT selector while Wildcard is active
   assert.match(coach, /fullDesk&&!wildcardActive&&<label>Free transfers/);
   // Chip-state import is client-safe (not the personal-fpl barrel)
-  assert.match(coach, /from ["']\.\.\/lib\/personal-fpl-transfer\/chip-state["']/);
+  assert.match(coach, /from ["'](?:\.\.\/)+lib\/personal-fpl-transfer\/chip-state["']/);
 });
 
 test("team API prefers live my-team activeChip for pending Wildcard", () => {

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FplPlayer, ProjectionMetrics } from "../app/lib/fpl.ts";
-import { CaptainCandidate, captainRiskNote, captainReturnHaul, captaincyRiskFraming } from "../app/components/CoachApp.tsx";
+import { CaptainCandidate } from "../app/components/CoachApp.tsx";
+import { captainRiskNote } from "../app/components/coach/FinalCheckPanel.tsx";
+import { captainReturnHaul, captaincyRiskFraming } from "../app/components/coach/PanelShared.tsx";
 import { resolveCaptainSwap, resolveCaptaincy } from "../app/lib/captaincy.ts";
 
 function makePlayer(overrides: Partial<FplPlayer> = {}): FplPlayer {

@@ -20,6 +20,7 @@ import {
   resolveSeasonWindow,
   verifyPaymobProcessedHmac,
 } from "../app/lib/season-pass.ts";
+import { readCoachSource } from "./helpers/coach-source.mts";
 
 const NOW = new Date("2026-09-18T00:00:00.000Z");
 
@@ -369,7 +370,7 @@ test("a void/refund for a checkout that was never granted a pass still reports v
 });
 
 test("ui gates the full desk from the server session and does not offer a free unlock", () => {
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   const dev = readFileSync(new URL("../app/api/season-pass/dev-grant/route.ts", import.meta.url), "utf8");
   const callback = readFileSync(new URL("../app/api/season-pass/callback/route.ts", import.meta.url), "utf8");
   assert.match(coach, /desk==="free"/);
@@ -384,7 +385,7 @@ test("ui gates the full desk from the server session and does not offer a free u
 test("payment lives on its own page", () => {
   const pay = readFileSync(new URL("../app/pay/page.tsx", import.meta.url), "utf8");
   const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const coach = readFileSync(new URL("../app/components/CoachApp.tsx", import.meta.url), "utf8");
+  const coach = readCoachSource();
   const checkout = readFileSync(new URL("../app/api/season-pass/checkout/route.ts", import.meta.url), "utf8");
   const season = readFileSync(new URL("../app/components/SeasonPass.tsx", import.meta.url), "utf8");
   const signin = readFileSync(new URL("../app/signin/page.tsx", import.meta.url), "utf8");

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { FplData, FplPlayer, ROLE_SECURITY_FLOOR, bestXi, playerProjection } from "../app/lib/fpl.ts";
 import { RouteTransfer, solveTransferRoutes } from "../app/lib/transfer-routes.ts";
-import { routeTransferPriceWarning } from "../app/components/CoachApp.tsx";
+import { routeTransferPriceWarning } from "../app/components/coach/TransfersPanel.tsx";
 
 function makePlayer(overrides:Partial<FplPlayer>={}):FplPlayer{return{
   id:1,name:"Player",firstName:"Test",secondName:"Player",teamId:1,teamName:"Test FC",teamShort:"TFC",positionId:3,position:"Midfielder",positionShort:"MID",price:5,status:"a",chance:null,

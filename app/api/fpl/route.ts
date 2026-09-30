@@ -1,13 +1,16 @@
 import { accumulateLiveStats, attachIntegrityWarnings, isLowPlContinuity, plRosterContinuity, playerCalibrationProfile, seasonStatsThroughEvent, type FplEvent } from "../../lib/fpl";
 import { buildTeamQualityProfiles, teamCleanSheetsFromFixtures, teamSeasonStatSum } from "../../lib/team-quality";
-import priorSeasonSnapshot from "../../data/prior-season-2025-26.json";
+import priorSeasonData from "../../data/prior-season-2025-26.json";
+import { decodePriorSeason, type PriorSeasonRecord } from "../../lib/prior-season";
+import { getRequestExecutionContext } from "vinext/shims/request-context";
+import { fetchLiveEventPayload } from "../../lib/live-event-cache";
 import { FPL_EDGE_CACHE_MAX_AGE_SECONDS, officialFetchedAtFromResponses } from "../../lib/data-freshness";
 
 const BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/";
 const FIXTURES_URL = "https://fantasy.premierleague.com/api/fixtures/";
 
 const number = (value: unknown) => Number(value) || 0;
-type PriorSeasonRecord = (typeof priorSeasonSnapshot.players)[number];
+const priorSeasonSnapshot = decodePriorSeason(priorSeasonData);
 const priorByPlayerId = new Map<number, PriorSeasonRecord>(priorSeasonSnapshot.players.map((player) => [player.id, player]));
 
 export function mapOfficialEvent(event:Record<string,any>):FplEvent{
@@ -45,9 +48,11 @@ export async function GET() {
     const fixtures = await fixturesResponse.json();
     const statsEvents = bootstrap.events.filter((event: any) => event.is_current || event.started || event.finished);
     const liveEventPayloads = await Promise.all(statsEvents.map(async (event: any) => {
-      const response = await fetch(`https://fantasy.premierleague.com/api/event/${event.id}/live/`, request);
-      if (!response.ok) throw new Error(`Official FPL live stats for GW${event.id} returned ${response.status}`);
-      return { eventId: event.id, payload: await response.json() };
+      const payload = await fetchLiveEventPayload(
+        { id: event.id, finished: Boolean(event.finished), dataChecked: Boolean(event.data_checked) },
+        { waitUntil: (promise) => getRequestExecutionContext()?.waitUntil(promise) },
+      );
+      return { eventId: event.id, payload };
     }));
     const aggregateFields = ["total_points","goals_scored","assists","expected_goals","expected_assists","expected_goal_involvements","expected_goals_conceded","clean_sheets","goals_conceded","minutes","starts","bonus","bps","ict_index","influence","creativity","threat","saves","penalties_saved","defensive_contribution","clearances_blocks_interceptions","recoveries","tackles"];
     // Future projections must never learn from a match while it is still being played -- satisfied
