@@ -4,6 +4,7 @@ import type { FplPlayer } from "../../lib/fpl";
 import type { WeeklyDecision } from "../../lib/weekly-decision";
 import { buildExecuteSummary } from "../../lib/execute-summary";
 import type { View } from "./CoachCore";
+import { FplMoveLink } from "../FplMoveLink";
 
 /** Weekly close: read-only. The manager makes these changes on official FPL themselves. */
 export function ExecuteCard({ decision, pending, formation, xi, bench, captain, vice, chip, lockedGw, onLock, go }: {
@@ -23,10 +24,10 @@ export function ExecuteCard({ decision, pending, formation, xi, bench, captain, 
       <article><span>CAPTAIN / VICE</span><b>{s.captain}</b><small>Vice: {s.vice}</small></article>
       <article><span>CHIP</span><b>{s.chip ?? "None"}</b></article>
     </div>
+    <FplMoveLink decision={decision} captainName={captain.name}/>
     <div className="execute-checklist"><span>MAKE THIS ON OFFICIAL FPL YOURSELF</span><ol>{s.checklist.map(line => <li key={line}>{line}</li>)}</ol></div>
     <div className="execute-actions">
       <button type="button" className="lock-button" onClick={onLock}>{lockedGw === s.gameweek ? `LOCKED FOR GW${s.gameweek} ✓ · RE-LOCK` : "LOCK THIS TEAM"}</button>
-      <a className="execute-link" href={s.fplUrl} target="_blank" rel="noopener noreferrer">Open official FPL →</a>
       <button type="button" className="execute-copy" onClick={() => copy("list", s.checklist.join("\n"))}>{copied === "list" ? "Copied ✓" : "Copy checklist"}</button>
       <button type="button" className="execute-copy" onClick={() => copy("share", s.shareText)}>{copied === "share" ? "Copied ✓" : "Copy share text"}</button>
       {s.move.action === "MAKE" && <button type="button" className="execute-copy" onClick={() => go("transfers")}>See the full breakdown</button>}

@@ -1,4 +1,5 @@
 "use client";
+import {FplMoveLink} from "../FplMoveLink";
 
 import "../../styles/panel-transfers.css";
 import {useMemo,useState,useEffect} from "react";
@@ -144,6 +145,7 @@ export function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{da
         <p className="best-decision-lede">{decisionHold
           ?(wildcardActive?"Should I swap on Wildcard? No strong full-squad upgrade clears the bar — keep iterating the temporary squad before the deadline.":fts<=0?"Should I transfer? No — with 0 FT, no move clears the hit-adjusted NET vs the type-B HOLD plan (bank FT, keep future free upgrades).":"Should I transfer? No — HOLD now, bank the free transfer, and keep future free upgrades available.")
           :(wildcardActive?`Should I swap on Wildcard? Yes — full-squad objective improves without using FT or hit logic.`:`Should I transfer? Yes — clears the risk-adjusted 5-GW NET vs HOLD bar.`)}</p>
+        {wd&&!wildcardActive&&<FplMoveLink decision={wd} captainName={data.players.find(p=>p.id===wd.captainId)?.name??null} variant="secondary"/>}
         <div className="best-decision-metrics" aria-label="Decision metrics">
           <span><small>{wildcardActive?"MODE":"HIT"}</small><b>{wildcardActive?"Wildcard":(decisionHold?"Free":(decision!.hitLabel??(decision!.hitCost?`−${decision!.hitCost}`:"Free")))}</b></span>
           {!decisionHold&&decision&&<>

@@ -1,4 +1,5 @@
 "use client";
+import {FplMoveLink} from "./FplMoveLink";
 
 import "../styles/desk.css";
 import {classifyUrgency} from "../lib/urgency";
@@ -593,6 +594,7 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
         <article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></article>
       </div>
       <button type="button" className="overview-transfers-link overview-primary-cta" onClick={()=>go(primaryCta.view)} {...warm(primaryCta.view)}>{primaryCta.label}</button>
+      {wd?.action==="MAKE"&&<FplMoveLink decision={wd} captainName={data.players.find(p=>p.id===canonicalCaptainId)?.name??null} variant="secondary"/>}
       </section>
       </>}
     </section>
