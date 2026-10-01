@@ -19,11 +19,12 @@ import {readFreeTransfers,persist} from "../../lib/persistence";
 import {refreshConnectedTeamFromApi} from "../../lib/team-live-refresh";
 import {solveTransferRoutes,RouteTransfer,TransferRoute} from "../../lib/transfer-routes";
 import {playerPointsDistribution,pointsRange,blankProbability,haulProbability} from "../../lib/projection-distribution";
-import {Transfer,selectPrimaryTransfer,selectBestDecision} from "../../lib/transfers";
+import {Transfer,selectPrimaryTransfer} from "../../lib/transfers";
+import {formatNet} from "../../lib/weekly-decision";
 import {scheduleDeferred} from "../../lib/transfer-engine/schedule";
 import {deriveSandboxFinancialContext,isRankingFinanceUnavailable} from "../../lib/squad-comparison";
 import {SeasonLocked} from "../SeasonLocked";
-import {ConnectTeam,MEANINGFUL_PRICE_PRESSURE,PhoneSquadNav,analysis,authoritativeFreeTransfers,managerWildcardActive,priceOutlookSignal,rankTransfersForBestDecision,useManager} from "./CoachCore";
+import {ConnectTeam,MEANINGFUL_PRICE_PRESSURE,PhoneSquadNav,analysis,authoritativeFreeTransfers,managerWildcardActive,priceOutlookSignal,useWeeklyDecision,useManager} from "./CoachCore";
 import type {View} from "./CoachCore";
 import {readIds} from "./PanelShared";
 
@@ -78,26 +79,15 @@ export function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{da
   const rankingBlocked=finance.source==="unavailable"||isRankingFinanceUnavailable(meta);
   const bank=finance.baselineBank;
   const sellingPrices=finance.baselineSellingPrices;
-  const [rows,setRows]=useState<Transfer[]>([]);
-  useEffect(()=>{
-    if(!a||rankingBlocked){setRows([]);return;}
-    let cancelled=false;
-    // Deep type-B ranking is deferred off first paint (idle / timeout) — never sync-hang Transfers.
-    // Shared with Overview deferred deep via rankTransfersForBestDecision (limit 60 + model utility).
-    const handle=scheduleDeferred(()=>{
-      if(cancelled)return;
-      try{
-        setRows(rankTransfersForBestDecision(data,squad,bank,fts,sellingPrices,optimizer,{wildcardActive}));
-      }catch{
-        if(!cancelled)setRows([]);
-      }
-    },{timeout:600,delayMs:16});
-    return ()=>{cancelled=true;handle.cancel()};
-  },[data,squad,bank,fts,a,sellingPrices,rankingBlocked,wildcardActive,optimizer]);
+  // Canonical weekly call: identical object to Home + Coach (useWeeklyDecision → rankTransfersForBestDecision).
+  // Live FPL FT wins on every surface; otherwise the stored/manual FT (same key Home + Coach read).
+  const weekly=useWeeklyDecision(data,squad,meta,wildcardActive||liveFtKnown?undefined:fts);
+  const rows=weekly.status==="ready"?weekly.rows:[] as Transfer[];
+  const wd=weekly.status==="ready"?weekly.decision:null;
   const routes=useMemo(()=>rankingBlocked?[]:solveTransferRoutes(data,squad,bank,{horizon:routeHorizon,freeTransfers:fts,maxWeeklyHit,sellingPrices,resultLimit:4,plannedChips:readPlannedChips()}),[data,squad,bank,fts,routeHorizon,maxWeeklyHit,sellingPrices,rankingBlocked]);
   const best=selectPrimaryTransfer(rows);const roll=!best;
-  const decision=selectBestDecision(rows);
-  const decisionHold=Boolean(!decision||decision.isHold||decision.classification==="HOLD");
+  const decision=wd?.action==="MAKE"?wd.row:null;
+  const decisionHold=!wd||wd.action==="HOLD";
   const bestAlt=decisionHold?rows.find(r=>!r.isHold&&r.classification!=="HOLD"&&r.classification!=="AVOID")??null:null;
   const decisionConfidence=useTransferDecisionConfidence({data,squad,optimizer,primary:tab==="moves"?best:null,freeTransfers:fts,selectedRoute:`${tab}:${routeHorizon}`});
   const populationPercentiles=usePopulationPercentiles();
@@ -141,7 +131,7 @@ export function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{da
   const selectTransferTab=(next:"routes"|"moves"|"watchlist")=>setTab(next);
   return <div className="coach-page">
     <PhoneSquadNav active="transfers" go={go}/>
-    <section className="transfer-tabs" aria-label="Transfer segments"><button type="button" className={tab==="moves"?"active":""} onClick={()=>selectTransferTab("moves")}>Single moves</button><button type="button" className={tab==="routes"?"active":""} onClick={()=>selectTransferTab("routes")}>Route planner</button><button type="button" className={tab==="watchlist"?"active":""} onClick={()=>selectTransferTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button>{fullDesk&&!wildcardActive&&<label>Free transfers <select value={fts} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select>{liveFtKnown&&<small className="ft-live-hint"> live FPL · {meta?.transfersMade??0} made this GW</small>}</label>}{fullDesk&&wildcardActive&&<span className="wildcard-mode-chip" aria-label="Wildcard optimization mode">Wildcard Optimization · unlimited until deadline</span>}</section>
+    <section className="transfer-tabs" aria-label="Transfer segments"><button type="button" className={tab==="moves"?"active":""} onClick={()=>selectTransferTab("moves")}>Single moves</button><button type="button" className={tab==="routes"?"active":""} onClick={()=>selectTransferTab("routes")}>Route planner</button><button type="button" className={tab==="watchlist"?"active":""} onClick={()=>selectTransferTab("watchlist")}>Watchlist <b>{watchIds.length}</b></button>{fullDesk&&!wildcardActive&&<label>Free transfers <select value={fts} disabled={liveFtKnown} onChange={e=>{const next=Number(e.target.value);setFts(next);localStorage.setItem("fpl-edge-free-transfers",String(next))}}>{[0,1,2,3,4,5].map(x=><option key={x}>{x}</option>)}</select>{liveFtKnown&&<small className="ft-live-hint"> live FPL · {meta?.transfersMade??0} made this GW</small>}</label>}{fullDesk&&wildcardActive&&<span className="wildcard-mode-chip" aria-label="Wildcard optimization mode">Wildcard Optimization · unlimited until deadline</span>}</section>
     {transferTab==="routes"?(fullDesk?<TransferRoutePlanner routes={routes} horizon={routeHorizon} setHorizon={setRouteHorizon} maxWeeklyHit={maxWeeklyHit} setMaxWeeklyHit={setMaxWeeklyHit}/>:<SeasonLocked feature="Multi-week route planner is part of the season pass." onUpgrade={onUpgrade}/>):transferTab==="moves"?<>
       {wildcardActive&&<section className="wildcard-mode-banner" aria-label="Wildcard optimization mode"><div><span>WILDCARD ACTIVE</span><h2>Wildcard Optimization</h2><p>Your current squad is temporary. Unlimited changes until the deadline. Suggestions below are full-squad Wildcard swap candidates — not free transfers, not hits, and not NET vs HOLD banking.</p></div></section>}
       <section className="transfer-bank-strip" aria-label="Transfer bank used for rankings"><span>IN THE BANK</span><b>£{bank.toFixed(1)}m</b><small>{meta?.bankSource==="live-my-team"?"live FPL transfer bank":meta?.liveOverlayError?"live bank unavailable":meta?"official public data":"builder estimate"}</small>{wildcardActive?<><span>CHIP</span><b>Wildcard</b><small>unlimited swaps · temporary squad</small></>:<><span>FREE TRANSFERS</span><b>{fts}</b><small>{liveFtKnown?`live · ${meta?.transfersMade??0} already made`:"manual / stored"}</small></>}</section>
@@ -150,15 +140,15 @@ export function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{da
           Route planner card CONTENT frozen (E): TransferRoutePlanner body fields/solver copy untouched. */}
       <section className="recommended-move best-decision-hero" aria-label="Best decision">
         <div className="call-label"><span>{wildcardActive?"WILDCARD BEST SWAP":"BEST DECISION"}</span><b className={decisionHold?"badge-hold":"badge-make"}>{decisionHold?(wildcardActive?"KEEP":"HOLD"):(decision!.classification??"MAKE")}</b></div>
-        <h2>{decisionHold?(wildcardActive?"KEEP — leave this temporary Wildcard squad unchanged":"HOLD — do not transfer now"):`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
+        <h2>{!wd?"Calculating this week's call…":decisionHold?(wildcardActive?"KEEP — leave this temporary Wildcard squad unchanged":"HOLD — do not transfer now"):`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
         <p className="best-decision-lede">{decisionHold
           ?(wildcardActive?"Should I swap on Wildcard? No strong full-squad upgrade clears the bar — keep iterating the temporary squad before the deadline.":fts<=0?"Should I transfer? No — with 0 FT, no move clears the hit-adjusted NET vs the type-B HOLD plan (bank FT, keep future free upgrades).":"Should I transfer? No — HOLD now, bank the free transfer, and keep future free upgrades available.")
           :(wildcardActive?`Should I swap on Wildcard? Yes — full-squad objective improves without using FT or hit logic.`:`Should I transfer? Yes — clears the risk-adjusted 5-GW NET vs HOLD bar.`)}</p>
         <div className="best-decision-metrics" aria-label="Decision metrics">
           <span><small>{wildcardActive?"MODE":"HIT"}</small><b>{wildcardActive?"Wildcard":(decisionHold?"Free":(decision!.hitLabel??(decision!.hitCost?`−${decision!.hitCost}`:"Free")))}</b></span>
           {!decisionHold&&decision&&<>
-            <span><small>{wildcardActive?"5-GW SQUAD Δ":"5-GW NET vs HOLD"}</small><b>{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference)>=0?"+":""}{(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference).toFixed(1)}</b></span>
-            <span><small>ADJUSTED 5-GW NET</small><b>{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore)>=0?"+":""}{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore).toFixed(1)}</b></span>
+            <span><small>{wildcardActive?"5-GW SQUAD Δ":"5-GW NET vs HOLD"}</small><b>{formatNet(wd!.net5gw)}</b></span>
+            <span><small>ADJUSTED 5-GW NET</small><b>{formatNet(wd!.riskAdjustedNet5gw)}</b></span>
             {!wildcardActive&&decision.nextGwGross!=null&&decision.holdNextGwGross!=null&&<span className="immediate-net-chip"><small>IMMEDIATE NET (THIS GW)</small><b>{((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost)>=0?"+":""}{((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost).toFixed(1)}</b></span>}
             <span><small>CONFIDENCE · RISK</small><b>{Math.round(decision.confidenceIn*100)}% · {decision.risk}</b></span>
           </>}

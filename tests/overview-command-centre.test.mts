@@ -59,7 +59,7 @@ function moveRow(classification: "MAKE" | "LEAN" | "WATCH", net: number, ids = {
 test("Overview BEST DECISION selector matches Transfers vocabulary (MAKE/LEAN/HOLD)", () => {
   const overview = overviewSource();
   assert.match(overview, /BEST DECISION/);
-  assert.match(overview, /selectBestDecision\(/);
+  assert.match(overview, /useWeeklyDecision\(/);
   assert.match(overview, /decisionHold/);
   assert.match(overview, /5-GW NET vs HOLD/);
   assert.match(overview, /badge-hold|badge-make/);
@@ -70,20 +70,15 @@ test("Overview BEST DECISION selector matches Transfers vocabulary (MAKE/LEAN/HO
   assert.match(overview, /managerWildcardActive\(meta\)/);
 });
 
-test("Overview preserves hang-safe shallow-first then deferred deep shared Transfers path", () => {
+test("Overview stays hang-safe: deep ranking deferred inside the canonical hook, no shallow second call", () => {
   const overview = overviewSource();
-  assert.match(overview, /profile:"overview"/);
-  assert.match(overview, /mode:"shallow"/);
-  assert.match(overview, /scheduleDeferred/);
-  // Deferred deep must use the shared Transfers ranking+utility pipeline — not restricted hang-safe budgets alone.
-  assert.match(overview, /rankTransfersForBestDecision\(/);
-  assert.doesNotMatch(overview, /maxEvalCandidates:\s*16/);
-  assert.doesNotMatch(overview, /planTimeBudgetMs:\s*120/);
-  const shallowIdx = overview.indexOf('mode:"shallow"');
-  const deferredIdx = overview.indexOf("scheduleDeferred(()");
-  const sharedIdx = overview.indexOf("rankTransfersForBestDecision(");
-  assert.ok(shallowIdx >= 0 && deferredIdx > shallowIdx, "shallow sync must precede deferred deep call");
-  assert.ok(sharedIdx > deferredIdx, "shared Transfers deep path must be inside scheduleDeferred callback");
+  assert.match(overview, /useWeeklyDecision\(/);
+  assert.doesNotMatch(overview, /mode:"shallow"/);
+  assert.doesNotMatch(overview, /rankTransfersForBestDecision\(/);
+  const core = readFileSync(new URL("../app/components/coach/CoachCore.tsx", import.meta.url), "utf8");
+  const hook = core.slice(core.indexOf("export function useWeeklyDecision("));
+  const deferredIdx = hook.indexOf("scheduleDeferred(()");
+  assert.ok(deferredIdx > 0 && hook.indexOf("rankRowsForWeeklyDecision(") > deferredIdx, "deep ranking must run inside scheduleDeferred");
 });
 
 test("Overview signed-out / incomplete-squad empty states stay action-first (no fake personal team)", () => {
@@ -114,9 +109,8 @@ test("Transfers page still owns the full BEST DECISION hero and shared ranking h
   assert.match(coach, /function Transfers\(/);
   const transfersStart = coach.indexOf("function Transfers(");
   const transfersSlice = coach.slice(transfersStart, transfersStart + 14000);
-  assert.match(transfersSlice, /selectBestDecision\(/);
+  assert.match(transfersSlice, /useWeeklyDecision\(/);
   assert.match(transfersSlice, /BEST DECISION/);
-  assert.match(transfersSlice, /rankTransfersForBestDecision\(/);
 });
 
 test("Overview known-state strip shows bank/FT/chip only when known — no invented personal data", () => {
@@ -124,7 +118,7 @@ test("Overview known-state strip shows bank/FT/chip only when known — no inven
   assert.match(overview, /overview-status-strip/);
   assert.match(overview, /bankKnown/);
   assert.match(overview, /liveFtKnown/);
-  assert.match(overview, /Set in Transfers/);
+  assert.match(overview, /FT assumed: \$\{fts\}/);
   assert.match(overview, /plannedChip/);
 });
 
@@ -196,10 +190,11 @@ test("Overview deferred deep and Transfers both call rankTransfersForBestDecisio
   const overview = overviewSource();
   const transfersStart = coach.indexOf("function Transfers(");
   const transfersSlice = coach.slice(transfersStart, transfersStart + 14000);
-  assert.match(overview, /rankTransfersForBestDecision\(/);
-  assert.match(transfersSlice, /rankTransfersForBestDecision\(/);
+  assert.match(overview, /useWeeklyDecision\(/);
+  assert.match(transfersSlice, /useWeeklyDecision\(/);
+  assert.match(coach, /rankRowsForWeeklyDecision[\s\S]*rankTransfersForBestDecision\(/);
   // Overview must still keep shallow-first; Transfers must not call restricted overview budgets for the hero.
-  assert.match(overview, /mode:"shallow"/);
+  assert.doesNotMatch(overview, /mode:"shallow"/);
   assert.doesNotMatch(transfersSlice, /profile:"overview"/);
   assert.doesNotMatch(transfersSlice, /maxEvalCandidates:\s*16/);
 });

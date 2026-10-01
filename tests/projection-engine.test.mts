@@ -408,7 +408,7 @@ test("Overview BEST DECISION uses selectBestDecision, not an independently dupli
   const overviewEnd=source.indexOf("function WhatChanged(");
   assert.ok(overviewStart>=0&&overviewEnd>overviewStart,"Overview and WhatChanged markers must exist");
   const overview=source.slice(overviewStart,overviewEnd);
-  assert.ok(overview.includes("selectBestDecision("),"Overview must call selectBestDecision for BEST DECISION");
+  assert.ok(overview.includes("useWeeklyDecision("),"Overview must read the canonical weekly decision (selectBestDecision inside buildWeeklyDecision)");
   assert.ok(!overview.includes("selectPrimaryTransfer("),"Overview headline must not use selectPrimaryTransfer — Transfers hero uses selectBestDecision");
   assert.ok(!/rankScore\s*[<>]=?\s*2\.2/.test(overview),"Overview must not independently compare rankScore against the 2.2 action threshold");
   assert.ok(!overview.includes(".reviewRequired"),"Overview must not re-check .reviewRequired alongside the shared selector");

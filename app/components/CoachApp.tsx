@@ -15,13 +15,14 @@ import {markSignedIn,syncWithServer,persist,writeAccountTeam} from "../lib/persi
 import {activateExampleSquad,isExampleSquadActive,EXAMPLE_SQUAD_LABEL,clearExampleSquadFlag} from "../lib/example-squad";
 import {refreshConnectedTeamFromApi} from "../lib/team-live-refresh";
 import {TeamLinkAuthProvider,useTeamLinkAuth,TEAM_SIGN_IN_HREF} from "./team-link-auth";
-import {Transfer,bestTransfers,selectBestDecision} from "../lib/transfers";
+import {Transfer} from "../lib/transfers";
+import {formatHit,formatNet} from "../lib/weekly-decision";
 import {scheduleDeferred} from "../lib/transfer-engine/schedule";
 import {ManagerMeta,deriveSandboxFinancialContext,isRankingFinanceUnavailable} from "../lib/squad-comparison";
 import {SeasonLocked} from "./SeasonLocked";
 import {formatSeasonPassPrice} from "../lib/season-pass";
 import {computeDataFreshness,publicConnectionStatus,isDataFreshnessDebug} from "../lib/data-freshness";
-import {ConnectTeam,analysis,authoritativeFreeTransfers,connectTeam,managerWildcardActive,priceProtectionAlerts,rankTransfersForBestDecision,useManager} from "./coach/CoachCore";
+import {ConnectTeam,analysis,authoritativeFreeTransfers,connectTeam,managerWildcardActive,priceProtectionAlerts,useManager,useWeeklyDecision} from "./coach/CoachCore";
 import type {View} from "./coach/CoachCore";
 
 const VALID_VIEWS: ReadonlySet<View> = new Set(["overview","team","transfers","league","draft","board","players","fixtures","news","deadline","chips","model","history","ownership","coach","squad-fixtures","season-stats"]);
@@ -500,38 +501,16 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
   const a=analysis(data,squad);
   const finance=useMemo(()=>deriveSandboxFinancialContext(squad,data.rules.budget,meta),[squad,data.rules.budget,meta]);
   const wildcardActive=managerWildcardActive(meta);
-  const fts=rankingFreeTransfersForDecision(meta);
-  const optimizer=useMemo(()=>createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts"),[data]);
-  // ASSERT — hang-safe Overview path (OVERVIEW_HANG_HOTFIX): sync shallow first paint; deep only via scheduleDeferred.
-  // Do NOT reintroduce blocking planner work on the critical path. Deferred deep uses the SAME Transfers
-  // pipeline (limit 60 + withModelUtilityChange via rankTransfersForBestDecision) so BEST DECISION matches.
-  const shallowMoves=useMemo(()=>{
-    if(!a||finance.source==="unavailable"||isRankingFinanceUnavailable(meta))return [] as Transfer[];
-    return bestTransfers(data,squad,finance.baselineBank,fts,12,finance.baselineSellingPrices,{profile:"overview",mode:"shallow",wildcardActive});
-  },[data,squad,finance,meta,a,fts,wildcardActive]);
-  const[moves,setMoves]=useState<Transfer[]>([]);
-  useEffect(()=>{
-    setMoves(shallowMoves);
-    if(!a||finance.source==="unavailable"||isRankingFinanceUnavailable(meta))return;
-    const handle=scheduleDeferred(()=>{
-      try{
-        // Deferred deep upgrade: identical ranking/utility pipeline as Transfers (not hang-safe restricted budgets).
-        const upgraded=rankTransfersForBestDecision(
-          data,squad,finance.baselineBank,fts,finance.baselineSellingPrices,optimizer,{wildcardActive},
-        );
-        setMoves(upgraded);
-      }catch{/* keep shallow */}
-    },{timeout:500,delayMs:50});
-    return()=>handle.cancel();
-  },[data,squad,finance,meta,shallowMoves,a,fts,wildcardActive,optimizer]);
-  const decision=selectBestDecision(moves);
-  const decisionHold=Boolean(!decision||decision.isHold||decision.classification==="HOLD");
-  const decisionClass=decisionHold?(wildcardActive?"KEEP":"HOLD"):(decision!.classification??"MAKE");
-  const fiveGwNet=decision?(decision.fiveGwNetVsHold??decision.netEv5??decision.netDifference):0;
-  const shortReason=decisionHold
-    ?(decision?.engineReason??(wildcardActive?"No Wildcard swap clears the full-squad bar — keep iterating before the deadline.":"HOLD — bank the free transfer; no move clears 5-GW NET vs HOLD."))
-    :(decision?.engineReason??`${decision!.out.name} → ${decision!.incoming.name} clears the risk-adjusted 5-GW NET vs HOLD bar.`);
-
+  // Canonical weekly call -- the SAME object Transfers and Coach read (useWeeklyDecision →
+  // rankTransfersForBestDecision → selectBestDecision). No shallow first-paint call: while the deferred
+  // ranking runs, Home shows "Calculating" rather than a second answer that could disagree.
+  const weekly=useWeeklyDecision(data,squad,meta);
+  const fts=weekly.status==="ready"?weekly.decision.freeTransfers:weekly.status==="pending"?weekly.freeTransfers:rankingFreeTransfersForDecision(meta);
+  const ftAssumed=weekly.status==="ready"?weekly.decision.freeTransferSource==="assumed":weekly.status==="pending"?weekly.freeTransferSource==="assumed":true;
+  const wd=weekly.status==="ready"?weekly.decision:null;
+  const decisionHold=!wd||wd.action==="HOLD";
+  const decisionClass=wd?wd.classification:"…";
+  const shortReason=wd?wd.why:"Calculating this week's call…";
   if(!a)return <>
     <section className="empty-command example-demo-card" aria-label="Open Demo">
       <span>OPEN DEMO</span>
@@ -557,7 +536,8 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
   const storedViceId=Number(localStorage.getItem(`fpl-edge-vice-${a.first}`));
   const modelCaptain=a.xi.captain??a.xi.players[0];
   const resolvedCaptaincy=resolveCaptaincy(a.xi.players,storedCaptainId,storedViceId,manager?.captainId,manager?.viceCaptainId,modelCaptain,undefined);
-  const activeCaptain=(resolvedCaptaincy&&a.xi.players.find(p=>p.id===resolvedCaptaincy.captainId))??modelCaptain;
+  const canonicalCaptainId=wd?.captainId??resolvedCaptaincy?.captainId;
+  const activeCaptain=(canonicalCaptainId!=null&&a.xi.players.find(p=>p.id===canonicalCaptainId))||modelCaptain;
   const plannedChip=plannedChipFor(readPlannedChips(),a.first);
   const captainTerm=playerProjection(activeCaptain,a.first,data.fixtures,a.first);
   const chipBonus=plannedChip==="Triple Captain"?captainTerm:plannedChip==="Bench Boost"?a.bench.reduce((s,p)=>s+playerProjection(p,a.first,data.fixtures,a.first),0):0;
@@ -578,8 +558,8 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
       {bankKnown&&<div><span>IN THE BANK</span><b>£{bankValue.toFixed(1)}m</b><small>{bankSourceLabel}</small></div>}
       <div>
         <span>{wildcardActive?"WILDCARD":"FREE TRANSFERS"}</span>
-        <b>{wildcardActive?"Active":(liveFtKnown?String(fts):"Set in Transfers")}</b>
-        <small>{wildcardActive?"unlimited swaps until deadline":liveFtKnown?"live FPL (limit − made this GW)":"not exposed publicly by FPL"}</small>
+        <b>{wildcardActive?"Active":String(fts)}</b>
+        <small>{wildcardActive?"unlimited swaps until deadline":liveFtKnown&&!ftAssumed?"live FPL (limit − made this GW)":`FT assumed: ${fts} · same as Transfers`}</small>
       </div>
       {plannedChip&&<div><span>PLANNED CHIP</span><b>{plannedChip}</b><small>for {next.name.replace(/^Gameweek\s+/i,"GW")}</small></div>}
     </section>}
@@ -595,18 +575,18 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
         <span>{wildcardActive?"WILDCARD BEST SWAP":"BEST DECISION"}</span>
         <b className={decisionHold?"badge-hold":"badge-make"}>{decisionClass}</b>
       </div>
-      <h2>{decisionHold
+      <h2>{!wd?"Calculating this week's call…":decisionHold
         ?(wildcardActive?"KEEP — leave this temporary Wildcard squad unchanged":"HOLD — do not transfer now")
-        :`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
-      <p className="best-decision-lede">{decisionHold
+        :`${wd.outName} → ${wd.inName}`}</h2>
+      <p className="best-decision-lede">{!wd?"Same engine as Transfers — one call for the week.":decisionHold
         ?(wildcardActive?"Should I swap on Wildcard? No strong full-squad upgrade clears the bar.":fts<=0?"Should I transfer? No — with 0 FT, no move clears hit-adjusted NET vs HOLD.":"Should I transfer? No — HOLD now and bank the free transfer.")
-        :(wildcardActive?"Should I swap on Wildcard? Yes — full-squad objective improves.":`Should I transfer? Yes — ${decisionClass} clears the risk-adjusted 5-GW NET vs HOLD bar.`)}</p>
-      <div className="best-decision-metrics" aria-label="Decision metrics">
-        <span><small>{wildcardActive?"MODE":"HIT"}</small><b>{wildcardActive?"Wildcard":(decisionHold?"Free":(decision!.hitLabel??(decision!.hitCost?`−${decision!.hitCost}`:"Free")))}</b></span>
-        <span><small>{wildcardActive?"5-GW SQUAD Δ":"5-GW NET vs HOLD"}</small><b>{decisionHold?"0.0":`${fiveGwNet>=0?"+":""}${fiveGwNet.toFixed(1)}`}</b></span>
-        {!decisionHold&&decision&&<span><small>ADJUSTED 5-GW NET</small><b>{((decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore)>=0?"+":"")}{(decision.riskAdjustedFiveGwNetVsHold??decision.riskAdjustedNet5??decision.rankScore).toFixed(1)}</b></span>}
+        :(wildcardActive?"Should I swap on Wildcard? Yes — full-squad objective improves.":`Should I transfer? Yes — ${decisionClass} clears the risk-adjusted 5-GW NET vs HOLD bar.`)}{!wildcardActive&&ftAssumed?` FT assumed: ${fts}.`:""}</p>
+      {wd&&<div className="best-decision-metrics" aria-label="Decision metrics">
+        <span><small>{wildcardActive?"MODE":"HIT"}</small><b>{formatHit(wd)}</b></span>
+        <span><small>{wildcardActive?"5-GW SQUAD Δ":"5-GW NET vs HOLD"}</small><b>{formatNet(wd.net5gw)}</b></span>
+        {!decisionHold&&<span><small>ADJUSTED 5-GW NET</small><b>{formatNet(wd.riskAdjustedNet5gw)}</b></span>}
         {decisionHold&&!wildcardActive&&<span><small>FT NOW → NEXT</small><b>{fts} → {Math.min(5,fts+1)}</b></span>}
-      </div>
+      </div>}
       <div className="engine-why" aria-label="Why"><span>WHY</span><p className="engine-reason-hero">{shortReason}</p></div>
       <button type="button" className="overview-transfers-link" onClick={()=>go("transfers")} {...warm("transfers")}>Open Transfers →</button>
     </section>}

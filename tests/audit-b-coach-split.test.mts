@@ -62,11 +62,10 @@ test("Overview and Transfers share one rankTransfersForBestDecision implementati
   assert.equal(typeof core.rankTransfersForBestDecision, "function");
   const all = readCoachSource();
   assert.equal((all.match(/function rankTransfersForBestDecision\(/g) ?? []).length, 1);
-  assert.match(shell, /rankTransfersForBestDecision\(/);
+  // Both surfaces read the canonical weekly decision hook, which is the only caller of the ranking.
   const transfers = readFileSync(new URL("../app/components/coach/TransfersPanel.tsx", import.meta.url), "utf8");
-  assert.match(transfers, /rankTransfersForBestDecision\(/);
-  assert.match(shell, /import \{[^}]*rankTransfersForBestDecision[^}]*\} from "\.\/coach\/CoachCore"/);
-  assert.match(transfers, /import \{[^}]*rankTransfersForBestDecision[^}]*\} from "\.\/CoachCore"/);
+  assert.match(shell, /import \{[^}]*useWeeklyDecision[^}]*\} from "\.\/coach\/CoachCore"/);
+  assert.match(transfers, /import \{[^}]*useWeeklyDecision[^}]*\} from "\.\/CoachCore"/);
 });
 
 test("Draft Lab web worker is still created inside the lazily loaded LiveDraftBuilder (CSP worker-src 'self' blob:)", () => {

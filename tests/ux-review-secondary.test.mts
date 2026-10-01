@@ -67,6 +67,5 @@ test("homepage footer has breathing room; phone Overview is tighter without touc
   assert.match(css, /\.paper-footer\{margin-top:72px;padding-top:24px;border-top:1px solid var\(--hairline\)/);
   assert.match(css, /\.urgent-card>div>article:nth-child\(n\+4\)\{display:none\}/);
   const overview = read("app/components/CoachApp.tsx");
-  assert.match(overview, /mode:"shallow"/);
-  assert.match(overview, /rankTransfersForBestDecision\(/);
+  assert.match(overview, /useWeeklyDecision\(/);
 });

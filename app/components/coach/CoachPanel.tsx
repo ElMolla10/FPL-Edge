@@ -8,11 +8,12 @@ import {FplData,savedSquad,futureEvents,projectionMetrics,liveScoringMovers} fro
 import {createOptimizer} from "../../lib/optimizer";
 import {readFreeTransfers} from "../../lib/persistence";
 import {useTeamLinkAuth} from "../team-link-auth";
-import {bestTransfers,selectPrimaryTransfer} from "../../lib/transfers";
+import {bestTransfers} from "../../lib/transfers";
+import {narrateWeeklyDecision} from "../../lib/weekly-decision";
 import {ManagerMeta,deriveSandboxFinancialContext} from "../../lib/squad-comparison";
 import {rawDifferentialsByPosition} from "../../lib/ownership-radar";
-import {narrateDifferentials,resolveChipLegality,narrateChipDecision,narrateLiveStatus,narrateCurrentRank,narrateCaptainChoice,narratePrimaryTransfer,narrateTransferForPlayer,narratePriceRisk,narrateSquadBuild} from "../../lib/coach-narration";
-import {ConnectTeam,EmptyDeskState,analysis,priceProtectionAlerts} from "./CoachCore";
+import {narrateDifferentials,resolveChipLegality,narrateChipDecision,narrateLiveStatus,narrateCurrentRank,narrateCaptainChoice,narrateTransferForPlayer,narratePriceRisk,narrateSquadBuild} from "../../lib/coach-narration";
+import {ConnectTeam,EmptyDeskState,analysis,priceProtectionAlerts,useWeeklyDecision} from "./CoachCore";
 import type {View} from "./CoachCore";
 import {captainReturnHaul,captaincyRiskFraming,resolveCurrentXi,resolveLiveScoring} from "./PanelShared";
 import type {CaptainCandidate,LockRecord,OfficialScoringAuthority} from "./PanelShared";
@@ -81,6 +82,8 @@ export function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=
   const bank=finance.baselineBank;
   const freeTransfers=readFreeTransfers();
   const moves=bestTransfers(data,squad,bank,freeTransfers,12,finance.baselineSellingPrices);
+  // "What transfer should I make?" reads the canonical weekly call (same object as Home + Transfers).
+  const weekly=useWeeklyDecision(data,squad,manager);
   const transferCandidates=useMemo(()=>{
     const seen=new Set<number>();const list:{id:number;name:string}[]=[];
     for(const move of moves){if(seen.has(move.incoming.id))continue;seen.add(move.incoming.id);list.push({id:move.incoming.id,name:move.incoming.name})}
@@ -108,7 +111,6 @@ export function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=
 
   // --- What transfer should I make? / Is X worth a transfer? --- (moves/transferCandidates
   // computed above, before the `!a` early return -- see the hooks comment there)
-  const primaryMove=selectPrimaryTransfer(moves);
   const transferMatchIndex=moves.findIndex(m=>m.incoming.id===transferTarget);
   const transferMatch=transferMatchIndex>=0?moves[transferMatchIndex]:undefined;
   const transferTargetName=data.players.find(p=>p.id===transferTarget)?.name??"";
@@ -180,7 +182,7 @@ export function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=
       {chosenCandidate&&<p>{narrateCaptainChoice(chosenCandidate,currentCandidate,captaincyFraming)}</p>}
     </CoachAnswerCard>}
 
-    {intent==="transfer-best"&&<CoachAnswerCard label="Transfer recommendation"><p>{narratePrimaryTransfer(primaryMove)}</p></CoachAnswerCard>}
+    {intent==="transfer-best"&&<CoachAnswerCard label="Transfer recommendation"><p>{weekly.status==="ready"?narrateWeeklyDecision(weekly.decision):weekly.status==="blocked"?"Reconnect your FPL team so the live bank can be used for this week's call.":"Calculating this week's call — same engine as Transfers…"}</p></CoachAnswerCard>}
 
     {intent==="transfer-for"&&<CoachAnswerCard label="Transfer target">
       <select value={transferTarget??""} onChange={e=>setTransferTarget(Number(e.target.value))}><option value="" disabled>Choose a real transfer candidate…</option>{transferCandidates.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>

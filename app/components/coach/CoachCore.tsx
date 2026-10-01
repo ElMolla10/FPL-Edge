@@ -1,6 +1,6 @@
 "use client";
 
-import {useState,useEffect} from "react";
+import {useState,useEffect,useMemo} from "react";
 import {FplData,FplPlayer,projectionMetrics,futureEvents,isCompleteSquad,bestXi,playerProjection,startPct,PriceOutlookDay} from "../../lib/fpl";
 import {createOptimizer} from "../../lib/optimizer";
 import {readFreeTransfers,writeAccountTeam} from "../../lib/persistence";
@@ -10,7 +10,10 @@ import {isWildcardActive} from "../../lib/personal-fpl-transfer/chip-state";
 import {useTeamLinkAuth} from "../team-link-auth";
 import {BenchOrderResult,optimizeBenchOrder,modeledAppearanceProbability} from "../../lib/bench-order";
 import {Transfer,sortTransfersByQuality,bestTransfers} from "../../lib/transfers";
-import {ManagerMeta} from "../../lib/squad-comparison";
+import {ManagerMeta,deriveSandboxFinancialContext,isRankingFinanceUnavailable} from "../../lib/squad-comparison";
+import {scheduleDeferred} from "../../lib/transfer-engine/schedule";
+import {resolveCaptaincy} from "../../lib/captaincy";
+import {buildWeeklyDecision,type WeeklyDecision} from "../../lib/weekly-decision";
 
 // View name map (Kevin IA lock): Home=overview, My Squad=team, Final check=deadline,
 // Players=players, Coach=coach. Desktop primary includes Transfers + Final check; phone nests
@@ -175,4 +178,84 @@ export function priceProtectionAlerts(squad:readonly FplPlayer[]):readonly Price
     const pct=rawDay?Math.abs(rawDay.projectedPercent):0;
     return{player,offsetDays:futureRisk.offsetDays,pct,message:`is projected to fall in ${futureRisk.offsetDays} day${futureRisk.offsetDays>1?"s":""} — selling before then protects the standard £0.1m step.`};
   }).filter((x):x is PriceRiskAlert=>x!==null).sort((a,b)=>a.offsetDays-b.offsetDays||b.pct-a.pct);
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Canonical weekly decision (Home / Transfers / Coach). One ranking pipeline, one cache, one object.
+// The deep ranking is still deferred off first paint (OVERVIEW_HANG_HOTFIX) -- surfaces show a
+// "calculating" state instead of a second, shallower call that could disagree.
+// In-memory only: nothing here writes localStorage, so the demo squad never touches the real draft key.
+// ---------------------------------------------------------------------------------------------
+
+type DecisionRowsCacheEntry={key:string;rows:Transfer[]};
+const decisionRowsCache:DecisionRowsCacheEntry[]=[];
+const optimizerByData=new WeakMap<FplData,ReturnType<typeof createOptimizer>>();
+function decisionOptimizer(data:FplData){let o=optimizerByData.get(data);if(!o){o=createOptimizer(data,"Balanced 5 GWs","Balanced","Maximum xPts");optimizerByData.set(data,o)}return o}
+
+export function weeklyDecisionKey(data:FplData,squad:FplPlayer[],bank:number,freeTransfers:number,sellingPrices:Map<number,number>,wildcardActive:boolean):string{
+  const sell=[...sellingPrices.entries()].sort((x,y)=>x[0]-y[0]).map(([id,p])=>`${id}:${p}`).join(",");
+  return `${data.updatedAt??""}|${squad.map(p=>p.id).join(",")}|${bank.toFixed(1)}|${wildcardActive?"wc":freeTransfers}|${sell}`;
+}
+
+/** Ranked rows for the canonical decision (cached so every surface reads the identical rows). */
+export function rankRowsForWeeklyDecision(data:FplData,squad:FplPlayer[],bank:number,freeTransfers:number,sellingPrices:Map<number,number>,wildcardActive:boolean,optimizer?:ReturnType<typeof createOptimizer>|null):Transfer[]{
+  const key=weeklyDecisionKey(data,squad,bank,freeTransfers,sellingPrices,wildcardActive);
+  const hit=decisionRowsCache.find(e=>e.key===key);
+  if(hit)return hit.rows;
+  const rows=rankTransfersForBestDecision(data,squad,bank,freeTransfers,sellingPrices,optimizer===undefined?decisionOptimizer(data):optimizer,{wildcardActive});
+  decisionRowsCache.unshift({key,rows});
+  if(decisionRowsCache.length>8)decisionRowsCache.length=8;
+  return rows;
+}
+export function peekWeeklyDecisionRows(key:string):Transfer[]|null{return decisionRowsCache.find(e=>e.key===key)?.rows??null}
+
+/** Captain used everywhere for the decision + projected GW total (stored → manager → model). */
+export function decisionCaptainId(a:NonNullable<ReturnType<typeof analysis>>,manager:ManagerMeta|null|undefined):number|null{
+  let storedC=0,storedV=0;
+  try{storedC=Number(localStorage.getItem(`fpl-edge-captain-${a.first}`));storedV=Number(localStorage.getItem(`fpl-edge-vice-${a.first}`))}catch{}
+  const model=a.xi.captain??a.xi.players[0];
+  return resolveCaptaincy(a.xi.players,storedC,storedV,manager?.captainId,manager?.viceCaptainId,model,undefined)?.captainId??model?.id??null;
+}
+
+export type WeeklyDecisionState=
+  |{status:"empty"}
+  |{status:"blocked"}
+  |{status:"pending";freeTransfers:number;freeTransferSource:"live"|"assumed"}
+  |{status:"ready";decision:WeeklyDecision;rows:Transfer[]};
+
+/** The single hook Home, Transfers and Coach use. `freeTransfersOverride` lets Transfers pass its
+ *  manual selector value (which it also persists to the same stored key Home/Coach read). */
+export function useWeeklyDecision(data:FplData,squad:FplPlayer[],meta:ManagerMeta|null|undefined,freeTransfersOverride?:number):WeeklyDecisionState{
+  const a=analysis(data,squad);
+  const finance=useMemo(()=>deriveSandboxFinancialContext(squad,data.rules.budget,meta??null),[squad,data.rules.budget,meta]);
+  const blocked=finance.source==="unavailable"||isRankingFinanceUnavailable(meta);
+  const wildcardActive=managerWildcardActive(meta);
+  const liveFt=meta?.bankSource==="live-my-team"&&meta.freeTransferLimit!==undefined&&meta.freeTransferLimit!==null;
+  const freeTransfers=freeTransfersOverride??authoritativeFreeTransfers(meta);
+  const freeTransferSource:"live"|"assumed"=liveFt?"live":"assumed";
+  const bank=finance.baselineBank;
+  const key=a&&!blocked?weeklyDecisionKey(data,squad,bank,freeTransfers,finance.baselineSellingPrices,wildcardActive):null;
+  const[computed,setRows]=useState<{key:string;rows:Transfer[]}|null>(null);
+  // Another surface may already have ranked these exact inputs -- read the shared cache in render.
+  const cachedNow=key?peekWeeklyDecisionRows(key):null;
+  const rows=cachedNow&&key?{key,rows:cachedNow}:computed;
+  useEffect(()=>{
+    if(!key||peekWeeklyDecisionRows(key))return;
+    let cancelled=false;
+    const handle=scheduleDeferred(()=>{
+      if(cancelled)return;
+      let next:Transfer[]=[];
+      try{next=rankRowsForWeeklyDecision(data,squad,bank,freeTransfers,finance.baselineSellingPrices,wildcardActive)}catch{next=[]}
+      if(!cancelled)setRows({key,rows:next});
+    },{timeout:600,delayMs:16});
+    return()=>{cancelled=true;handle.cancel()};
+  },[key]);
+  const captainId=a?decisionCaptainId(a,meta):null;
+  return useMemo<WeeklyDecisionState>(()=>{
+    if(!a)return{status:"empty"};
+    if(blocked)return{status:"blocked"};
+    if(!rows||rows.key!==key)return{status:"pending",freeTransfers,freeTransferSource};
+    return{status:"ready",rows:rows.rows,decision:buildWeeklyDecision(rows.rows,{gameweek:a.first,freeTransfers,freeTransferSource,bank,captainId,wildcardActive})};
+  },[a?.first,blocked,rows?.rows,rows?.key,key,freeTransfers,freeTransferSource,bank,captainId,wildcardActive]);
 }
