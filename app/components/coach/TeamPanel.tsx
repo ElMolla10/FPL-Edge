@@ -8,6 +8,7 @@ import {usePopulationPercentiles} from "../usePopulationPercentiles";
 import {LiveRankResult,estimateLiveRankResult} from "../../lib/rank-estimate-core";
 import {chipScoresForEvent} from "../LiveIntelligence";
 import {plannedChipFor,readPlannedChips} from "../../lib/chip-portfolio";
+import {isLiveEvent,lockForLiveEvent} from "../../lib/live-lock";
 import {FplPlayer,FplEvent,displayedGameweekAverage,FplData,savedSquad,futureEvents,projectionMetrics,opponent,playerProjection,LiveMover,liveScoringMovers,bestXi,startPct} from "../../lib/fpl";
 import {useTeamLinkAuth} from "../team-link-auth";
 import {Transfer,bestTransfers} from "../../lib/transfers";
@@ -172,7 +173,9 @@ export function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:Fp
   let locks:LockRecord[]=[];
   try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
   const currentLock=currentAnchor?locks.find(l=>l.event===currentAnchor.id):undefined;
-  const currentOfficialPicks=currentAnchor&&manager?.event===currentAnchor.id?manager.picks:undefined;
+  // In-play: a lock for the live GW is the receipt -- it wins over official picks and later local edits.
+  const liveLock=lockForLiveEvent(currentAnchor,locks);
+  const currentOfficialPicks=!liveLock&&currentAnchor&&manager?.event===currentAnchor.id?manager.picks:undefined;
   const currentResolution=useMemo(()=>currentAnchor?resolveCurrentXi(squad,data.players,currentAnchor.id,data.fixtures,currentLock,currentOfficialPicks):null,[squad,data,currentAnchor,currentLock,currentOfficialPicks]);
   const currentXi=currentResolution?.xi??[];
   const currentBench=currentResolution?.bench??[];
@@ -191,7 +194,7 @@ export function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:Fp
     {entry&&teamAuth==="in"&&<button onClick={refreshFromOfficial} disabled={refreshBusy}>{refreshBusy?"Refreshing…":"Refresh from official"}</button>}
     {refreshMsg&&<small>{refreshMsg}</small>}
     {branch==="past"&&<PastGameweekView data={data} event={event} history={history} officialRank={officialRank}/>}
-    {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} manager={manager} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go} officialRank={officialRank}/>}
+    {branch==="current"&&<CurrentGameweekView data={data} event={event} squad={squad} xi={currentXi} bench={currentBench} captaincy={currentCaptaincy} manager={manager} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank} go={go} officialRank={officialRank} liveLock={liveLock}/>}
     {branch==="future"&&(fullDesk?<FutureGameweekView data={data} event={event} squad={squad} tab={tab} setTab={setTab} selected={selected} setSelected={setSelected} bank={a.bank}/>:<SeasonLocked feature="Multi-week transfer planning is part of the season pass." onUpgrade={onUpgrade}/>)}
   </div>;
 }
@@ -229,7 +232,7 @@ function PastGameweekView({data,event,history,officialRank}:{data:FplData;event:
   </div>;
 }
 
-function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,setTab,selected,setSelected,bank,go,officialRank}:{data:FplData;event:FplEvent;squad:FplPlayer[];xi:FplPlayer[];bench:FplPlayer[];captaincy:{captain:FplPlayer;vice:FplPlayer;chooseCaptain:(id:number)=>void;chooseVice:(id:number)=>void};manager:ManagerMeta|null;tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number;go:(v:View)=>void;officialRank:OfficialRank|null}){
+function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,setTab,selected,setSelected,bank,go,officialRank,liveLock=null}:{liveLock?:LockRecord|null;data:FplData;event:FplEvent;squad:FplPlayer[];xi:FplPlayer[];bench:FplPlayer[];captaincy:{captain:FplPlayer;vice:FplPlayer;chooseCaptain:(id:number)=>void;chooseVice:(id:number)=>void};manager:ManagerMeta|null;tab:"Pitch"|"List";setTab:(t:"Pitch"|"List")=>void;selected:FplPlayer|null;setSelected:(p:FplPlayer|null)=>void;bank:number;go:(v:View)=>void;officialRank:OfficialRank|null}){
   const{chooseCaptain,chooseVice}=captaincy;
   const gwFixtures=data.fixtures.filter(f=>f.event===event.id);
   const hasStarted=gwFixtures.some(f=>f.started);
@@ -239,8 +242,8 @@ function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,se
   // `finished`/`data_checked` flags catch up, since those wait on bonus-point confirmation too).
   const allFixturesFinished=gwFixtures.length>0&&gwFixtures.every(f=>f.finished);
   const deadlinePassed=Date.parse(event.deadline)<=Date.now();
-  const official:OfficialScoringAuthority|null=manager?.event?{event:manager.event,captainId:manager.captainId,viceCaptainId:manager.viceCaptainId,chip:manager.chip}:null;
-  const scoring=resolveLiveScoring({xi,bench,localCaptainId:captaincy.captain.id,localViceId:captaincy.vice.id,eventId:event.id,deadlinePassed,official,finalizeAutosubs:allFixturesFinished});
+  const official:OfficialScoringAuthority|null=!liveLock&&manager?.event?{event:manager.event,captainId:manager.captainId,viceCaptainId:manager.viceCaptainId,chip:manager.chip}:null;
+  const scoring=resolveLiveScoring({xi,bench,localCaptainId:liveLock?liveLock.captainId:captaincy.captain.id,localViceId:liveLock?liveLock.viceId:captaincy.vice.id,eventId:event.id,deadlinePassed,official,finalizeAutosubs:allFixturesFinished});
   const captain=xi.find(p=>p.id===scoring.captainId)??captaincy.captain;
   const vice=xi.find(p=>p.id===scoring.viceId)??captaincy.vice;
   const officialLocked=scoring.captaincySource==="official";
@@ -259,6 +262,9 @@ function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,se
   const movers:{hurting:readonly LiveMover[];helping:readonly LiveMover[]}=hasStarted?liveScoringMovers(countedForMovers,scoring.effectiveCaptainId,scoring.captainMultiplier,event.id,data.fixtures,planningFirst):{hurting:[],helping:[]};
 
   return <div className="gw-current">
+    {isLiveEvent(event)&&(liveLock
+      ?<section className="gw-live-lock" aria-label="Locked plan versus live"><div><span>LOCKED PROJECTION</span><b>{Math.round(liveLock.predicted*10)/10}</b><small>your receipt, frozen at the deadline</small></div><div><span>LIVE SO FAR</span><b>{hasStarted?scoring.liveTotal:"—"}</b><small>partial · matches still to play</small></div></section>
+      :<p className="gw-live-nolock">No lock for {event.name} — showing your current squad live, not a receipt.</p>)}
     <section className="team-toolbar"><div><span>FORMATION</span><b>{formation(scoring.effectiveXi)}</b></div><div><span>{hasStarted?"LIVE POINTS":"KICKOFF PENDING"}</span><b>{hasStarted?scoring.liveTotal:"—"}</b></div><GameweekAverage events={data.events} eventId={event.id}/>{scoring.activeChip&&<div><span>ACTIVE CHIP</span><b>{scoring.activeChip==="3xc"?"Triple Captain":scoring.activeChip==="bboost"?"Bench Boost":scoring.activeChip}</b></div>}<div className="segmented pitch-first" role="tablist" aria-label="Squad view">{(["Pitch","List"] as const).map(x=><button type="button" role="tab" aria-selected={tab===x} className={tab===x?"active":""} onClick={()=>setTab(x)} key={x}>{x}</button>)}</div><button onClick={()=>go("draft")}>Edit squad</button></section>
     {!hasStarted&&<p className="gw-pending-note">{event.name}'s matches haven't kicked off yet -- live points will appear here once they do.</p>}
     {hasStarted&&!allFixturesFinished&&<p className="gw-pending-note">Some of this gameweek's matches are still in progress -- a player showing 0 minutes may not have played yet. Final XI and automatic substitutions appear once every match finishes.</p>}
@@ -266,7 +272,7 @@ function CurrentGameweekView({data,event,squad,xi,bench,captaincy,manager,tab,se
     {tab==="Pitch"&&<><section className="coach-pitch"><div className="pitch-markings"/>{["GKP","DEF","MID","FWD"].map(pos=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{scoring.effectiveXi.filter(p=>p.positionShort===pos).map(p=>{const isArmband=p.id===scoring.effectiveCaptainId;const wasSubbedIn=scoring.swaps.some(s=>s.inId===p.id);return <button key={p.id} className={p.status!=="a"?"flagged":""} onClick={()=>setSelected(p)}><i>{pos}{wasSubbedIn?" · AUTO":""}</i><b>{p.name}{isArmband&&<em>C</em>}{p.id===scoring.viceId&&!isArmband&&<em>V</em>}</b><span>{hasStarted?`${p.eventPoints}${isArmband&&scoring.captainMultiplier>1?` × ${scoring.captainMultiplier}`:""} pts`:opponent(p,event.id,data)}</span><small>{hasStarted?`${p.eventMinutes} mins`:""}</small></button>})}</div>)}</section>
     <section className="coach-bench"><span>{scoring.activeChip==="bboost"?"BENCH BOOST":"BENCH"}</span>{scoring.displayedBench.map((p,i)=><button key={p.id} onClick={()=>setSelected(p)}><i>{i+1}</i><b>{p.name}</b><small>{hasStarted?`${p.eventPoints} pts · ${p.eventMinutes} mins${scoring.activeChip==="bboost"?" · COUNTED":""}`:opponent(p,event.id,data)}</small></button>)}</section></>}
     {tab==="List"&&<section className="team-list"><header><span>PLAYER</span><span>FIXTURE</span><span>PTS</span><span>MINS</span><span>STATUS</span></header>{[...scoring.effectiveXi,...scoring.displayedBench].map((p,i)=>{const isArmband=p.id===scoring.effectiveCaptainId;return <button key={p.id} onClick={()=>setSelected(p)}><b>{i<scoring.effectiveXi.length?"XI":"BENCH"} · {p.name}{isArmband?" (C)":p.id===scoring.viceId?" (V)":""}<small>{p.teamShort} · {p.positionShort}</small></b><span>{opponent(p,event.id,data)}</span><strong>{p.eventPoints}{isArmband&&scoring.captainMultiplier>1?` × ${scoring.captainMultiplier}`:""}</strong><span>{p.eventMinutes}</span><em className={riskLabel(p,startPct(p,event.id,data))==="LIKELY"?"ok":"risk"}>{i>=scoring.effectiveXi.length&&scoring.activeChip==="bboost"?"COUNTED":riskLabel(p,startPct(p,event.id,data))}</em></button>})}</section>}
-    {scoring.swaps.length>0&&<section className="gw-autosub-note"><span>AUTOMATIC SUBSTITUTIONS</span>{scoring.swaps.map((s,i)=><p key={i}><b>{s.inName}</b> came on for <b>{s.outName}</b> (0 minutes)</p>)}</section>}
+    {scoring.swaps.length>0&&<section className="gw-autosub-note"><span>AUTOMATIC SUBSTITUTIONS</span>{scoring.swaps.map((s,i)=><p key={i}><b>{s.inName}</b> came on for <b>{s.outName}</b> (0 minutes){liveLock?" · from your locked bench order":""}</p>)}</section>}
     {scoring.armbandPassedToVice&&<p className="gw-armband-note">{captain.name} didn't play -- the armband passed to {vice.name} ({vice.name}'s score is {multiplierWord}).</p>}
     {scoring.captaincyLost&&<p className="gw-armband-note">Neither {captain.name} nor {vice.name} played -- no captain multiplier applies this week.</p>}
     {scoring.activeChip==="bboost"&&<p className="gw-chip-note">Bench Boost is active · {scoring.benchBoostPoints} bench points are included in the live total.</p>}

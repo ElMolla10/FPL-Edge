@@ -25,6 +25,8 @@ import {SeasonLocked} from "./SeasonLocked";
 import {formatSeasonPassPrice} from "../lib/season-pass";
 import {computeDataFreshness,publicConnectionStatus,isDataFreshnessDebug} from "../lib/data-freshness";
 import {buildPriceSheet} from "../lib/price-sheet";
+import {liveEvent,lockForLiveEvent,lockedLiveSoFar,readLocks} from "../lib/live-lock";
+import type {LockRecord} from "./coach/PanelShared";
 import {ConnectTeam,analysis,authoritativeFreeTransfers,connectTeam,managerWildcardActive,priceProtectionAlerts,useManager,useWeeklyDecision} from "./coach/CoachCore";
 import type {View} from "./coach/CoachCore";
 
@@ -559,6 +561,8 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
   const target=wd?.inPlayerId!=null?data.players.find(p=>p.id===wd.inPlayerId)??null:null;
   const risk=classifyUrgency({xi:a.xi.players,bench:a.bench,startPct:p=>startPct(p,a.first,data),target});
   const urgent=risk.urgent.slice(0,3);
+  const inPlay=liveEvent(data.events);
+  const inPlayLock=inPlay?lockForLiveEvent(inPlay,readLocks<LockRecord>()):null;
   const priceTeaser=buildPriceSheet({squad,players:data.players,outPlayerId:wd?.action==="MAKE"?wd.outPlayerId:null,inPlayerId:wd?.action==="MAKE"?wd.inPlayerId:null}).teaser;
   const primaryCta=decisionHold?{label:"Open Final Check →",view:"deadline" as View}:{label:"Open Transfers →",view:"transfers" as View};
 
@@ -566,6 +570,7 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
     {/* Demo banner lives in coach chrome once. */}
     {/* WEEKLY BRIEF — one screen: GW + countdown, the canonical call, captain + projected, one why, one CTA.
         Depth (NET tables, scenarios, bank/FT detail) lives below the fold and on Transfers / Final Check. */}
+    {inPlay&&<button type="button" className="overview-live-lock" onClick={()=>go("team")}><span>{inPlay.name.toUpperCase()} · LIVE</span>{inPlayLock?<b>Locked projection {Math.round(inPlayLock.predicted*10)/10} · live so far {lockedLiveSoFar(inPlayLock,data.players)} (partial)</b>:<b>No lock this week — see your squad live</b>}<em>Open My team →</em></button>}
     <section className="weekly-brief" aria-label="Weekly brief">
       <OverviewDeadlineStrip event={next}/>
       {liveBankBlocked?<Suspense fallback={null}><LazyReconnectFpl errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{

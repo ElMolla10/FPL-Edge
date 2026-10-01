@@ -693,3 +693,6 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .price-sheet .rise{color:var(--accent)}
 .price-sheet .fall{color:var(--warning,var(--danger))}
 .price-sheet-back{margin-top:12px}
+.overview-live-lock{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;width:100%;margin:0 0 12px;padding:12px 16px;background:var(--surface-card);border:1px solid var(--accent);border-radius:9px;text-align:left;color:inherit;cursor:pointer}
+.overview-live-lock span{font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--accent)}
+.overview-live-lock em{font-style:normal;font-weight:700;color:var(--accent)}
