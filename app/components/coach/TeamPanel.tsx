@@ -2,6 +2,7 @@
 
 import "../../styles/panel-team.css";
 import {useState,useEffect,useMemo,useRef} from "react";
+import {defaultTeamEventId} from "../../lib/team-default-event";
 import {usePopulationPercentiles} from "../usePopulationPercentiles";
 import {LiveRankResult,estimateLiveRankResult} from "../../lib/rank-estimate-core";
 import {chipScoresForEvent} from "../LiveIntelligence";
@@ -131,7 +132,9 @@ export function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:Fp
   const horizonEvents=useMemo(()=>futureEvents(data,8),[data]);
   const backwardBoundId=data.events[0]?.id??1;
   const forwardBoundId=horizonEvents.length?horizonEvents[horizonEvents.length-1].id:(currentAnchor?.id??data.events[data.events.length-1]?.id??backwardBoundId);
-  const defaultEventId=currentAnchor?.id??horizonEvents[0]?.id??backwardBoundId;
+  // First paint must be this week's pitch (the header countdown's gameweek), never a finished GW
+  // with an empty history. Live (current, not finished) wins; otherwise the next planning GW.
+  const defaultEventId=defaultTeamEventId(currentAnchor,horizonEvents,backwardBoundId);
   const[navEventId,setNavEventId]=useState<number>(()=>defaultEventId);
   // Real bug, found live: navEventId's initializer above only ever runs once, at mount -- if this
   // page stays mounted across the live gameweek actually advancing (e.g. a tab left open overnight
@@ -143,14 +146,14 @@ export function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:Fp
   // `previous!==undefined` guard means the very first anchor (mount, or the null-to-non-null
   // pre-season transition) is never treated as a change to auto-follow -- defaultEventId above
   // already resolves that case correctly on its own.
-  const prevAnchorIdRef=useRef(currentAnchor?.id);
+  const prevAnchorIdRef=useRef<number|undefined>(defaultEventId);
   useEffect(()=>{
     const previous=prevAnchorIdRef.current;
-    prevAnchorIdRef.current=currentAnchor?.id;
-    if(currentAnchor&&previous!==undefined&&currentAnchor.id!==previous){
-      setNavEventId(current=>current===previous?currentAnchor.id:current);
+    prevAnchorIdRef.current=defaultEventId;
+    if(previous!==undefined&&defaultEventId!==previous){
+      setNavEventId(current=>current===previous?defaultEventId:current);
     }
-  },[currentAnchor]);
+  },[defaultEventId]);
   const[tab,setTab]=useState<"Pitch"|"List">("Pitch");
   const[selected,setSelected]=useState<FplPlayer|null>(null);
 
@@ -353,3 +356,4 @@ function PitchOutline(){
   const rows=[["GKP",1],["DEF",4],["MID",4],["FWD",2]] as const;
   return <section className="coach-pitch pitch-outline" aria-label="Empty pitch preview"><div className="pitch-markings"/>{rows.map(([pos,count])=><div className={`coach-pitch-row ${pos.toLowerCase()}`} key={pos}>{Array.from({length:count},(_,i)=><span className="pitch-slot" key={i}/>)}</div>)}</section>;
 }
+
