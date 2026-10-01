@@ -549,68 +549,65 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
     ?"reconnect FPL for live bank"
     :meta?(meta.bankSource==="live-my-team"?"live FPL transfer bank":meta.liveOverlayError?"live bank unavailable":"official public data"):"builder estimate";
 
+  // Urgent: max 3, and only players who affect the XI or the first bench autosub slot.
+  const xiAndFirstBench=new Set([...a.xi.players.map(p=>p.id),...(a.bench[0]?[a.bench[0].id]:[])]);
+  const urgent=issues.filter(p=>xiAndFirstBench.has(p.id)).slice(0,3);
+  const primaryCta=decisionHold?{label:"Open Final Check →",view:"deadline" as View}:{label:"Open Transfers →",view:"transfers" as View};
+
   return <div className="coach-page overview-command">
-    {/* Demo banner lives in coach chrome once — omit duplicate here so captain+projected stay above the fold. */}
-    <OverviewDeadlineStrip event={next}/>
-
-    {/* Known finance / chip only — no freshness tech chip (public Connected/Not connected lives in header/sidebar from #89). */}
-    {!liveBankBlocked&&<section className="overview-status-strip" aria-label="Known squad state">
-      {bankKnown&&<div><span>IN THE BANK</span><b>£{bankValue.toFixed(1)}m</b><small>{bankSourceLabel}</small></div>}
-      <div>
-        <span>{wildcardActive?"WILDCARD":"FREE TRANSFERS"}</span>
-        <b>{wildcardActive?"Active":String(fts)}</b>
-        <small>{wildcardActive?"unlimited swaps until deadline":liveFtKnown&&!ftAssumed?"live FPL (limit − made this GW)":`FT assumed: ${fts} · same as Transfers`}</small>
+    {/* Demo banner lives in coach chrome once. */}
+    {/* WEEKLY BRIEF — one screen: GW + countdown, the canonical call, captain + projected, one why, one CTA.
+        Depth (NET tables, scenarios, bank/FT detail) lives below the fold and on Transfers / Final Check. */}
+    <section className="weekly-brief" aria-label="Weekly brief">
+      <OverviewDeadlineStrip event={next}/>
+      {liveBankBlocked?<Suspense fallback={null}><LazyReconnectFpl errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{
+        const live=await refreshConnectedTeamFromApi(data,{force:true});
+        try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}
+        if(live.updated)onTeamChange();
+      }}/></Suspense>:<>
+      <section className="recommended-move best-decision-hero overview-best-decision" aria-label="Best decision">
+        <div className="call-label">
+          <span>{wildcardActive?"WILDCARD THIS WEEK":"THIS WEEK'S CALL"}</span>
+          <b className={decisionHold?"badge-hold":"badge-make"}>{!wd?"…":decisionHold?(wildcardActive?"KEEP":"HOLD"):"MAKE"}</b>
+        </div>
+        <h2>{!wd?"Calculating this week's call…":decisionHold
+          ?(wildcardActive?"KEEP — leave this Wildcard squad unchanged":"HOLD — no transfer this week")
+          :`${wd.outName} → ${wd.inName}`}</h2>
+        <div className="engine-why" aria-label="Why"><span>WHY</span><p className="engine-reason-hero">{shortReason}</p></div>
+        {!wildcardActive&&ftAssumed&&<small className="brief-assumption">FT assumed: {fts}</small>}
+      <div className="command-metrics overview-captain-metrics" aria-label="Captain and projected points">
+        <article><span>CAPTAIN</span><b>{activeCaptain.name}</b><small>{captainTerm.toFixed(1)} xPts{plannedChip==="Triple Captain"?" · Triple Captain":""}</small></article>
+        <article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></article>
       </div>
-      {plannedChip&&<div><span>PLANNED CHIP</span><b>{plannedChip}</b><small>for {next.name.replace(/^Gameweek\s+/i,"GW")}</small></div>}
-    </section>}
+      <button type="button" className="overview-transfers-link overview-primary-cta" onClick={()=>go(primaryCta.view)} {...warm(primaryCta.view)}>{primaryCta.label}</button>
+      </section>
+      </>}
+    </section>
 
-    {liveBankBlocked&&<Suspense fallback={null}><LazyReconnectFpl errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{
-      const live=await refreshConnectedTeamFromApi(data,{force:true});
-      try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}
-      if(live.updated)onTeamChange();
-    }}/></Suspense>}
+    <section className="urgent-card">
+      <header>
+        <div><span>URGENT</span><h2>{urgent.length?`${urgent.length} XI risk${urgent.length>1?"s":""} before the deadline`:"No risks to your XI."}</h2></div>
+        <button type="button" onClick={()=>go("deadline")}>Open final check →</button>
+      </header>
+      {urgent.length>0&&<div>{urgent.map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"FLAGGED":"MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% start chance.`}</p></article>)}</div>}
+    </section>
 
-    {!liveBankBlocked&&<section className="recommended-move best-decision-hero overview-best-decision" aria-label="Best decision">
-      <div className="call-label">
-        <span>{wildcardActive?"WILDCARD BEST SWAP":"BEST DECISION"}</span>
-        <b className={decisionHold?"badge-hold":"badge-make"}>{decisionClass}</b>
-      </div>
-      <h2>{!wd?"Calculating this week's call…":decisionHold
-        ?(wildcardActive?"KEEP — leave this temporary Wildcard squad unchanged":"HOLD — do not transfer now")
-        :`${wd.outName} → ${wd.inName}`}</h2>
-      <p className="best-decision-lede">{!wd?"Same engine as Transfers — one call for the week.":decisionHold
-        ?(wildcardActive?"Should I swap on Wildcard? No strong full-squad upgrade clears the bar.":fts<=0?"Should I transfer? No — with 0 FT, no move clears hit-adjusted NET vs HOLD.":"Should I transfer? No — HOLD now and bank the free transfer.")
-        :(wildcardActive?"Should I swap on Wildcard? Yes — full-squad objective improves.":`Should I transfer? Yes — ${decisionClass} clears the risk-adjusted 5-GW NET vs HOLD bar.`)}{!wildcardActive&&ftAssumed?` FT assumed: ${fts}.`:""}</p>
+    {/* Below the fold: the numbers behind the call. Engines unchanged — just not first paint. */}
+    {!liveBankBlocked&&<details className="overview-detail">
+      <summary>The numbers behind this call</summary>
+      <section className="overview-status-strip" aria-label="Known squad state">
+        {bankKnown&&<div><span>IN THE BANK</span><b>£{bankValue.toFixed(1)}m</b><small>{bankSourceLabel}</small></div>}
+        <div><span>{wildcardActive?"WILDCARD":"FREE TRANSFERS"}</span><b>{wildcardActive?"Active":String(fts)}</b><small>{wildcardActive?"unlimited swaps until deadline":liveFtKnown&&!ftAssumed?"live FPL (limit − made this GW)":`FT assumed: ${fts} · same as Transfers`}</small></div>
+        {plannedChip&&<div><span>PLANNED CHIP</span><b>{plannedChip}</b><small>for {next.name.replace(/^Gameweek\s+/i,"GW")}</small></div>}
+      </section>
       {wd&&<div className="best-decision-metrics" aria-label="Decision metrics">
+        <span><small>CLASS</small><b>{decisionClass}</b></span>
         <span><small>{wildcardActive?"MODE":"HIT"}</small><b>{formatHit(wd)}</b></span>
         <span><small>{wildcardActive?"5-GW SQUAD Δ":"5-GW NET vs HOLD"}</small><b>{formatNet(wd.net5gw)}</b></span>
         {!decisionHold&&<span><small>ADJUSTED 5-GW NET</small><b>{formatNet(wd.riskAdjustedNet5gw)}</b></span>}
         {decisionHold&&!wildcardActive&&<span><small>FT NOW → NEXT</small><b>{fts} → {Math.min(5,fts+1)}</b></span>}
       </div>}
-      <div className="engine-why" aria-label="Why"><span>WHY</span><p className="engine-reason-hero">{shortReason}</p></div>
-      <button type="button" className="overview-transfers-link" onClick={()=>go("transfers")} {...warm("transfers")}>Open Transfers →</button>
-    </section>}
-
-    {!liveBankBlocked&&<div className="command-metrics overview-captain-metrics" aria-label="Captain and projected points">
-      <article>
-        <span>CAPTAIN</span>
-        <b>{activeCaptain.name}</b>
-        <small>{captainTerm.toFixed(1)} xPts{plannedChip==="Triple Captain"?" · Triple Captain":""}</small>
-      </article>
-      <article>
-        <span>PROJECTED GW</span>
-        <b>{projected.toFixed(1)}</b>
-        <small>including {activeCaptain.name} captaincy{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small>
-      </article>
-    </div>}
-
-    <section className="urgent-card">
-      <header>
-        <div><span>URGENT RISKS</span><h2>{issues.length?`${issues.length} squad issue${issues.length>1?"s":""} to monitor`:"No urgent squad issues."}</h2></div>
-        <button type="button" onClick={()=>go("deadline")}>Open final check →</button>
-      </header>
-      {issues.length>0&&<div>{issues.slice(0,5).map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"CONFIRMED FLAG":"LIKELY MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% modelled start probability.`}</p></article>)}</div>}
-    </section>
+    </details>}
 
     <section className="overview-jumps" aria-label="Next actions">
       <button type="button" onClick={()=>go("deadline")}><span>FINAL CHECK</span><b>Lock captain, XI and chips →</b></button>

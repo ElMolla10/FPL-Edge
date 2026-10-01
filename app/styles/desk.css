@@ -664,3 +664,12 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .paper-steps li.is-current{color:var(--text);font-weight:560}
 .paper-steps li.is-current b{background:var(--lime);border-color:var(--lime);color:var(--ink)}
 .paper-steps li.is-done b{background:var(--surface-sunken);color:var(--text)}
+
+/* Home weekly brief — one screen */
+.weekly-brief{display:grid;gap:14px}
+.weekly-brief .overview-best-decision h2{font-size:clamp(26px,3.4vw,40px);line-height:1.1}
+.weekly-brief .brief-assumption{color:var(--text-muted);font-size:13px}
+.weekly-brief .overview-primary-cta{justify-self:start;min-width:240px}
+.overview-detail{border:1px solid var(--line);border-radius:14px;padding:14px 18px;background:var(--surface-card)}
+.overview-detail>summary{cursor:pointer;font-weight:700;color:var(--text)}
+.overview-detail[open]>summary{margin-bottom:14px}
