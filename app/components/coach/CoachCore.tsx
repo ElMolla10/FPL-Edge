@@ -1,15 +1,11 @@
 "use client";
 
 import {useState,useEffect} from "react";
-import {FplData,FplPlayer,projectionMetrics,futureEvents,isCompleteSquad,bestXi,playerProjection,startPct,PriceOutlookDay} from "../../lib/fpl";
-import {createOptimizer} from "../../lib/optimizer";
+import {FplData,FplPlayer,PriceOutlookDay} from "../../lib/fpl";
 import {readFreeTransfers,writeAccountTeam} from "../../lib/persistence";
 import {clearExampleSquadFlag} from "../../lib/example-squad";
-import {resolveAuthoritativeFreeTransfers} from "../../lib/personal-fpl-transfer/ft-state";
-import {isWildcardActive} from "../../lib/personal-fpl-transfer/chip-state";
+import {resolveFreeTransfersFromMeta} from "../../lib/best-decision";
 import {useTeamLinkAuth} from "../team-link-auth";
-import {BenchOrderResult,optimizeBenchOrder,modeledAppearanceProbability} from "../../lib/bench-order";
-import {Transfer,sortTransfersByQuality,bestTransfers} from "../../lib/transfers";
 import {ManagerMeta} from "../../lib/squad-comparison";
 
 // View name map (Kevin IA lock): Home=overview, My Squad=team, Final check=deadline,
@@ -17,7 +13,7 @@ import {ManagerMeta} from "../../lib/squad-comparison";
 // Transfers under My Squad (see ia/phone-squad-transfers).
 export type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures"|"season-stats";
 
-export const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
+export {clamp} from "../../lib/best-decision";
 
 // Phone-only My Squad context: Transfers is nested here (not a 6th tab). Deep-links go("transfers")
 // land on the Transfers segment host; Final check stays in More (#62).
@@ -31,21 +27,11 @@ export function PhoneSquadNav({active,go}:{active:"team"|"transfers"|"squad-fixt
 export function useManager(revision:number){const[meta,setMeta]=useState<ManagerMeta|null>(null);useEffect(()=>{try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}},[revision]);return[meta,setMeta] as const}
 
 export function authoritativeFreeTransfers(meta:ManagerMeta|null|undefined):number{
-  return resolveAuthoritativeFreeTransfers({
-    freeTransferLimit:meta?.freeTransferLimit,
-    transfersMade:meta?.transfersMade,
-    bankSource:meta?.bankSource,
-    fallbackFreeTransfers:readFreeTransfers(),
-  });
+  return resolveFreeTransfersFromMeta(meta,readFreeTransfers());
 }
 
-export function managerWildcardActive(meta:ManagerMeta|null|undefined):boolean{
-  return isWildcardActive({
-    activeChip:meta?.chip,
-    freeTransferLimit:meta?.freeTransferLimit,
-    bankSource:meta?.bankSource,
-  });
-}
+// Re-exported from the shared lib module (the email-alert cron needs the same Wildcard detection).
+export {managerWildcardActive} from "../../lib/best-decision";
 
 // Single source of truth for "connect a Team ID" -- fetch, validate, persist. ConnectTeam (the
 // full-page first-connect prompt) and TeamBar (the always-reachable sidebar switch/reconnect) both
@@ -81,46 +67,14 @@ export function EmptyDeskState({eyebrow,title,lede,steps,actionLabel,onAction}:{
 
 export function ConnectTeam({data,onConnected}:{data:FplData;onConnected?:(m:ManagerMeta)=>void}){const teamAuth=useTeamLinkAuth();const[id,setId]=useState("");const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const connect=async()=>{setBusy(true);setMsg("");try{const manager=await connectTeam(id,data);setMsg(`${manager.teamName} connected. Your coach is ready.`);onConnected?.(manager)}catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}finally{setBusy(false)}};if(teamAuth!=="in")return <section className="connect-hero"><div><span>START HERE</span><h2>Sign in to connect your team</h2><p>Your official FPL team id belongs to your email account. Sign in first, then connect it. The next time you sign in, on any browser, that team loads automatically.</p><small className="trust-note">Read-only. We never ask for your FPL password.</small></div></section>;return <section className="connect-hero"><div><span>START HERE</span><h2>Connect your official FPL team</h2><p>Enter the number in your FPL team URL. Read-only: we never ask for your password or make changes to your official team.</p></div><div><input value={id} onChange={e=>setId(e.target.value.replace(/\D/g,""))} placeholder="FPL Team ID" inputMode="numeric"/><button onClick={connect} disabled={busy}>{busy?"Connecting…":"Connect my team →"}</button><small>{msg||"Current public squad becomes available after its deadline."}</small></div></section>}
 
-export function benchOrderForEvent(xi:FplPlayer[],bench:FplPlayer[],eventId:number,data:Pick<FplData,"fixtures">):BenchOrderResult{
-  return optimizeBenchOrder(xi,bench,player=>{const metrics=projectionMetrics(player,eventId,data.fixtures,eventId);return{xPts:metrics.xPts,appearanceProbability:modeledAppearanceProbability(player,metrics)}});
-}
-
-export function analysis(data:FplData,squad:FplPlayer[]){const events=futureEvents(data,5);if(!events.length||!isCompleteSquad(squad,data))return null;const first=events[0].id;const xi=bestXi(squad,first,data.fixtures,first);const rawBench=squad.filter(p=>!xi.players.some(x=>x.id===p.id));const benchOrder=benchOrderForEvent(xi.players,rawBench,first,data);const bench=benchOrder.bench;const vice=[...xi.players].sort((a,b)=>playerProjection(b,first,data.fixtures,first)-playerProjection(a,first,data.fixtures,first))[1];const issues=squad.filter(p=>p.status!=="a"||startPct(p,first,data)<68).sort((a,b)=>startPct(a,first,data)-startPct(b,first,data));const cost=squad.reduce((s,p)=>s+p.price,0);return{events,first,xi,bench,benchOrder,vice,issues,cost,bank:Math.max(0,data.rules.budget-cost)}}
-
-// Squad-level objective delta (bench utility, flexibility, risk-adjustment, role security) for a
-// swap, kept as a distinct "Model Utility Change" metric — never merged into raw projected points.
-export function withModelUtilityChange(rows:Transfer[],squad:FplPlayer[],optimizer:ReturnType<typeof createOptimizer>|null):Transfer[]{
-  if(!optimizer||!squad.length)return rows;
-  const baseline=optimizer.evaluate(squad).objective;
-  const adjustedRows=rows.map(r=>{
-    const index=squad.findIndex(p=>p.id===r.out.id);
-    if(index<0)return r;
-    const swapped=[...squad];swapped[index]=r.incoming;
-    const utilityChange=optimizer.evaluate(swapped).objective-baseline;
-    const adjusted=r.rankScore+clamp(utilityChange,-10,10)*.2;
-    const rankScore=r.qualityStatus==="blocked"?Math.min(0,adjusted):r.qualityStatus==="watchlist"?Math.min(2.19,adjusted):adjusted;
-    return{...r,utilityChange,rankScore};
-  });
-  return sortTransfersByQuality(adjustedRows);
-}
-
-/** Shared Transfers ranking pipeline before selectBestDecision: deep limit 60 + model utility.
- *  Overview deferred deep must call this (not hang-safe restricted budgets alone) so BEST DECISION matches. */
-export function rankTransfersForBestDecision(
-  data:FplData,
-  squad:FplPlayer[],
-  bank:number,
-  freeTransfers:number,
-  sellingPrices:Map<number,number>,
-  optimizer:ReturnType<typeof createOptimizer>|null,
-  options?:{wildcardActive?:boolean},
-):Transfer[]{
-  const base=bestTransfers(data,squad,bank,freeTransfers,60,sellingPrices,{
-    mode:"deep",
-    wildcardActive:options?.wildcardActive===true,
-  });
-  return withModelUtilityChange(base,squad,optimizer);
-}
+// analysis + benchOrderForEvent + the BEST DECISION ranking pipeline live in app/lib/best-decision.ts (pure, no
+// React/localStorage) so the Worker cron that sends email call alerts runs the very same code. Re-exported here
+// so every existing import path (CoachApp, panels, tests) is unchanged.
+export {analysis,benchOrderForEvent} from "../../lib/best-decision";
+// withModelUtilityChange + rankTransfersForBestDecision (the shared BEST DECISION pipeline) live in
+// app/lib/best-decision.ts so the Worker cron (email call alerts) runs the very same code; they are
+// re-exported here so every existing import path (CoachApp, Transfers, tests) is unchanged.
+export {withModelUtilityChange,rankTransfersForBestDecision} from "../../lib/best-decision";
 
 // FPL doesn't publish its price-change algorithm, and priceProjectionToday is FPL's own
 // first-party end-of-day forecast (not a heuristic estimated from raw transfer counts here) --

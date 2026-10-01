@@ -1387,3 +1387,11 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .paper-steps li.is-current{color:var(--text);font-weight:560}
 .paper-steps li.is-current b{background:var(--lime);border-color:var(--lime);color:var(--ink)}
 .paper-steps li.is-done b{background:var(--surface-sunken);color:var(--text)}
+
+/* ---- Email call alerts (AlertSettings.tsx). One small scoped block; appended only, no existing rule touched. ---- */
+.alert-settings{display:flex;flex-direction:column;gap:6px;margin-top:12px;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:#102119;color:var(--text-muted-on-inverse)}
+.alert-settings-row{display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:1.35;color:var(--canvas-light);cursor:pointer}
+.alert-settings-row input{flex:0 0 auto;width:20px;height:20px;margin:1px 0 0;accent-color:var(--lime);cursor:pointer}
+.alert-settings-row input:disabled{cursor:not-allowed;opacity:.6}
+.alert-settings-note,.alert-settings-msg{font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.alert-settings-sheet{margin:8px 12px 4px}

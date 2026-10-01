@@ -4,6 +4,9 @@ import handler from "vinext/server/app-router-entry";
 import { keepAlivePersonalFplAuth } from "../app/lib/personal-fpl-transfer/keep-alive";
 import { pruneExpiredData } from "../app/lib/maintenance";
 import { prepareSecurity } from "../app/lib/security-headers";
+import { runCallAlerts } from "../app/lib/call-alerts/run";
+import { createTeamLoader } from "../app/lib/call-alerts/fpl-team";
+import type { FplData } from "../app/lib/fpl";
 
 interface Env {
   ASSETS: Fetcher;
@@ -21,6 +24,14 @@ interface Env {
   FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN?: string;
   /** Optional runtime kill switch: "report-only" downgrades the enforcing CSP to Content-Security-Policy-Report-Only. */
   FPL_EDGE_CSP_MODE?: string;
+  /** Email call alerts (Worker SECRETS, set with `wrangler secret put`; never committed). Feature is inert without both. */
+  RESEND_API_KEY?: string;
+  RESEND_FROM?: string;
+  /** Optional link host for alert emails (default: the production workers.dev host). */
+  FPL_EDGE_SITE_URL?: string;
+  /** DEV ONLY (.dev.vars / wrangler dev): honoured only with a loopback http URL. Never set in wrangler.jsonc. */
+  FPL_EDGE_DEV_MODE?: string;
+  FPL_EDGE_DEV_RESEND_BASE_URL?: string;
 }
 
 interface ExecutionContext {
@@ -70,15 +81,15 @@ const worker = {
   },
 
   /**
-   * Cron entry (hourly, wrangler.jsonc triggers.crons). Two independent jobs, each in its own
-   * waitUntil so one failing never blocks the other:
+   * Cron entry (hourly, wrangler.jsonc triggers.crons "0 * * * *"). Three independent jobs, each in its own
+   * waitUntil so one failing never blocks the others:
    *   1. personal FPL refresh-token keep-alive (unchanged, below)
    *   2. prune expired sessions + stale rate-limit rows (app/lib/maintenance.ts)
+   *   3. email call alerts for opted-in users (app/lib/call-alerts; inert without RESEND_* secrets)
    *
    * Keep the personal FPL refresh token alive even when nobody opens Transfers.
    * Uses the same CAS/access-token cache as live overlay — never race-rotates.
    * On token-expired: leave overlay unavailable (no invented bank).
-   * Schedule: every 4 hours (see wrangler.jsonc triggers.crons).
    */
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
@@ -98,6 +109,25 @@ const worker = {
           console.warn(`[prune] sessions=${pruned.sessionsDeleted} rateLimits=${pruned.rateLimitsDeleted} cron=${controller.cron}`);
         } catch (error) {
           console.warn(`[prune] failed ${error instanceof Error ? error.message : "error"} cron=${controller.cron}`);
+        }
+      })(),
+    );
+    ctx.waitUntil(
+      (async () => {
+        try {
+          await runCallAlerts(env, {
+            db: env.DB,
+            // The same official snapshot the site serves (bootstrap + fixtures + live-event cache), obtained by
+            // running the app's own /api/fpl route in-process: one load per run, no parallel data path.
+            loadData: async () => {
+              const response = await handler.fetch(new Request("https://fpl-edge.internal/api/fpl", { headers: { Accept: "application/json" } }), env, ctx);
+              if (!response.ok) throw new Error(`api/fpl ${response.status}`);
+              return (await response.json()) as FplData;
+            },
+            makeTeamLoader: (data) => createTeamLoader(data, env),
+          });
+        } catch (error) {
+          console.warn(`[call-alerts] failed ${error instanceof Error ? error.name : "error"} cron=${controller.cron}`);
         }
       })(),
     );

@@ -85,12 +85,13 @@ test("pruneExpiredData is idempotent", async () => {
   assert.deepEqual(await pruneExpiredData(d1, NOW), { sessionsDeleted: 0, rateLimitsDeleted: 0 });
 });
 
-test("worker scheduled() keeps the FPL keep-alive AND runs the prune, in independent waitUntil jobs", () => {
+test("worker scheduled() keeps the FPL keep-alive, the prune AND the call-alerts job, in independent waitUntil jobs", () => {
   const src = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
   const scheduled = src.slice(src.indexOf("async scheduled("));
   assert.match(scheduled, /keepAlivePersonalFplAuth\(env\)/);
   assert.match(scheduled, /pruneExpiredData\(env\.DB\)/);
-  assert.equal((scheduled.match(/ctx\.waitUntil\(/g) ?? []).length, 2);
+  assert.match(scheduled, /runCallAlerts\(env,/);
+  assert.equal((scheduled.match(/ctx\.waitUntil\(/g) ?? []).length, 3);
   const wrangler = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
   assert.match(wrangler, /"crons"\s*:\s*\[\s*"0 \* \* \* \*"\s*\]/);
 });
@@ -99,7 +100,7 @@ test("migration 0010 is idempotent and journaled", () => {
   const sql = readFileSync(new URL("../drizzle/0010_prune_indexes.sql", import.meta.url), "utf8");
   assert.equal((sql.match(/CREATE INDEX IF NOT EXISTS/g) ?? []).length, 2);
   const journal = JSON.parse(readFileSync(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
-  assert.equal(journal.entries.at(-1).tag, "0010_prune_indexes");
+  assert.ok(journal.entries.some((e: { tag: string }) => e.tag === "0010_prune_indexes"), "0010 stays journaled (later migrations may follow)");
   const { sqlite } = fakeD1();
   sqlite.exec(sql);
   sqlite.exec(sql); // second run must not throw

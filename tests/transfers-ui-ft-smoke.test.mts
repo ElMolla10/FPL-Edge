@@ -16,14 +16,14 @@ test("Transfers UI: wires authoritative live FT (limit − made) into rankings",
   assert.match(coach, /authoritativeFreeTransfers/);
   assert.match(coach, /HOLD[\s\S]*NO TRANSFER/);
   // Must import client-safe ft-state — barrel pulls store → db → cloudflare:workers into Vite client.
-  assert.match(coach, /from ["'](?:\.\.\/)+lib\/personal-fpl-transfer\/ft-state["']/);
-  assert.doesNotMatch(coach, /from ["'](?:\.\.\/)+lib\/personal-fpl-transfer["']/);
+  assert.match(coach, /from ["'](?:(?:\.\.\/)+lib\/|\.\/)personal-fpl-transfer\/ft-state["']/);
+  assert.doesNotMatch(coach, /from ["'](?:(?:\.\.\/)+lib\/|\.\/)personal-fpl-transfer["']/);
   // Overview must not hardcode FT=1 into bestTransfers anymore
   assert.doesNotMatch(coach, /bestTransfers\(data,squad,finance\.baselineBank,1,/);
 });
 
 test("team API exposes freeTransferLimit from live my-team", () => {
-  const route = readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8");
+  const route = readTeamApiSource();
   assert.match(route, /freeTransferLimit:\s*liveFinance \? liveFinance\.freeTransferLimit/);
 });
 
@@ -47,16 +47,23 @@ test("Transfers UI: Wildcard Optimization mode switch (not Free transfer labels)
   // Must not show FT selector while Wildcard is active
   assert.match(coach, /fullDesk&&!wildcardActive&&<label>Free transfers/);
   // Chip-state import is client-safe (not the personal-fpl barrel)
-  assert.match(coach, /from ["'](?:\.\.\/)+lib\/personal-fpl-transfer\/chip-state["']/);
+  assert.match(coach, /from ["'](?:(?:\.\.\/)+lib\/|\.\/)personal-fpl-transfer\/chip-state["']/);
 });
 
+// The /api/fpl/team handler body was extracted verbatim into app/lib/team-response.ts (shared with the email-alert
+// cron). These source-contract scans keep guarding the same behaviour across both files.
+function readTeamApiSource(): string {
+  return readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8")
+    + "\n" + readFileSync(new URL("../app/lib/team-response.ts", import.meta.url), "utf8");
+}
+
 test("team API prefers live my-team activeChip for pending Wildcard", () => {
-  const route = readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8");
+  const route = readTeamApiSource();
   assert.match(route, /liveFinance\?\.activeChip/);
 });
 
 test("team API resolves chip via resolveManagerActiveChip (live is_pending + public active_chip)", () => {
-  const route = readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8");
+  const route = readTeamApiSource();
   assert.match(route, /resolveManagerActiveChip/);
   assert.match(route, /liveActiveChip/);
   assert.match(route, /publicActiveChip/);
@@ -68,7 +75,7 @@ test("team API resolves chip via resolveManagerActiveChip (live is_pending + pub
 });
 
 test("team API still gates live overlay behind evaluatePersonalAuthManageGate (#80)", () => {
-  const route = readFileSync(new URL("../app/api/fpl/team/route.ts", import.meta.url), "utf8");
+  const route = readTeamApiSource();
   assert.match(route, /evaluatePersonalAuthManageGate/);
   assert.match(route, /manageGate\.ok && manageGate\.entryId === entry/);
   // Must not call tryFetchLiveTeamFinance for arbitrary public callers

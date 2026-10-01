@@ -50,3 +50,4 @@ tsconfig.tsbuildinfo
 
 # generated Sites export artifact (see docs/README.SITES.md); never commit
 /SOURCE_SNAPSHOT.txt
+.dev.vars*

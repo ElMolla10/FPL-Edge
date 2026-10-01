@@ -102,3 +102,9 @@ the FPL token keep-alive; neither can block the other.
 ## Not done
 
 Password reset and email verification: see `docs/PROPOSAL-password-reset-email-verification.md`.
+
+## Email call alerts (opt-in)
+
+See `docs/EMAIL_ALERTS.md`. `PUT /api/account/notifications` follows the same pattern as the other mutations: `rejectCrossSite` → session cookie
+(`getCurrentUser`, no header auth) → hand-rolled body validator → per-user rate limit → write. The hourly cron's third `waitUntil` job reads D1 directly and is inert without the
+`RESEND_API_KEY` / `RESEND_FROM` Worker secrets. The dev-only Resend base-URL override is honoured only with `FPL_EDGE_DEV_MODE=1` and a loopback `http` URL, and is absent from `wrangler.jsonc`.

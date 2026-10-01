@@ -111,3 +111,29 @@ export const loginRateLimits = sqliteTable("login_rate_limits", {
   blockedUntil: text("blocked_until"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [index("login_rate_limits_window_started_at_idx").on(table.windowStartedAt)]);
+
+// Email call alerts (see app/lib/call-alerts/ and docs/EMAIL_ALERTS.md). One row per user, created the first
+// time they touch the settings checkbox; no row = opted out. Default is OFF (0). Migration:
+// drizzle/0011_notification_prefs.sql (hand-written like 0006+, idempotent; applied by the deploy workflow).
+//   last_call_hash         sha-256 of the canonical call at the last email we SENT (not the last one we computed)
+//   last_call_json         the same call as small JSON (gameweek, decision, captain/out/in PLAYER IDS) so the
+//                          next subject can say "changed" and "captain is now"; no names, no squad
+//   last_email_at          ISO time of the last send
+//   emails_sent_utc_date   UTC calendar day (YYYY-MM-DD) of the last send ...
+//   emails_sent_today      ... and how many we sent on that day (cap: 1, or 2 when a NEW official flag appeared)
+//   last_flag_fingerprint  official-flag fingerprint at the last send, to detect a NEW flag
+//   last_checked_at        when the cron last evaluated this user (fair rotation when the batch is capped)
+// Turning the checkbox off clears hash/json/fingerprint/last_checked (data minimisation) but keeps the
+// emails_sent_* counters so toggling off/on cannot be used to dodge the daily cap.
+export const notificationPrefs = sqliteTable("notification_prefs", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  notifyCallChanges: integer("notify_call_changes").notNull().default(0),
+  lastCallHash: text("last_call_hash"),
+  lastCallJson: text("last_call_json"),
+  lastEmailAt: text("last_email_at"),
+  emailsSentUtcDate: text("emails_sent_utc_date"),
+  emailsSentToday: integer("emails_sent_today").notNull().default(0),
+  lastFlagFingerprint: text("last_flag_fingerprint"),
+  lastCheckedAt: text("last_checked_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
