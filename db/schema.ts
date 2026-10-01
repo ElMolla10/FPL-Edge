@@ -111,3 +111,14 @@ export const loginRateLimits = sqliteTable("login_rate_limits", {
   blockedUntil: text("blocked_until"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [index("login_rate_limits_window_started_at_idx").on(table.windowStartedAt)]);
+
+// First-party funnel telemetry. No PII: user_hash is a salted SHA-256 of the user id, meta is
+// allow-listed flat keys (source/action/gw/…). Never email, squad, player names or FPL team id.
+export const telemetryEvents = sqliteTable("telemetry_events", {
+  id: text("id").primaryKey(),
+  ts: text("ts").notNull(),
+  event: text("event").notNull(),
+  userHash: text("user_hash"),
+  meta: text("meta").notNull().default("{}"),
+  path: text("path"),
+}, (table) => [index("telemetry_events_event_ts_idx").on(table.event, table.ts), index("telemetry_events_user_hash_idx").on(table.userHash)]);

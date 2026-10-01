@@ -99,7 +99,7 @@ test("migration 0010 is idempotent and journaled", () => {
   const sql = readFileSync(new URL("../drizzle/0010_prune_indexes.sql", import.meta.url), "utf8");
   assert.equal((sql.match(/CREATE INDEX IF NOT EXISTS/g) ?? []).length, 2);
   const journal = JSON.parse(readFileSync(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
-  assert.equal(journal.entries.at(-1).tag, "0010_prune_indexes");
+  assert.ok(journal.entries.some((e: { tag: string }) => e.tag === "0010_prune_indexes"));
   const { sqlite } = fakeD1();
   sqlite.exec(sql);
   sqlite.exec(sql); // second run must not throw

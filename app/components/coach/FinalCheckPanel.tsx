@@ -9,6 +9,8 @@ import {FplPlayer,FplData,projectionMetrics,playerProjection,playerCalibrationPr
 import {createOptimizer} from "../../lib/optimizer";
 import {readFreeTransfers,persist} from "../../lib/persistence";
 import {modeledAppearanceProbability} from "../../lib/bench-order";
+import {track} from "../../lib/track";
+import {isExampleSquadActive} from "../../lib/example-squad";
 import {TransferRoute,solveTransferRoutes} from "../../lib/transfer-routes";
 import {Transfer,bestTransfers} from "../../lib/transfers";
 import {deriveSandboxFinancialContext} from "../../lib/squad-comparison";
@@ -167,6 +169,7 @@ export function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:V
       const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,benchIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows,routeRows,plannedChip});
       const record:LockRecord={event:a.first,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:squad.map(p=>p.id),xiIds,benchIds,captainId:captain.id,viceId:vice.id,receipt,source};
       persist("fpl-edge-locks",JSON.stringify([...locksNow.filter(item=>item.event!==a.first),record]));setLockVersion(v=>v+1);
+      track("lock_created",{gw:a.first,mode:source,source:isExampleSquadActive()?"demo":"real"});
     }catch(error){if(source==="manual")setLockError(error instanceof Error?error.message:"Could not create the projection receipt.")}
   };
 

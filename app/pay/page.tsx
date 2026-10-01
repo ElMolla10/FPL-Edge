@@ -5,12 +5,15 @@ import "../styles/paper.css";
 import { useEffect, useState } from "react";
 import { SeasonUpgrade } from "../components/SeasonPass";
 import { Wordmark } from "../components/Wordmark";
+import { track } from "../lib/track";
+import { isExampleSquadActive } from "../lib/example-squad";
 
 export default function PayPage() {
   const [checkoutReturn, setCheckoutReturn] = useState(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setCheckoutReturn(params.get("checkout") === "return");
+    track("pay_view", { ref: params.get("checkout") === "return" ? "checkout-return" : "direct", source: isExampleSquadActive() ? "demo" : "real" });
   }, []);
 
   return <main className="paper paper-form-page">

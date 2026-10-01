@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { track } from "../lib/track";
 
 function nextPath(): string {
   if (typeof window === "undefined") return "/?app=1";
@@ -50,6 +51,7 @@ export function AuthForm({ mode }: { mode: "signin" | "signup" }) {
           throw new Error(login.status === 429 && loginJson.error ? loginJson.error : SIGNUP_FOLLOWUP_FAILED);
         }
       }
+      track("signin_success", { mode });
       window.location.assign(destination);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not sign in.");

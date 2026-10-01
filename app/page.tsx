@@ -10,6 +10,7 @@ import { formatSeasonPassPrice } from "./lib/season-pass";
 import { fetchFplData } from "./lib/fpl";
 import type { FplData } from "./lib/fpl";
 import { exampleDeskSummary } from "./lib/example-squad";
+import { track } from "./lib/track";
 
 // Lazy: CoachApp pulls in the entire connected-app tree (LiveDraftBuilder, LiveIntelligence, the
 // optimizer). A static import here bundled all of that into this marketing page's own chunk, so
@@ -36,8 +37,9 @@ export default function Home() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "return") window.location.replace("/pay?checkout=return");
-    if (params.get("demo") === "1") { setStartExample(true); setAppMode("demo"); }
-    else if (params.get("app") === "1") setAppMode("demo");
+    if (params.get("demo") === "1") { setStartExample(true); setAppMode("demo"); track("demo_open", { ref: "url" }); }
+    else if (params.get("app") === "1") { setAppMode("demo"); track("app_open", { ref: "url" }); }
+    else track("landing_view", {}, { onceKey: "session" });
   }, []);
   useEffect(() => {
     if (appMode || new URLSearchParams(window.location.search).get("app") === "1") return;
@@ -60,8 +62,8 @@ export default function Home() {
   if (appMode) return <Suspense fallback={<div className="coach-loading"><b>Opening the desk…</b></div>}><CoachApp onBack={() => { setAppMode(null); setStartExample(false); }} startAuth={appMode === "signin"} startExample={startExample} /></Suspense>;
 
   const clock = desk ? countdown(desk.deadline, now) : "";
-  const openDesk = () => { setStartExample(false); setAppMode("demo"); };
-  const openDemo = () => { setStartExample(true); setAppMode("demo"); };
+  const openDesk = () => { track("app_open", { ref: "landing" }); setStartExample(false); setAppMode("demo"); };
+  const openDemo = () => { track("demo_open", { ref: "landing" }); setStartExample(true); setAppMode("demo"); };
   const points = (value: number | null) => value === null ? "—" : value.toFixed(1);
 
   return <main className="paper">

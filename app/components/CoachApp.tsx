@@ -2,6 +2,7 @@
 
 import "../styles/desk.css";
 import {classifyUrgency} from "../lib/urgency";
+import {track} from "../lib/track";
 import {ComponentType,ReactNode,Suspense,lazy,useState,useEffect,useRef,useMemo} from "react";
 import {Wordmark} from "./Wordmark";
 
@@ -464,6 +465,7 @@ function TeamBar({data,revision,onTeamChange}:{data:FplData|null;revision:number
     setBusy(true);setMsg("");
     try{
       const manager=await connectTeam(id,data);
+      track("team_connected",{source:"real"});
       setMeta(manager);setId("");setOpen(false);onTeamChange();
     }catch(e){setMsg(e instanceof Error?e.message:"Could not connect team")}
     finally{setBusy(false)}
@@ -511,6 +513,7 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
   const decisionHold=!wd||wd.action==="HOLD";
   const decisionClass=wd?wd.classification:"…";
   const shortReason=wd?wd.why:"Calculating this week's call…";
+  useEffect(()=>{if(wd)track("call_viewed",{action:wd.action==="MAKE"?"MAKE":"HOLD",gw:wd.gameweek,source:isExampleSquadActive()?"demo":"real"},{onceKey:`${wd.gameweek}:${wd.action}:${isExampleSquadActive()?"d":"r"}`})},[wd]);
   if(!a)return <>
     <section className="empty-command example-demo-card" aria-label="Open Demo">
       <span>OPEN DEMO</span>

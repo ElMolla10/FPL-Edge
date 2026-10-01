@@ -10,6 +10,7 @@ export default function PrivacyPage() {
       <li><b>Your password here.</b> Stored only as a salted hash. We cannot read it.</li>
       <li><b>Payments.</b> Card details go to Paymob, our payment provider. We never see or store your card number; we only keep whether the payment was confirmed.</li>
       <li><b>Your phone number.</b> Asked at checkout because Paymob requires it for the payment.</li>
+      <li><b>Usage counts.</b> We log anonymous steps (page opened, demo opened, signed in, paid) on our own server to see where people get stuck. No email, squad, player names or FPL team ID, and no third-party trackers.</li>
       <li><b>On your device.</b> Your saved squad and settings live in your browser storage.</li>
       <li><b>Deleting your data.</b> Email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> from your account email and we will delete your account.</li>
     </ul>

@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { insertTelemetry } from "./telemetry-store";
 import { getDb } from "../../db";
 import { seasonCheckouts, seasonPasses } from "../../db/schema";
 import {
@@ -71,6 +72,7 @@ export async function insertSeasonPass(input: { id: string; userId: string; seas
     source: input.source,
     paymobTransactionId: input.paymobTransactionId,
   });
+  await insertTelemetry({ event: "pass_activated", meta: { source: input.source === "paymob" ? "real" : "dev-grant" }, path: null }, input.userId);
 }
 
 export function makeD1SeasonGrantRepo(): SeasonGrantRepo {
