@@ -16,8 +16,15 @@ sheets in `app/styles/`, each imported by the client module that needs it, so a 
 
 vinext/RSC links CSS imported by a **server** module (e.g. `layout.tsx -> globals.css`) as an "importer resource" on *every* route, and
 after the client-reference sheets. That would put the base sheet after `paper.css` and defeat the cascade the split was generated for.
-CSS reached through a client module is linked in render order, so `globals.css` is imported first by each route's client entry (`page.tsx`,
-`signin/page.tsx`, ...). Server components (`not-found.tsx`, `RouteLoading`) render the client wrapper `components/PaperStyles.tsx`.
+CSS reached through a client module is linked in render order, so the base sheet comes first: every paper route (`page.tsx`, `signin/page.tsx`,
+`signup`, `pay`, `error.tsx`) does `import "./components/PaperStyles"` (which imports `globals.css` then `styles/paper.css`), and `/` adds `landing.css` after it.
+Server components (`not-found.tsx`, `RouteLoading`) render the client wrapper `components/PaperStyles.tsx`.
+
+**Do not import `globals.css` + `paper.css` directly from several modules.** Rollup then hoists them into a shared chunk with no JS of its own; Vite
+deletes such a pure-CSS chunk from the bundle, but the RSC assets manifest (and so every page's `<link rel="modulepreload">`) was already written
+with its URL, and the preload 404s. Routing them through `PaperStyles` (a module with a real export) keeps a real chunk.
+`tests/built-asset-refs.test.mjs` renders each route from the built worker and fails if any modulepreload/stylesheet/script URL, manifest entry or
+`__vite__mapDeps` preload is missing from `dist/client`. The shared sheet is now emitted as `PaperStyles-<hash>.css` (byte-identical to the old `paper-<hash>.css`).
 
 ## Cascade
 
