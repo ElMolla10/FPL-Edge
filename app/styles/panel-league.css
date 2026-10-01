@@ -102,3 +102,15 @@
 .truth-note{font-size:14px}
 }
 .empty-desk-steps b{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--surface-sunken);border:1px solid var(--line);font-size:13px}
+.league-lever{display:grid;gap:12px;margin:16px 0;padding:20px;background:var(--surface-card);border:1px solid var(--accent);border-radius:9px}
+.league-lever>span{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--accent)}
+.league-lever h2{margin:0;font-size:22px;line-height:1.3}
+.league-lever.error{border-color:var(--danger-text)}
+.league-lever-score{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.league-lever-score p{display:flex;flex-direction:column;margin:0}
+.league-lever-score small,.league-lever-note{font-size:11px;opacity:.7}
+.league-lever-score b{font-size:26px}
+.league-lever-captains{width:100%;border-collapse:collapse}
+.league-lever-captains caption{text-align:left;font-size:11px;font-weight:800;opacity:.7;padding-bottom:4px}
+.league-lever-captains td{padding:6px 0;border-top:1px solid var(--line,currentColor)}
+.league-lever-captains td:last-child{text-align:right;font-weight:800}

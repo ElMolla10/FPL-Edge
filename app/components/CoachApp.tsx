@@ -364,7 +364,7 @@ function PageContent({view,data,go,revision,onTeamChange,desk,onUpgrade,onLoadEx
   if(view==="overview")return <Overview data={data} go={go} revision={revision} onTeamChange={onTeamChange} onLoadExample={onLoadExample} onClearExample={onClearExample}/>;
   if(view==="team")return <LazyTeam data={data} go={go} revision={revision} onTeamChange={onTeamChange} fullDesk={fullDesk} onUpgrade={onUpgrade}/>;
   if(view==="transfers")return <LazyTransfers data={data} go={go} revision={revision} onTeamChange={onTeamChange} fullDesk={fullDesk} onUpgrade={onUpgrade}/>;
-  if(view==="league")return <LazyLeague revision={revision} onGoToTeam={()=>go("team")}/>;
+  if(view==="league")return <LazyLeague data={data} revision={revision} onGoToTeam={()=>go("team")}/>;
   if(view==="draft")return <LazyDraft/>;
   if(view==="board")return <LazyStrategyBoard data={data} go={go} revision={revision}/>;
   if(view==="players")return <LazyPlayers data={data} go={go} revision={revision}/>;

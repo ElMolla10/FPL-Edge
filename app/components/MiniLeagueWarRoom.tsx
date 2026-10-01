@@ -4,6 +4,8 @@ import "../styles/panel-league.css";
 import { useEffect, useState, type FormEvent } from "react";
 import type { MiniLeagueStandingRow, MiniLeagueUiState } from "../lib/mini-league";
 import { useMiniLeagueWarRoom } from "./useMiniLeagueWarRoom";
+import type { FplData } from "../lib/fpl";
+import { LeagueLeverCard, leagueLeverBlockedReason } from "./LeagueLeverCard";
 
 type MiniLeagueWarRoomViewProps = {
   connectedEntryId: number | null;
@@ -13,6 +15,7 @@ type MiniLeagueWarRoomViewProps = {
   onPage: (page: number) => void;
   onGoToTeam: () => void;
   state: MiniLeagueUiState;
+  data?: FplData | null;
 };
 
 const errorHeadings: Record<Extract<MiniLeagueUiState, { status: "error" }>['kind'], string> = {
@@ -56,7 +59,12 @@ export function MiniLeagueWarRoomView({
   onPage,
   onGoToTeam,
   state,
+  data = null,
 }: MiniLeagueWarRoomViewProps) {
+  const demoBlocked = leagueLeverBlockedReason();
+  if (demoBlocked) {
+    return <div className="coach-page mini-league-page"><section className="mini-league-connect empty-state"><span>MINI-LEAGUE</span><h2>Demo isn&apos;t in a league</h2><p>{demoBlocked}</p><button onClick={onGoToTeam}>Go to My team →</button></section></div>;
+  }
   if (connectedEntryId === null) {
     return <div className="coach-page mini-league-page">
       <section className="mini-league-connect empty-state">
@@ -123,6 +131,7 @@ export function MiniLeagueWarRoomView({
         </div>
       </section>
 
+      {data && connectedEntryId !== null && <LeagueLeverCard key={result.league.id} data={data} leagueId={result.league.id} entryId={connectedEntryId} leagueName={result.league.name}/>}
       <section className="mini-league-table-card">
         <header><div><span>STANDINGS</span><h2>Page {result.standings.page.toLocaleString()}</h2></div><small>Points gap is relative to your total</small></header>
         {result.standings.rows.length ? <div className="mini-league-table-scroll">
@@ -149,7 +158,7 @@ function readConnectedEntryId(): number | null {
   }
 }
 
-export default function MiniLeagueWarRoom({ revision, onGoToTeam }: { revision: number; onGoToTeam: () => void }) {
+export default function MiniLeagueWarRoom({ revision, onGoToTeam, data = null }: { revision: number; onGoToTeam: () => void; data?: FplData | null }) {
   const [connectedEntryId, setConnectedEntryId] = useState<number | null>(() => readConnectedEntryId());
   useEffect(() => setConnectedEntryId(readConnectedEntryId()), [revision]);
   const warRoom = useMiniLeagueWarRoom(connectedEntryId);
@@ -161,5 +170,6 @@ export default function MiniLeagueWarRoom({ revision, onGoToTeam }: { revision: 
     onPage={warRoom.loadPage}
     onGoToTeam={onGoToTeam}
     state={warRoom.state}
+    data={data}
   />;
 }

@@ -11,6 +11,14 @@ export const MINI_LEAGUE_STANDINGS_TTL_MS = 60_000;
 export const MINI_LEAGUE_METADATA_TTL_MS = 300_000;
 export const MINI_LEAGUE_STALE_IF_ERROR_MS = 15 * 60_000;
 export const MINI_LEAGUE_MAX_STANDINGS_PAGE = 200;
+/** Rival picks sample: top 10 + 5 either side of you, never more than 20 rivals (one request each). */
+export const RIVAL_TOP_N = 10;
+export const RIVAL_NEIGHBOURS = 5;
+export const RIVAL_PICKS_CAP = 20;
+export const RIVAL_PICKS_TTL_MS = 15 * 60_000;
+export type RivalPick = { element: number; position: number; multiplier: number; isCaptain: boolean };
+export type RivalPicks = { entryId: number; rank: number; teamName: string; picks: RivalPick[] };
+export type RivalPicksResult = { event: number; leagueSize: number; cap: number; sampled: number; failed: number; rivals: RivalPicks[] };
 const STANDINGS_PAGE_SIZE = 50;
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -119,8 +127,9 @@ type GatewayOptions = {
   limiter?: ConcurrencyLimiter;
 };
 
-function upstreamError(kind: "entry" | "bootstrap" | "standings", status: number): MiniLeagueGatewayError {
+function upstreamError(kind: "entry" | "bootstrap" | "standings" | "picks", status: number): MiniLeagueGatewayError {
   if (status === 404 || status === 403) {
+    if (kind === "picks") return new MiniLeagueGatewayError(502, "Official FPL did not share a rival's public picks.", "picks-unavailable", true);
     return kind === "standings"
       ? new MiniLeagueGatewayError(404, "That league was not found or is not publicly accessible.", "league-inaccessible")
       : new MiniLeagueGatewayError(404, "The connected FPL Team ID was not found.", "entry-not-found");
@@ -141,7 +150,7 @@ export function createMiniLeagueGateway(options: GatewayOptions = {}) {
   const cache = new BoundedTtlCache<unknown>(options.cacheMaxEntries ?? MINI_LEAGUE_CACHE_MAX_ENTRIES);
   const limiter = options.limiter ?? createConcurrencyLimiter(MINI_LEAGUE_MAX_CONCURRENCY);
 
-  async function officialJson(url: string, kind: "entry" | "bootstrap" | "standings", ttlMs: number): Promise<OfficialRead> {
+  async function officialJson(url: string, kind: "entry" | "bootstrap" | "standings" | "picks", ttlMs: number): Promise<OfficialRead> {
     const cached = cache.get(url, now(), ttlMs, staleIfErrorMs);
     if (cached?.state === "fresh") return { data: cached.value, stale: false };
     try {
@@ -313,6 +322,42 @@ export function createMiniLeagueGateway(options: GatewayOptions = {}) {
     return deepFreeze(result);
   }
 
-  return { loadStandings };
+  /** Public rival picks for the latest gameweek whose deadline has passed (FPL keeps upcoming picks private).
+   *  Capped: top RIVAL_TOP_N by rank + RIVAL_NEIGHBOURS either side of the user, max RIVAL_PICKS_CAP rivals.
+   *  Picks change once per deadline, so they are cached for the metadata TTL (5 min) or longer. */
+  async function loadRivalPicks(input: { leagueId: number; entryId: number }): Promise<RivalPicksResult> {
+    const standings = await loadStandings(input);
+    const bootstrapRead = await officialJson(`${FPL}/bootstrap-static/`, "bootstrap", metadataTtlMs);
+    const events = isRecord(bootstrapRead.data) && Array.isArray(bootstrapRead.data.events) ? bootstrapRead.data.events as JsonRecord[] : [];
+    const passed = events.filter(e => typeof e.deadline_time === "string" && Date.parse(e.deadline_time as string) <= now());
+    const event = positiveInteger(passed[passed.length - 1]?.id);
+    if (event === null) throw new MiniLeagueGatewayError(409, "No gameweek deadline has passed yet, so rival picks are not public.", "picks-not-public");
+    const top = standings.connectedManager.page === 1 ? standings.standings.rows : (await loadPage(input.leagueId, 1)).rows;
+    const userRank = standings.connectedManager.rank;
+    const neighbourhood = standings.standings.rows.filter(r => Math.abs(r.rank - userRank) <= RIVAL_NEIGHBOURS);
+    const chosen = new Map<number, { entryId: number; rank: number; teamName: string }>();
+    for (const r of [...top.slice(0, RIVAL_TOP_N), ...neighbourhood]) {
+      if (r.entryId === input.entryId || chosen.size >= RIVAL_PICKS_CAP) continue;
+      chosen.set(r.entryId, { entryId: r.entryId, rank: r.rank, teamName: r.teamName });
+    }
+    let failed = 0;
+    const rivals = (await Promise.all([...chosen.values()].map(async rival => {
+      try {
+        const read = await officialJson(`${FPL}/entry/${rival.entryId}/event/${event}/picks/`, "picks", Math.max(metadataTtlMs, RIVAL_PICKS_TTL_MS));
+        const raw = isRecord(read.data) && Array.isArray(read.data.picks) ? read.data.picks as JsonRecord[] : [];
+        const picks = raw.flatMap(p => {
+          const element = positiveInteger(p.element); const position = positiveInteger(p.position);
+          if (element === null || position === null) return [];
+          return [{ element, position, multiplier: Number(p.multiplier) || 0, isCaptain: p.is_captain === true }];
+        });
+        if (picks.length !== 15) { failed++; return null; }
+        return { ...rival, picks };
+      } catch { failed++; return null; }
+    }))).filter((r): r is RivalPicks => r !== null);
+    if (!rivals.length && chosen.size) throw new MiniLeagueGatewayError(502, "Official FPL did not share any rival picks for this league right now.", "picks-unavailable", true);
+    return { event, leagueSize: standings.connectedManager.leagueSize, cap: RIVAL_PICKS_CAP, sampled: rivals.length, failed, rivals };
+  }
+
+  return { loadStandings, loadRivalPicks };
 }
 
