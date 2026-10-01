@@ -1,9 +1,9 @@
 "use client";
 
-import {ReactNode,Suspense,lazy,useState,useEffect,useRef,useMemo} from "react";
+import "../styles/desk.css";
+import {ComponentType,ReactNode,Suspense,lazy,useState,useEffect,useRef,useMemo} from "react";
 import {Wordmark} from "./Wordmark";
 
-import ReconnectFplPanel from "./ReconnectFplPanel";
 
 import {plannedChipFor,readPlannedChips} from "../lib/chip-portfolio";
 import {resolveCaptaincy} from "../lib/captaincy";
@@ -18,7 +18,7 @@ import {TeamLinkAuthProvider,useTeamLinkAuth,TEAM_SIGN_IN_HREF} from "./team-lin
 import {Transfer,bestTransfers,selectBestDecision} from "../lib/transfers";
 import {scheduleDeferred} from "../lib/transfer-engine/schedule";
 import {ManagerMeta,deriveSandboxFinancialContext,isRankingFinanceUnavailable} from "../lib/squad-comparison";
-import {SeasonLocked} from "./SeasonPass";
+import {SeasonLocked} from "./SeasonLocked";
 import {formatSeasonPassPrice} from "../lib/season-pass";
 import {computeDataFreshness,publicConnectionStatus,isDataFreshnessDebug} from "../lib/data-freshness";
 import {ConnectTeam,analysis,authoritativeFreeTransfers,connectTeam,managerWildcardActive,priceProtectionAlerts,rankTransfersForBestDecision,useManager} from "./coach/CoachCore";
@@ -209,7 +209,7 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   useEffect(()=>{setExampleActive(isExampleSquadActive())},[revision,data]);
   // Warm the primary-nav chunks once the first view has painted, off the critical path (idle time), so a
   // tab click resolves from cache instead of showing the Loading placeholder. Purely a download hint.
-  useEffect(()=>{if(!data)return;const handle=scheduleDeferred(()=>{for(const v of PREFETCH_AFTER_PAINT)preloadView(v)},{timeout:4000,delayMs:800});return()=>handle.cancel()},[!!data]);
+  useEffect(()=>{if(!data)return;const handle=scheduleDeferred(()=>{for(const v of PREFETCH_AFTER_PAINT)preloadView(v)},{timeout:4000,delayMs:800});const later=scheduleDeferred(()=>{if(connectionAllowsIdlePrefetch())for(const v of PREFETCH_SECONDARY)preloadView(v)},{timeout:10000,delayMs:3500});return()=>{handle.cancel();later.cancel()}},[!!data]);
   const currentEvent=data?.events.find(e=>e.current);
   const isLiveWindow=!!currentEvent&&!currentEvent.finished&&Date.parse(currentEvent.deadline)<=Date.now();
   useEffect(()=>{const id=window.setInterval(load,isLiveWindow?LIVE_GAMEWEEK_REFRESH_MS:300000);return()=>window.clearInterval(id)},[isLiveWindow]);
@@ -266,54 +266,82 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   // Phase 1 chrome-strip: sticky header = Wordmark · GW countdown · Sign in/Account only.
   // Season pass lives under More; floating Coach pill removed; freshness owned by sidebar (desktop) / slim line (phone).
   return <TeamLinkAuthProvider value={teamAuth}><main className={desk==="visitor"?"coach-shell signed-out":"coach-shell"}>
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" id="sidebar-research-btn" aria-expanded={sidebarMenu==="research"} aria-controls="sidebar-research-menu" className={(researchRest.some(([key])=>key===view)?"active":"")+(sidebarMenu==="research"?" open":"")} onClick={()=>toggleSidebarGroup("research",researchRest)}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop" id="sidebar-research-menu" role="group" aria-labelledby="sidebar-research-btn">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" id="sidebar-pro-btn" aria-expanded={sidebarMenu==="pro"} aria-controls="sidebar-pro-menu" className={"sidebar-pro-btn"+(proItems.some(([key])=>key===view)?" active":"")+(sidebarMenu==="pro"?" open":"")} onClick={()=>toggleSidebarGroup("pro",proItems)}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop" id="sidebar-pro-menu" role="group" aria-labelledby="sidebar-pro-btn">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note" aria-label="Data connection"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?fresh.label:(error&&!data?"Not connected":"Connecting…")}</b>{fresh?.showDetail?<small className="freshness-debug">{fresh.detailLabel}</small>:null}</div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)} {...warm(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" id="sidebar-research-btn" aria-expanded={sidebarMenu==="research"} aria-controls="sidebar-research-menu" className={(researchRest.some(([key])=>key===view)?"active":"")+(sidebarMenu==="research"?" open":"")} onClick={()=>toggleSidebarGroup("research",researchRest)} {...warm(researchRest[0][0])}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop" id="sidebar-research-menu" role="group" aria-labelledby="sidebar-research-btn">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)} {...warm(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" id="sidebar-pro-btn" aria-expanded={sidebarMenu==="pro"} aria-controls="sidebar-pro-menu" className={"sidebar-pro-btn"+(proItems.some(([key])=>key===view)?" active":"")+(sidebarMenu==="pro"?" open":"")} onClick={()=>toggleSidebarGroup("pro",proItems)} {...warm(proItems[0][0])}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop" id="sidebar-pro-menu" role="group" aria-labelledby="sidebar-pro-btn">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)} {...warm(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note" aria-label="Data connection"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?fresh.label:(error&&!data?"Not connected":"Connecting…")}</b>{fresh?.showDetail?<small className="freshness-debug">{fresh.detailLabel}</small>:null}</div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><span className="brand header-wordmark"><Wordmark/></span><div className="header-tools">{data&&<DeadlineClock data={data}/>}{desk==="visitor"?<div className="signin-action"><a className="team-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a></div>:<AccountBar onAuthChange={runSync} onAccount={onAccount} initialOpen={startAuth}/>}</div></header>
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading} phoneQuiet/>{phoneMoreChild&&<PhoneMoreCrumb view={view} onOpenMore={()=>setMobileOverlay("More")}/>}{exampleActive&&<p className="example-squad-banner" role="status">{EXAMPLE_SQUAD_LABEL}. Transfers, captaincy and explanations use this demo XV — sign in to connect your real team.</p>}<Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay} onLoadExample={()=>{if(activateExampleSquad(data)){setExampleActive(true);setRevision(x=>x+1)}}} exampleActive={exampleActive} onClearExample={()=>{clearExampleSquadFlag();setExampleActive(false);setRevision(x=>x+1)}}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
     </section>
     {(desk==="free"||desk==="season")&&<footer className="coach-footer"><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>}
-    <nav className="coach-mobile-nav" aria-label="Phone primary"><button className={phoneHomeActive?"active":""} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={phoneSquadActive?"active":""} onClick={()=>toggleMobileOverlay("My Squad")}><i><NavIcon id="team"/></i>My Squad</button><button className={phoneProActive?"active":""} onClick={()=>toggleMobileOverlay("PRO")}><i><NavIcon id="pro"/></i>PRO</button><button className={phoneCoachActive?"active":""} onClick={()=>go("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={phoneMoreActive?"active":""} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
+    <nav className="coach-mobile-nav" aria-label="Phone primary"><button className={phoneHomeActive?"active":""} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={phoneSquadActive?"active":""} onClick={()=>toggleMobileOverlay("My Squad")} {...warm("team")}><i><NavIcon id="team"/></i>My Squad</button><button className={phoneProActive?"active":""} onClick={()=>toggleMobileOverlay("PRO")} {...warm(proItems[0][0])}><i><NavIcon id="pro"/></i>PRO</button><button className={phoneCoachActive?"active":""} onClick={()=>go("coach")} {...warm("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={phoneMoreActive?"active":""} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
     {mobileOverlay&&<MobileSheet title={mobileOverlay} onClose={()=>setMobileOverlay(null)}>
-      {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)}><span>{label}</span>{key==="transfers"?<small className="sheet-hint">Single · Route · Watch</small>:null}</button>)}
-      {mobileOverlay==="PRO"&&proItems.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}
-      {mobileOverlay==="More"&&<><button type="button" className={view==="deadline"?"sheet-active":""} onClick={()=>go("deadline")}><span>Final check</span></button><button type="button" className={view==="players"?"sheet-active":""} onClick={()=>go("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)}><span>{label}</span></button>)}<button type="button" className="sheet-refresh" onClick={()=>{load();setMobileOverlay(null)}} disabled={loading}><span>{loading?"Refreshing…":"Refresh FPL data"}</span>{fresh?<small className="sheet-hint">Updated {fresh.label}</small>:null}</button>{desk==="season"?<p className="sheet-account-note">Season pass active · managed on your account</p>:(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
+      {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span>{key==="transfers"?<small className="sheet-hint">Single · Route · Watch</small>:null}</button>)}
+      {mobileOverlay==="PRO"&&proItems.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)} {...warm(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}
+      {mobileOverlay==="More"&&<><button type="button" className={view==="deadline"?"sheet-active":""} onClick={()=>go("deadline")} {...warm("deadline")}><span>Final check</span></button><button type="button" className={view==="players"?"sheet-active":""} onClick={()=>go("players")} {...warm("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span></button>)}<button type="button" className="sheet-refresh" onClick={()=>{load();setMobileOverlay(null)}} disabled={loading}><span>{loading?"Refreshing…":"Refresh FPL data"}</span>{fresh?<small className="sheet-hint">Updated {fresh.label}</small>:null}</button>{desk==="season"?<p className="sheet-account-note">Season pass active · managed on your account</p>:(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
     </MobileSheet>}
   </main></TeamLinkAuthProvider>
 }
 // Panels other than Overview are code-split: Overview (the default landing view, first paint) plus the
 // shell chrome stay in this chunk; every other view is its own dynamic-import chunk. The loaders are
 // module-level so the SAME promise is reused by prefetch (`preloadView`) and by React.lazy.
-const loadTeam=()=>import("./coach/TeamPanel");
-const loadTransfers=()=>import("./coach/TransfersPanel");
-const loadPlayers=()=>import("./coach/PlayersPanel");
-const loadCoach=()=>import("./coach/CoachPanel");
-const loadFinal=()=>import("./coach/FinalCheckPanel");
-const loadPlan=()=>import("./coach/PlanPanels");
-const loadResearch=()=>import("./coach/ResearchPanels");
-const loadDraft=()=>import("./LiveDraftBuilder");
-const loadLeague=()=>import("./MiniLeagueWarRoom");
-const LazyTeam=lazy(()=>loadTeam().then(m=>({default:m.Team})));
-const LazyTransfers=lazy(()=>loadTransfers().then(m=>({default:m.Transfers})));
-const LazyPlayers=lazy(()=>loadPlayers().then(m=>({default:m.Players})));
-const LazyCoach=lazy(()=>loadCoach().then(m=>({default:m.Coach})));
-const LazyFinalCheck=lazy(()=>loadFinal().then(m=>({default:m.FinalCheck})));
-const LazyStrategyBoard=lazy(()=>loadPlan().then(m=>({default:m.StrategyBoard})));
-const LazyNews=lazy(()=>loadPlan().then(m=>({default:m.News})));
-const LazyOwnership=lazy(()=>loadResearch().then(m=>({default:m.OwnershipRadar})));
-const LazySeasonStats=lazy(()=>loadResearch().then(m=>({default:m.SeasonStats})));
-const LazyMyFixtures=lazy(()=>loadResearch().then(m=>({default:m.MyFixtures})));
-const LazyFixturesView=lazy(()=>loadResearch().then(m=>({default:m.FixturesView})));
-const LazyModelView=lazy(()=>loadResearch().then(m=>({default:m.ModelView})));
-const LazyHistoryView=lazy(()=>loadResearch().then(m=>({default:m.HistoryView})));
-const LazyChipsView=lazy(()=>loadResearch().then(m=>({default:m.ChipsView})));
-const LazyDraft=lazy(loadDraft);
-const LazyLeague=lazy(loadLeague);
-/** Start fetching a view's chunk (idempotent: import() is cached by the module system). */
+// Every panel loads through `withPanelCss`: the stylesheet shared by several panels (styles/panel-common.css) is requested FIRST, so its
+// <link> is inserted into <head> before the panel's own sheet. The split sheets are generated assuming that order (docs/PERF-CSS.md);
+// a static CSS import in each panel would let Vite hoist the shared sheet into a common chunk that gets linked AFTER the panel's own.
+const loadPanelCss=()=>import("../styles/panel-common.css");
+function withPanelCss<T>(load:()=>Promise<T>):()=>Promise<T>{let p:Promise<T>|undefined;return()=>p??=Promise.all([loadPanelCss(),load()]).then(([,m])=>m)}
+// ReconnectFplPanel (~7 KB) only renders for a connected account whose live bank is unavailable: not part of the first load.
+const LazyReconnectFpl=lazy(()=>import("./ReconnectFplPanel"));
+const loadTeam=withPanelCss(()=>import("./coach/TeamPanel"));
+const loadTransfers=withPanelCss(()=>import("./coach/TransfersPanel"));
+const loadPlayers=withPanelCss(()=>import("./coach/PlayersPanel"));
+const loadCoach=withPanelCss(()=>import("./coach/CoachPanel"));
+const loadFinal=withPanelCss(()=>import("./coach/FinalCheckPanel"));
+const loadPlan=withPanelCss(()=>import("./coach/PlanPanels"));
+const loadResearch=withPanelCss(()=>import("./coach/ResearchPanels"));
+const loadDraft=withPanelCss(()=>import("./LiveDraftBuilder"));
+const loadLeague=withPanelCss(()=>import("./MiniLeagueWarRoom"));
+/** React.lazy that does NOT suspend once its chunk has been prefetched. Plain React.lazy always suspends on its first render, even when the module is
+ *  already cached, so React commits the Loading fallback and keeps it up for its reveal throttle (~300 ms flash). Here the component is chosen at
+ *  mount: already-downloaded -> render it synchronously; otherwise fall back to React.lazy (Loading placeholder). Chosen once per mount (useRef) so a
+ *  chunk arriving later never remounts a panel that is already on screen. `warm()` is what preloadView() calls. */
+function lazyView<M,P extends object>(load:()=>Promise<M>,pick:(m:M)=>ComponentType<P>){
+  let ready:ComponentType<P>|undefined;
+  const warm=()=>load().then(m=>{ready=pick(m);return ready});
+  const Lazy=lazy(()=>warm().then(component=>({default:component})));
+  function LazyView(props:P){const [Chosen]=useState<ComponentType<P>>(()=>ready??Lazy);return <Chosen {...props}/>}
+  return Object.assign(LazyView,{warm:()=>{warm().catch(()=>{/* a failed prefetch is retried by React.lazy on render */})}});
+}
+const LazyTeam=lazyView(loadTeam,m=>m.Team);
+const LazyTransfers=lazyView(loadTransfers,m=>m.Transfers);
+const LazyPlayers=lazyView(loadPlayers,m=>m.Players);
+const LazyCoach=lazyView(loadCoach,m=>m.Coach);
+const LazyFinalCheck=lazyView(loadFinal,m=>m.FinalCheck);
+const LazyStrategyBoard=lazyView(loadPlan,m=>m.StrategyBoard);
+const LazyNews=lazyView(loadPlan,m=>m.News);
+const LazyOwnership=lazyView(loadResearch,m=>m.OwnershipRadar);
+const LazySeasonStats=lazyView(loadResearch,m=>m.SeasonStats);
+const LazyMyFixtures=lazyView(loadResearch,m=>m.MyFixtures);
+const LazyFixturesView=lazyView(loadResearch,m=>m.FixturesView);
+const LazyModelView=lazyView(loadResearch,m=>m.ModelView);
+const LazyHistoryView=lazyView(loadResearch,m=>m.HistoryView);
+const LazyChipsView=lazyView(loadResearch,m=>m.ChipsView);
+const LazyDraft=lazyView(loadDraft,m=>m.default);
+const LazyLeague=lazyView(loadLeague,m=>m.default);
+/** Start fetching a view's chunk (idempotent: the loaders memoise their import() promise). */
 export function preloadView(view:View):void{
-  const loader:Partial<Record<View,()=>Promise<unknown>>>={team:loadTeam,transfers:loadTransfers,players:loadPlayers,coach:loadCoach,deadline:loadFinal,board:loadPlan,news:loadPlan,ownership:loadResearch,"season-stats":loadResearch,"squad-fixtures":loadResearch,fixtures:loadResearch,model:loadResearch,history:loadResearch,chips:loadResearch,draft:loadDraft,league:loadLeague};
-  loader[view]?.().catch(()=>{/* a failed prefetch is retried by React.lazy on render */});
+  const lazyByView:Partial<Record<View,{warm:()=>void}>>={team:LazyTeam,transfers:LazyTransfers,players:LazyPlayers,coach:LazyCoach,deadline:LazyFinalCheck,board:LazyStrategyBoard,news:LazyNews,ownership:LazyOwnership,"season-stats":LazySeasonStats,"squad-fixtures":LazyMyFixtures,fixtures:LazyFixturesView,model:LazyModelView,history:LazyHistoryView,chips:LazyChipsView,draft:LazyDraft,league:LazyLeague};
+  lazyByView[view]?.warm();
 }
 /** Primary-nav views warmed in idle time after first paint (Overview itself is in this chunk). */
 const PREFETCH_AFTER_PAINT:readonly View[]=["team","transfers","players","coach","deadline"];
+/** Everything else (Research group via ownership, Strategy board + News via board, Mini-League, Draft Lab) is warmed in a second, later
+ *  idle pass, and only on a connection that can afford it (not Save-Data / 2g). On such a connection the hover/focus/touchstart
+ *  prefetch on each nav item is what covers the first tap. */
+const PREFETCH_SECONDARY:readonly View[]=["ownership","board","league","draft"];
+function connectionAllowsIdlePrefetch():boolean{
+  const c=(typeof navigator!=="undefined"?(navigator as Navigator&{connection?:{saveData?:boolean;effectiveType?:string}}).connection:undefined);
+  return !(c?.saveData||c?.effectiveType==="slow-2g"||c?.effectiveType==="2g");
+}
+/** Hover / keyboard focus / touch on a nav item starts that view's chunk download before the click lands (idempotent). */
+const warm=(view:View)=>({onPointerEnter:()=>preloadView(view),onFocus:()=>preloadView(view),onTouchStart:()=>preloadView(view)});
 /** Fixed-height placeholder (same box as Loading) so a lazy chunk arriving never shifts layout. */
 function PanelFallback(){return <div className="coach-loading" role="status" aria-live="polite"><span className="live-spinner"/><b>Loading…</b></div>}
 
@@ -556,11 +584,11 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
       {plannedChip&&<div><span>PLANNED CHIP</span><b>{plannedChip}</b><small>for {next.name.replace(/^Gameweek\s+/i,"GW")}</small></div>}
     </section>}
 
-    {liveBankBlocked&&<ReconnectFplPanel errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{
+    {liveBankBlocked&&<Suspense fallback={null}><LazyReconnectFpl errorHint={meta?.liveOverlayError??null} onReconnected={async()=>{
       const live=await refreshConnectedTeamFromApi(data,{force:true});
       try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}
       if(live.updated)onTeamChange();
-    }}/>}
+    }}/></Suspense>}
 
     {!liveBankBlocked&&<section className="recommended-move best-decision-hero overview-best-decision" aria-label="Best decision">
       <div className="call-label">
@@ -580,7 +608,7 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
         {decisionHold&&!wildcardActive&&<span><small>FT NOW → NEXT</small><b>{fts} → {Math.min(5,fts+1)}</b></span>}
       </div>
       <div className="engine-why" aria-label="Why"><span>WHY</span><p className="engine-reason-hero">{shortReason}</p></div>
-      <button type="button" className="overview-transfers-link" onClick={()=>go("transfers")}>Open Transfers →</button>
+      <button type="button" className="overview-transfers-link" onClick={()=>go("transfers")} {...warm("transfers")}>Open Transfers →</button>
     </section>}
 
     {!liveBankBlocked&&<div className="command-metrics overview-captain-metrics" aria-label="Captain and projected points">

@@ -1,5 +1,6 @@
 "use client";
 
+import "../../styles/panel-players.css";
 import {useState,useEffect,useMemo} from "react";
 import {FplData,futureEvents,projectionMetrics,playerProjection,FplPlayer,opponent} from "../../lib/fpl";
 import {persist} from "../../lib/persistence";

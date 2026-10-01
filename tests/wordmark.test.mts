@@ -1,3 +1,4 @@
+import { readAllCss } from "./helpers/all-css.mts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -31,7 +32,7 @@ test("headers and the sidebar use the wordmark, not the old italic E", () => {
   const header = coach.slice(coach.indexOf("coach-header"), coach.indexOf("header-tools"));
   assert.match(sidebar, /sidebar-brand[\s\S]*<Wordmark\/>/);
   assert.match(header, /header-wordmark[\s\S]*<Wordmark\/>/);
-  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const css = readAllCss();
   assert.match(css, /\.fpl-wordmark-fpl\{color:var\(--lime\)/);
   assert.match(css, /\.fpl-wordmark-edge\{color:#F7F7F5;font-weight:800;font-size:1\.15em/);
   assert.match(css, /\[data-theme="light"\] \.fpl-wordmark-edge\{color:#161916\}/);

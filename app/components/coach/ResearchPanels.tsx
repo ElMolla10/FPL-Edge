@@ -1,5 +1,6 @@
 "use client";
 
+import "../../styles/panel-research.css";
 import {useState,useMemo,useEffect} from "react";
 import {LineupCandidate,clubLineupCandidates,LINEUP_POSITIONS} from "../../lib/lineup-intelligence";
 import {FplData,futureEvents,FplPlayer,FplEvent,savedSquad,PlayerCalibrationGroup,PROJECTION_MODEL_VERSION,projectionMetrics,playerCalibrationProfile} from "../../lib/fpl";

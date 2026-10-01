@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PaperStyles } from "./components/PaperStyles";
 import { Wordmark } from "./components/Wordmark";
 
 // vinext does not apply a not-found file's `metadata` export to the 404 response, so the same title is
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
 
 export default function NotFound() {
   return <main className="paper paper-form-page">
+    <PaperStyles />
     <title>{NOT_FOUND_TITLE}</title>
     <meta name="robots" content="noindex, follow" />
     <header className="paper-header">

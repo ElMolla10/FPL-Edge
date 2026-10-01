@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { readAllCss } from "./helpers/all-css.mts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -62,7 +63,7 @@ test("sidebar Research/PRO: expanded state, navigation to the first item, group 
 });
 
 test("homepage footer has breathing room; phone Overview is tighter without touching the shared ranking", () => {
-  const css = read("app/globals.css");
+  const css = readAllCss();
   assert.match(css, /\.paper-footer\{margin-top:72px;padding-top:24px;border-top:1px solid var\(--hairline\)/);
   assert.match(css, /\.urgent-card>div>article:nth-child\(n\+4\)\{display:none\}/);
   const overview = read("app/components/CoachApp.tsx");

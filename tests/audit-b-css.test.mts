@@ -1,9 +1,10 @@
+import { readAllCss } from "./helpers/all-css.mts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
-const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+const css = readAllCss();
 const has = (selector: string) => css.includes(selector);
 
 test("classes built from data or template strings kept their rules", () => {

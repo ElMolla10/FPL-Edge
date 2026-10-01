@@ -1,3 +1,4 @@
+import { readAllCss } from "./helpers/all-css.mts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -98,7 +99,7 @@ test("item 2: the demo squad spends the budget instead of falling back to the ba
 
 test("item 1/5: the mobile dock has a trust line and the page clears the dock plus the safe area", () => {
   const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const css = readAllCss();
   assert.match(home, /Official FPL data · No password needed/);
   assert.match(home, /className="paper-dock-trust"/);
   assert.match(css, /\.paper\{padding-bottom:calc\(132px \+ env\(safe-area-inset-bottom\)\)\}/);

@@ -1,5 +1,6 @@
 "use client";
 
+import "../styles/panel-league.css";
 import { useEffect, useState, type FormEvent } from "react";
 import type { MiniLeagueStandingRow, MiniLeagueUiState } from "../lib/mini-league";
 import { useMiniLeagueWarRoom } from "./useMiniLeagueWarRoom";

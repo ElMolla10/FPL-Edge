@@ -1,0 +1,84 @@
+/* landing: generated split of the former monolithic globals.css (source order preserved). */
+.coach-loading{min-height:380px;background:var(--surface-card);display:grid;place-items:center;align-content:center;gap:14px;border-radius:10px}
+.coach-loading b{font-size:16px}
+.coach-loading button,.wide-action{border:0;background:var(--ink);color:var(--text-on-inverse);padding:13px 18px;font-weight:800}
+.paper-header.is-scrolled{border-bottom-color:var(--hairline)}
+.paper-hero{padding-top:20px}
+.paper-kicker{display:none;margin:0 0 16px;font-size:14px;line-height:1.4;color:var(--text-muted)}
+.paper-lead{margin-top:12px;max-width:36em;color:var(--text-muted);font-size:16px;line-height:1.5}
+.paper-hero-actions{display:none}
+.paper-open{min-width:200px;width:auto}
+.paper-card{margin-top:20px;background:var(--surface-card);color:var(--text);border:1px solid var(--line);border-radius:16px;padding:20px}
+.paper-card-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.paper-live{display:inline-flex;align-items:center;gap:8px;font-size:14px;line-height:1.3;color:var(--text-muted)}
+.paper-live i{width:6px;height:6px;border-radius:50%;background:var(--lime);display:block;flex:none}
+.paper-clock{font-size:14px;line-height:1.3;color:var(--text-muted);font-variant-numeric:tabular-nums lining-nums}
+.paper-card-label{margin-top:24px;font-size:14px;line-height:1.3;color:var(--text-muted)}
+.paper-card-number{margin-top:2px;font-size:56px;line-height:56px;font-weight:560;color:var(--text);font-variant-numeric:tabular-nums lining-nums}
+.paper-call{margin-top:12px;font-size:18px;line-height:1.3;font-weight:560;color:var(--text)}
+.paper-why{margin-top:4px;color:var(--text-muted);font-size:16px;line-height:1.5}
+.paper-captain{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);display:flex;flex-direction:column;align-items:stretch;gap:2px}
+.paper-captain-name{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:28px}
+.paper-captain b{display:block;min-width:0;font-size:16px;font-weight:560;color:var(--text)}
+.paper-captain>span{display:block;margin-top:2px;font-size:14px;color:var(--text-muted);font-variant-numeric:tabular-nums lining-nums}
+.paper-c{width:28px;height:28px;min-width:28px;border-radius:50%;border:0;background:var(--lime);color:var(--ink);display:grid;place-items:center;font-size:14px;font-weight:800;line-height:1;flex:none}
+.paper-compare{margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.paper-option{border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:4px}
+.paper-option.is-pick{border-color:var(--lime)}
+.paper-option b{font-size:24px;line-height:1.1;font-weight:560;color:var(--text);font-variant-numeric:tabular-nums lining-nums}
+.paper-option small{font-size:13px;line-height:1.3;color:var(--text-muted)}
+.paper-option.is-pick small{color:var(--lime)}
+.paper-example{margin-top:16px;font-size:14px;line-height:1.4;color:var(--text-muted)}
+.paper-section{margin-top:48px}
+.paper-row{display:flex;flex-direction:column;gap:12px;padding:16px 0}
+.paper-row+.paper-row{border-top:1px solid var(--line)}
+.paper-row .paper-label{font-weight:560}
+.paper-row p{color:var(--text-muted);font-size:16px;line-height:1.5}
+.paper-price{margin-top:16px;display:grid;grid-template-columns:1fr;gap:16px;align-items:stretch}
+.paper-tier{border-radius:12px;padding:20px;display:flex;flex-direction:column}
+.paper-free{background:var(--surface-card);border:1px solid var(--line);color:var(--text)}
+.paper-pass{background:var(--surface-card);color:var(--text);border:1px solid var(--lime)}
+.paper-term{margin-top:4px;font-size:16px;line-height:1.5;color:var(--text-muted)}
+.paper-pass .paper-label,.paper-pass .paper-term,.paper-pass .paper-lines{color:var(--text-muted)}
+.paper-pass-btn{margin-top:auto;padding-top:20px}
+.paper-pass-btn .paper-btn{width:100%;background:var(--lime);color:var(--ink)}
+.paper-pass-btn .paper-btn:focus-visible{outline-color:var(--lime)}
+.paper-note{margin-top:24px;color:var(--text-muted);font-size:16px;line-height:1.5}
+.paper-footer{margin-top:72px;padding-top:24px;border-top:1px solid var(--hairline);padding-bottom:8px;text-align:left;color:var(--text-muted);font-size:14px;line-height:1.5;background:transparent}
+.paper-footer .paper-wordmark{font-size:14px}
+.paper-footer>p{margin-top:8px}
+.paper-footer>span:last-child{margin-top:4px}
+@media (min-width:900px){
+.paper-footer{margin-top:112px;padding-top:32px;padding-bottom:32px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 24px}
+.paper-footer>p,.paper-footer>span:last-child{margin-top:0}
+.paper-footer>span:last-child{margin-left:auto}
+}
+.paper-footer>p,.paper-footer>span{display:block}
+.paper-footer .fpl-wordmark,.paper-footer .fpl-wordmark span{display:inline}
+.paper-dock{position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--canvas);border-top:1px solid var(--hairline);padding:12px max(16px,env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.paper-dock{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.paper-dock .paper-btn{width:100%;min-width:0;padding:0 10px}
+@media (min-width:900px){
+.paper-kicker{display:block}
+.paper-hero{display:grid;grid-template-columns:minmax(420px,480px) minmax(0,1fr);gap:56px;align-items:start;padding-top:36px}
+.paper-lead,.paper-why,.paper-row p,.paper-term,.paper-lines,.paper-note{font-size:17px}
+.paper-lead{margin-top:16px}
+.paper-hero-actions{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px;margin-top:28px}
+.paper-hero-actions .paper-btn.paper-demo{margin-left:0}
+.paper-card{margin-top:0;padding:28px}
+.paper-dock{display:none}
+.paper-section{margin-top:80px}
+.paper-row{display:grid;grid-template-columns:96px minmax(0,1fr);column-gap:16px;align-items:baseline}
+.paper-price{grid-template-columns:1fr 1fr}
+}
+.paper-dock .paper-btn.paper-demo{margin-left:0}
+.paper .paper-note{margin-top:20px}
+/* === UX review (priority 1-6) ============================================ */
+/* 1. Mobile homepage: the fixed dock must never cover content. Bottom clearance = dock height
+      (trust line + buttons + padding) + the home-indicator inset, applied to the page itself, and
+      in-page anchors stop above the dock. The footer is the last thing on the page, so it clears. */
+.paper-dock{gap:8px 10px}
+.paper-dock-trust{grid-column:1/-1;margin:0;text-align:center;font-size:13px;line-height:1.3;color:var(--text-muted)}
+@media (max-width:899px){
+.paper-footer{padding-bottom:16px}
+}

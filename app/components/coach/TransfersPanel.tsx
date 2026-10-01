@@ -1,5 +1,6 @@
 "use client";
 
+import "../../styles/panel-transfers.css";
 import {useMemo,useState,useEffect} from "react";
 import TransferBreakdown from "../TransferBreakdown";
 import DecisionConfidencePanel from "../DecisionConfidencePanel";
@@ -21,7 +22,7 @@ import {playerPointsDistribution,pointsRange,blankProbability,haulProbability} f
 import {Transfer,selectPrimaryTransfer,selectBestDecision} from "../../lib/transfers";
 import {scheduleDeferred} from "../../lib/transfer-engine/schedule";
 import {deriveSandboxFinancialContext,isRankingFinanceUnavailable} from "../../lib/squad-comparison";
-import {SeasonLocked} from "../SeasonPass";
+import {SeasonLocked} from "../SeasonLocked";
 import {ConnectTeam,MEANINGFUL_PRICE_PRESSURE,PhoneSquadNav,analysis,authoritativeFreeTransfers,managerWildcardActive,priceOutlookSignal,rankTransfersForBestDecision,useManager} from "./CoachCore";
 import type {View} from "./CoachCore";
 import {readIds} from "./PanelShared";

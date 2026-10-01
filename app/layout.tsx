@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { Fraunces, Inter } from "next/font/google";
-import "./globals.css";
 import { nonceFromCsp } from "./lib/security-headers";
 
 // Feed the --font-ui/--font-display tokens in globals.css (fpl.page redesign, step 1). vinext's

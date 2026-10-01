@@ -6,15 +6,6 @@ import { formatSeasonPassPrice } from "../lib/season-pass";
 // Clicking pay only starts a Paymob intention. Nothing in this file writes an "unlocked" flag.
 // The desk stays gated until /api/auth/me reports an active pass from the verified callback.
 
-export function SeasonLocked({ feature, onUpgrade }: { feature: string; onUpgrade: () => void }) {
-  return <section className="season-locked">
-    <span>SEASON PASS</span>
-    <h2>{feature}</h2>
-    <p>Free covers one active team, the current gameweek projection, the lineup and captain recommendation, and one transfer scenario. The season pass is {formatSeasonPassPrice()} for the rest of this FPL season — not a monthly plan.</p>
-    <button type="button" onClick={onUpgrade}>Upgrade for {formatSeasonPassPrice()}</button>
-  </section>;
-}
-
 export function SeasonUpgrade({ checkoutReturn, onDismiss }: { checkoutReturn?: boolean; onDismiss: () => void }) {
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
