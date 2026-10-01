@@ -1,5 +1,6 @@
 "use client";
 
+import "../../styles/panel-team.css";
 import {useState,useEffect,useMemo,useRef} from "react";
 import {usePopulationPercentiles} from "../usePopulationPercentiles";
 import {LiveRankResult,estimateLiveRankResult} from "../../lib/rank-estimate-core";
@@ -9,7 +10,7 @@ import {FplPlayer,FplEvent,displayedGameweekAverage,FplData,savedSquad,futureEve
 import {useTeamLinkAuth} from "../team-link-auth";
 import {Transfer,bestTransfers} from "../../lib/transfers";
 import {ManagerMeta} from "../../lib/squad-comparison";
-import {SeasonLocked} from "../SeasonPass";
+import {SeasonLocked} from "../SeasonLocked";
 import {CaptaincyPicker,average,formation,resolveCurrentXi,resolveLiveScoring,useCaptaincy} from "./PanelShared";
 import type {HistoryWeek,LiveScoringResult,LockRecord,OfficialScoringAuthority} from "./PanelShared";
 import {ConnectTeam,EmptyDeskState,PhoneSquadNav,analysis,benchOrderForEvent,connectTeam,useManager} from "./CoachCore";

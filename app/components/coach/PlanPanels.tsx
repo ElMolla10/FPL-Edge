@@ -1,5 +1,6 @@
 "use client";
 
+import "../../styles/panel-plan.css";
 import {useState,useEffect,useMemo} from "react";
 import {writePlannedChips,removePlannedChip,readPlannedChips} from "../../lib/chip-portfolio";
 import {FplData,savedSquad,isCompleteSquad,futureEvents,FplPlayer} from "../../lib/fpl";

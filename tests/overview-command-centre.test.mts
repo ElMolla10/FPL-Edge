@@ -1,3 +1,4 @@
+import { readAllCss } from "./helpers/all-css.mts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -13,7 +14,7 @@ import type { FplData, FplPlayer } from "../app/lib/fpl.ts";
 import { readCoachSource } from "./helpers/coach-source.mts";
 
 const coach = readCoachSource();
-const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+const css = readAllCss();
 
 function overviewSource(): string {
   const start = coach.indexOf("function Overview(");

@@ -1,0 +1,137 @@
+/* plan: generated split of the former monolithic globals.css (source order preserved). */
+.board-intro>button:disabled{opacity:.5;cursor:not-allowed}
+.news-lead button{white-space:nowrap}
+.news-tabs{display:flex;gap:5px}
+.impact-news{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.impact-news>article{background:var(--surface-card);border-radius:9px;padding:19px}
+.impact-news article>header{display:flex;justify-content:space-between}
+.impact-news article header>div{display:flex;gap:5px}
+.news-tag{background:var(--surface-inverse);color:var(--text-on-inverse)}
+.impact-news time{font-size:12px;color:var(--text-muted)}
+.impact-news h3{font-size:20px;margin:15px 0 6px}
+.impact-news>article>p{font-size:14px;color:var(--text-muted);line-height:1.55}
+.impact-news aside{background:var(--surface-sunken);border-left:3px solid var(--lime);padding:12px}
+.impact-news aside span{display:block;font-size:12px;color:var(--success-text);font-weight:900}
+.impact-news aside b{display:block;font-size:13px;line-height:1.5;margin-top:5px}
+.impact-news footer{display:flex;justify-content:space-between;margin-top:13px;font-size:12px;color:var(--text-muted)}
+.board-plans{display:flex;flex-direction:column;gap:10px}
+.board-plan-row{background:var(--surface-card);border-radius:9px;padding:18px 20px}
+.board-plan-row>header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.board-plan-row>header b{font-size:16px;display:block}
+.board-plan-chip-tag{display:inline-block;margin-top:5px;font-style:normal;font-size:12px;font-weight:850;color:var(--success-text);background:var(--success-bg);padding:3px 6px;border-radius:3px}
+.board-plan-row>header small{font-size:12px;color:var(--text-muted)}
+.board-plan-row>header>div:last-child{display:flex;gap:6px}
+.board-plan-row>header button{border:1px solid var(--line);background:var(--surface-sunken);padding:8px 12px;font-size:12px;font-weight:800}
+.board-plan-row>header button.danger{border-color:var(--danger-text);color:var(--danger-text);background:var(--danger-bg)}
+.board-plan-empty{font-size:13px;color:var(--text-muted);margin:12px 0 0}
+.board-plan-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);margin-top:12px}
+.board-plan-stats article{background:var(--surface-sunken);padding:12px;min-width:0}
+.board-plan-stats article span{display:block;font-size:12px;color:var(--text-muted);font-weight:800}
+.board-plan-stats article b{display:flex;align-items:baseline;gap:6px;font-size:17px;margin-top:5px}
+.board-plan-stats article b small{font-size:13px;font-weight:800}
+@media (max-width:850px){
+.watchlist-grid,.impact-news{grid-template-columns:1fr}
+.watchlist-add{grid-template-columns:1fr}
+}
+@media (max-width:560px){
+.impact-news article{padding:15px}
+}
+/* Full-player watchlist search and football-led triggers */
+.watchlist-add{grid-template-columns:minmax(260px,1fr) minmax(420px,1.15fr) auto}
+.watchlist-player-search{display:grid;grid-template-columns:1.2fr .65fr 1.4fr;gap:6px}
+.watch-distribution{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin:10px 0}
+@media (max-width:700px){
+.watch-distribution{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:1200px){
+.watchlist-add{grid-template-columns:1fr}
+.watchlist-player-search{grid-template-columns:1fr .65fr 1.2fr}
+}
+@media (max-width:650px){
+.watchlist-player-search{grid-template-columns:1fr}
+}
+/* Base primitives. Unused by any page today -- built for later steps to
+   apply. Background/text roles deliberately reuse the EXISTING --text token
+   (not a new "--canvas-ink" token) since --text's real light/dark values
+   already contrast correctly against tones this close to --canvas, and
+   inventing a near-duplicate would repeat the exact two-copies-that-agree
+   mistake this project has been bitten by before. */
+/* No default border-radius or box-shadow -- sharp corners, flat fill. */
+/* Data tables: sharp corners, hairline row dividers, never a card. Real
+   tabular lining figures are asserted here via font-variant-numeric so
+   numeric columns stay aligned regardless of which --font-ui typeface is
+   eventually approved. */
+/* No default border-radius+shadow combo, and no border by default -- a
+   generic .panel is flat fill only. Elevation (a border, never a shadow) is
+   an explicit per-instance opt-in via .panel--elevated, not baked into the
+   base class, since it's meant to be a one-panel-per-screen choice each page
+   makes deliberately rather than something every panel gets automatically. */
+.panel{background:var(--canvas);color:var(--text);padding:20px;border-radius:0;box-shadow:none}
+.nav-lock:before{content:"";position:absolute;left:1px;top:-5px;width:4px;height:3px;border:1.5px solid #9aaba2;border-bottom:0;border-radius:5px 5px 0 0}
+/* Manual path: an outline button, so it does not disappear into the dark card. */
+.empty-command button,.wide-action{background:transparent;color:var(--text);border:1.5px solid currentColor;border-radius:8px}
+.sidebar-drop button{border:0;background:transparent;color:var(--text-muted-on-inverse);text-align:left;padding:8px 10px;display:flex;align-items:center;gap:8px;border-radius:6px;font-size:14px;font-weight:700}
+.pitch-empty button{border:1.5px solid #fff;background:transparent;color:#fff;border-radius:8px;padding:10px 14px;font-weight:800}
+@media (max-width:850px){
+.mobile-sheet-list>button,.sheet-link{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:48px;padding:12px 14px;border:0;border-radius:8px;background:#112a20;color:var(--canvas-light);font-size:15px;font-weight:750;text-align:left;text-decoration:none}
+.coach-intent-picker button{width:100%;min-height:44px;text-align:left}
+}
+.chip-action-triple-captain button{border:1px solid var(--line);background:var(--surface-card);padding:8px;font-size:12px;font-weight:800}
+@media (max-width:850px){
+.builder-pitch-row article,.builder-pitch-row>.pitch-empty{flex:1 1 0;width:auto;max-width:60px;min-width:0;min-height:0;padding:16px 3px 5px;overflow:hidden;position:relative}
+.coach-header{padding-top:max(8px,env(safe-area-inset-top,0px),47px);padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px));box-sizing:border-box}
+.coach-main{padding-top:12px;padding-left:max(16px,calc(14px + env(safe-area-inset-left,0px)));padding-right:max(16px,calc(14px + env(safe-area-inset-right,0px)));padding-bottom:calc(180px + max(16px,env(safe-area-inset-bottom,0px)))}
+.coach-mobile-nav{background:#0b1612;border-top:1px solid rgba(255,255,255,.14);box-shadow:0 -10px 28px rgba(0,0,0,.35);gap:4px;overflow:visible;padding-top:8px;padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(8px,env(safe-area-inset-right,0px));padding-bottom:max(16px,env(safe-area-inset-bottom,0px))}
+.coach-mobile-nav button{border:0;background:transparent;color:#c2d0c8;min-height:48px;padding:6px 2px;font-size:13px;font-weight:800;letter-spacing:.01em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:12px}
+.coach-footer{bottom:calc(56px + max(16px,env(safe-area-inset-bottom,0px)));z-index:65;background:#0b1612;border-top:1px solid rgba(255,255,255,.14);box-shadow:none}
+}
+.sheet-hint{font-size:13px;font-weight:650;color:var(--text-muted-on-inverse);opacity:.85}
+@media (max-width:850px){
+.phone-squad-nav>button{border:0;background:transparent;min-height:40px;border-radius:8px;font-size:14px;font-weight:800;color:var(--text-muted)}
+}
+.schedule-ranks i{width:18px;height:18px;font-size:12px}
+/* Research · PRO disclosure polish (desktop sidebar) */
+.sidebar-menus{gap:2px;margin-top:6px}
+.sidebar-menus>button{padding:8px 10px;font-size:14px;border-radius:7px}
+.sidebar-drop{margin:1px 0 4px 8px;padding:2px;border-left:1px solid rgba(255,255,255,.1);gap:0}
+.sidebar-drop button{padding:6px 8px;font-size:14px;border-radius:5px;min-height:32px}
+.sidebar-pro{margin-top:10px}
+.sidebar-pro-btn{padding:8px 10px;font-size:14px;border-radius:7px;border-color:rgba(255,255,255,.22);background:#102119;color:var(--text-muted-on-inverse)}
+.nav-caret{opacity:.7;transition:transform .15s ease}
+.sheet-account-note{margin:8px 12px 4px;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:#102119;color:var(--text-muted-on-inverse);font-size:14px;line-height:1.4}
+@media (max-width:850px){
+.coach-mobile-nav{z-index:80}
+.fixture-ticker>header,.fixture-ticker>article{
+    min-width:0!important;
+    width:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+    gap:6px;
+    padding:10px 12px;
+  }
+}
+.example-squad-banner{background:var(--warning-bg, #fff4d6);color:var(--warning-text, #5c4a12);border:1px solid #e4ad24;border-radius:8px;padding:12px 16px;margin:0 0 12px;font-size:13px;line-height:1.45}
+.best-decision-metrics span{border:1px solid #2d463b;padding:12px}
+/* Public connection chip: binary Connected / Not connected; detail only with ?debug=1 */
+.freshness-debug,
+.coach-data-note .freshness-debug {
+  display: block;
+  opacity: 0.75;
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+.example-squad-banner{background:var(--surface-card);color:var(--text-muted);border:1px solid var(--line);border-left:3px solid var(--lime)}
+.coach-shell .best-decision-metrics{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);width:100%;max-width:none}
+@media (min-width:851px){
+/* 3. Decision desk (desktop): body and label sizes up ~1-2px, layout unchanged. */
+.coach-shell{font-size:15px}
+.coach-sidebar nav button,.sidebar-menus>button,.sidebar-pro-btn,.sidebar-drop button{font-size:15px}
+.theme-toggle,.coach-sidebar .back-link{font-size:14px}
+.team-signin,.signin-action .team-signin{font-size:14px}
+.example-squad-banner,.coach-main:has(.overview-command) .example-squad-banner{font-size:14px;line-height:1.45}
+.overview-best-decision .overview-transfers-link,.urgent-card>header button{font-size:15px}
+.truth-note{font-size:14px}
+}
+.empty-desk-steps b{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--surface-sunken);border:1px solid var(--line);font-size:13px}
+.coach-page>.empty-desk-card{max-width:none}

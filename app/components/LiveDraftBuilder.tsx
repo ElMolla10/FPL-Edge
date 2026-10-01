@@ -1,5 +1,6 @@
 "use client";
 
+import "../styles/panel-draft.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FplData as Data, FplPlayer as Player, futureEvents, isCompleteSquad, playerCalibrationProfile, playerProjection, projectionMetrics } from "../lib/fpl";
 import { HorizonMode, RiskMode, SquadEvaluation, SquadPhilosophy, createFiveWeekEvaluator, createOptimizer, validateSquadEvaluation } from "../lib/optimizer";

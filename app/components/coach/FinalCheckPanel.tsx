@@ -1,5 +1,6 @@
 "use client";
 
+import "../../styles/panel-final.css";
 import {useRef,useEffect,useMemo,useState} from "react";
 import Pitch from "../Pitch";
 import {Chip,ChipScores,chipScoresForEvent} from "../LiveIntelligence";
