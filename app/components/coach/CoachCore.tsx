@@ -19,7 +19,7 @@ import {buildWeeklyDecision,type WeeklyDecision} from "../../lib/weekly-decision
 // View name map (Kevin IA lock): Home=overview, My Squad=team, Final check=deadline,
 // Players=players, Coach=coach. Desktop primary includes Transfers + Final check; phone nests
 // Transfers under My Squad (see ia/phone-squad-transfers).
-export type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures"|"season-stats";
+export type View="overview"|"team"|"transfers"|"league"|"draft"|"board"|"players"|"fixtures"|"news"|"deadline"|"chips"|"model"|"history"|"ownership"|"coach"|"squad-fixtures"|"season-stats"|"prices";
 
 export const clamp=(n:number,min=0,max=100)=>Math.max(min,Math.min(max,n));
 
@@ -131,7 +131,8 @@ export function rankTransfersForBestDecision(
 // this threshold is only about noise reduction (most players sit under it every day), not an
 // assertion about FPL's own undisclosed move-trigger threshold. Reused unchanged for every day of
 // priceOutlook below -- no separate, invented threshold for the future days.
-export const MEANINGFUL_PRICE_PRESSURE=15;
+import {MEANINGFUL_PRICE_PRESSURE} from "../../lib/price-sheet";
+export {MEANINGFUL_PRICE_PRESSURE};
 
 export type PriceOutlookDaySignal={offsetDays:number;direction:"rise"|"fall"|"stable"};
 

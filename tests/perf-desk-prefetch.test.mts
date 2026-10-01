@@ -42,7 +42,7 @@ test("a prefetched view mounts without suspending (no Loading flash); an un-pref
   assert.match(shell, /function lazyView<M,P extends object>\(load:\(\)=>Promise<M>,pick:\(m:M\)=>ComponentType<P>\)/);
   assert.match(shell, /const \[Chosen\]=useState<ComponentType<P>>\(\(\)=>ready\?\?Lazy\)/);
   // every desk view goes through lazyView and preloadView warms the same instances
-  assert.equal((shell.match(/=lazyView\(load/g) ?? []).length, 16);
+  assert.equal((shell.match(/=lazyView\(load/g) ?? []).length, 17);
   assert.match(shell, /lazyByView\[view\]\?\.warm\(\)/);
   assert.match(shell, /<Suspense fallback=\{<PanelFallback\/>\}><PageContent/);
 });

@@ -24,10 +24,11 @@ import {ManagerMeta,deriveSandboxFinancialContext,isRankingFinanceUnavailable} f
 import {SeasonLocked} from "./SeasonLocked";
 import {formatSeasonPassPrice} from "../lib/season-pass";
 import {computeDataFreshness,publicConnectionStatus,isDataFreshnessDebug} from "../lib/data-freshness";
+import {buildPriceSheet} from "../lib/price-sheet";
 import {ConnectTeam,analysis,authoritativeFreeTransfers,connectTeam,managerWildcardActive,priceProtectionAlerts,useManager,useWeeklyDecision} from "./coach/CoachCore";
 import type {View} from "./coach/CoachCore";
 
-const VALID_VIEWS: ReadonlySet<View> = new Set(["overview","team","transfers","league","draft","board","players","fixtures","news","deadline","chips","model","history","ownership","coach","squad-fixtures","season-stats"]);
+const VALID_VIEWS: ReadonlySet<View> = new Set(["overview","team","transfers","league","draft","board","players","fixtures","news","deadline","chips","model","history","ownership","coach","squad-fixtures","season-stats","prices"]);
 
 export function parseCoachView(raw:string|null|undefined):View|null{
   if(!raw)return null;
@@ -78,7 +79,7 @@ const navGroups:readonly NavGroup[]=[
   // Desktop primary owns deadline/Final check; My Fixtures lives under Research disclosure.
   {label:"My Squad",items:[["team","My team","◫"],["news","News","●"]]},
   {label:"Plan",items:[["transfers","Transfers","⇄"],["draft","Draft lab","◇"],["board","Strategy board","⊞"],["chips","Chips","★"]]},
-  {label:"Research",items:[["players","Players","⌕"],["season-stats","Season Stats","▥"],["squad-fixtures","My Fixtures","▤"],["ownership","Ownership","◈"],["model","Points model","∑"],["fixtures","Fixtures","▦"]]},
+  {label:"Research",items:[["players","Players","⌕"],["prices","Price sheet","£"],["season-stats","Season Stats","▥"],["squad-fixtures","My Fixtures","▤"],["ownership","Ownership","◈"],["model","Points model","∑"],["fixtures","Fixtures","▦"]]},
   {label:"League & History",items:[["league","Mini-League","◎"],["history","History","↗"]]},
 ];
 
@@ -140,7 +141,7 @@ function MobileSheet({title,onClose,children}:{title:string;onClose:()=>void;chi
   return <div className="mobile-sheet" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button type="button" onClick={onClose} aria-label="Close">×</button></header><div className="mobile-sheet-list">{children}</div></div>;
 }
 
-const MORE_VIEW_LABELS:Partial<Record<View,string>>={
+const MORE_VIEW_LABELS:Partial<Record<View,string>>={prices:"Price sheet",
   deadline:"Final check",
   players:"Players",
   "season-stats":"Season Stats",
@@ -296,6 +297,7 @@ const loadTransfers=withPanelCss(()=>import("./coach/TransfersPanel"));
 const loadPlayers=withPanelCss(()=>import("./coach/PlayersPanel"));
 const loadCoach=withPanelCss(()=>import("./coach/CoachPanel"));
 const loadFinal=withPanelCss(()=>import("./coach/FinalCheckPanel"));
+const loadPrices=withPanelCss(()=>import("./coach/PriceSheetPanel"));
 const loadPlan=withPanelCss(()=>import("./coach/PlanPanels"));
 const loadResearch=withPanelCss(()=>import("./coach/ResearchPanels"));
 const loadDraft=withPanelCss(()=>import("./LiveDraftBuilder"));
@@ -311,6 +313,7 @@ function lazyView<M,P extends object>(load:()=>Promise<M>,pick:(m:M)=>ComponentT
   function LazyView(props:P){const [Chosen]=useState<ComponentType<P>>(()=>ready??Lazy);return <Chosen {...props}/>}
   return Object.assign(LazyView,{warm:()=>{warm().catch(()=>{/* a failed prefetch is retried by React.lazy on render */})}});
 }
+const LazyPriceSheet=lazyView(loadPrices,m=>m.PriceSheet);
 const LazyTeam=lazyView(loadTeam,m=>m.Team);
 const LazyTransfers=lazyView(loadTransfers,m=>m.Transfers);
 const LazyPlayers=lazyView(loadPlayers,m=>m.Players);
@@ -329,7 +332,7 @@ const LazyDraft=lazyView(loadDraft,m=>m.default);
 const LazyLeague=lazyView(loadLeague,m=>m.default);
 /** Start fetching a view's chunk (idempotent: the loaders memoise their import() promise). */
 export function preloadView(view:View):void{
-  const lazyByView:Partial<Record<View,{warm:()=>void}>>={team:LazyTeam,transfers:LazyTransfers,players:LazyPlayers,coach:LazyCoach,deadline:LazyFinalCheck,board:LazyStrategyBoard,news:LazyNews,ownership:LazyOwnership,"season-stats":LazySeasonStats,"squad-fixtures":LazyMyFixtures,fixtures:LazyFixturesView,model:LazyModelView,history:LazyHistoryView,chips:LazyChipsView,draft:LazyDraft,league:LazyLeague};
+  const lazyByView:Partial<Record<View,{warm:()=>void}>>={prices:LazyPriceSheet,team:LazyTeam,transfers:LazyTransfers,players:LazyPlayers,coach:LazyCoach,deadline:LazyFinalCheck,board:LazyStrategyBoard,news:LazyNews,ownership:LazyOwnership,"season-stats":LazySeasonStats,"squad-fixtures":LazyMyFixtures,fixtures:LazyFixturesView,model:LazyModelView,history:LazyHistoryView,chips:LazyChipsView,draft:LazyDraft,league:LazyLeague};
   lazyByView[view]?.warm();
 }
 /** Primary-nav views warmed in idle time after first paint (Overview itself is in this chunk). */
@@ -355,6 +358,7 @@ function PageContent({view,data,go,revision,onTeamChange,desk,onUpgrade,onLoadEx
   if(desk==="free"&&view==="board")return <SeasonLocked feature="Multi-week transfer planning is part of the season pass." onUpgrade={onUpgrade}/>;
   if(desk==="free"&&view==="history")return <SeasonLocked feature="Decision history is part of the season pass." onUpgrade={onUpgrade}/>;
   const fullDesk=desk!=="free";
+  if(view==="prices")return <LazyPriceSheet data={data} go={go} revision={revision}/>;
   if(view==="overview")return <Overview data={data} go={go} revision={revision} onTeamChange={onTeamChange} onLoadExample={onLoadExample} onClearExample={onClearExample}/>;
   if(view==="team")return <LazyTeam data={data} go={go} revision={revision} onTeamChange={onTeamChange} fullDesk={fullDesk} onUpgrade={onUpgrade}/>;
   if(view==="transfers")return <LazyTransfers data={data} go={go} revision={revision} onTeamChange={onTeamChange} fullDesk={fullDesk} onUpgrade={onUpgrade}/>;
@@ -555,6 +559,7 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
   const target=wd?.inPlayerId!=null?data.players.find(p=>p.id===wd.inPlayerId)??null:null;
   const risk=classifyUrgency({xi:a.xi.players,bench:a.bench,startPct:p=>startPct(p,a.first,data),target});
   const urgent=risk.urgent.slice(0,3);
+  const priceTeaser=buildPriceSheet({squad,players:data.players,outPlayerId:wd?.action==="MAKE"?wd.outPlayerId:null,inPlayerId:wd?.action==="MAKE"?wd.inPlayerId:null}).teaser;
   const primaryCta=decisionHold?{label:"Open Final Check →",view:"deadline" as View}:{label:"Open Transfers →",view:"transfers" as View};
 
   return <div className="coach-page overview-command">
@@ -597,6 +602,7 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
     </section>
 
     {/* Below the fold: the numbers behind the call. Engines unchanged — just not first paint. */}
+    {priceTeaser&&<button type="button" className="overview-price-teaser" onClick={()=>go("prices")}><span>PRICES TONIGHT</span><b>{priceTeaser}</b><em>Open price sheet →</em></button>}
     {!liveBankBlocked&&<details className="overview-detail">
       <summary>The numbers behind this call</summary>
       <section className="overview-status-strip" aria-label="Known squad state">
