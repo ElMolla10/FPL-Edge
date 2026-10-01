@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyUrgency, riskLabel, START_RISK_THRESHOLD } from "../app/lib/urgency.ts";
+import type { FplPlayer } from "../app/lib/fpl.ts";
 
-const pl = (id: number, status = "a") => ({ id, name: `P${id}`, status } as any);
+const pl = (id: number, status = "a") => ({ id, name: `P${id}`, status } as unknown as FplPlayer);
 const xi = Array.from({ length: 11 }, (_, i) => pl(i + 1));
 const bench = [pl(12), pl(13), pl(14), pl(15)];
-const pct = (m: Record<number, number>) => (p: any) => m[p.id] ?? 90;
+const pct = (m: Record<number, number>) => (p: FplPlayer) => m[p.id] ?? 90;
 
 test("bench slot 3 at 16% with no flag is MONITOR, never URGENT", () => {
   const r = classifyUrgency({ xi, bench, startPct: pct({ 14: 16 }) });

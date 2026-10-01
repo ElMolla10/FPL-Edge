@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { formatSeasonPassPrice } from "../lib/season-pass";
+import { PASS_END_DATE_LABEL, SUPPORT_EMAIL } from "../lib/site";
+import { LegalLinks } from "./LegalLinks";
 
 // Clicking pay only starts a Paymob intention. Nothing in this file writes an "unlocked" flag.
 // The desk stays gated until /api/auth/me reports an active pass from the verified callback.
@@ -108,6 +110,10 @@ export function SeasonUpgrade({ checkoutReturn, onDismiss }: { checkoutReturn?: 
       <button type="button" className="paper-btn paper-form-submit" onClick={pay} disabled={busy || signedIn !== true}>{busy ? "Opening Paymob…" : `Pay ${formatSeasonPassPrice()}`}</button>
       <button type="button" className="paper-btn paper-demo" onClick={onDismiss}>Not now</button>
     </div>
-    <p className="paper-form-switch">Paying opens Paymob. Your pass turns on only after Paymob confirms the payment.</p>
+    <div className="paper-trust-line" aria-label="Payment trust">
+      <p><b>Paymob confirms before the pass turns on.</b> Card details go to Paymob, never to us. One payment, tied to your account through {PASS_END_DATE_LABEL}.</p>
+      <p>Questions or a payment problem? <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a></p>
+    </div>
+    <LegalLinks />
   </section>;
 }

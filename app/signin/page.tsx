@@ -4,6 +4,7 @@ import "../globals.css";
 import "../styles/paper.css";
 import { AuthForm } from "../components/AuthForm";
 import { Wordmark } from "../components/Wordmark";
+import { LegalLinks } from "../components/LegalLinks";
 
 export default function Page() {
   return <main className="paper paper-form-page">
@@ -15,6 +16,7 @@ export default function Page() {
     </header>
     <div className="paper-wrap paper-form-wrap">
       <AuthForm mode="signin" />
+      <LegalLinks />
     </div>
   </main>;
 }

@@ -5,6 +5,7 @@ import "./styles/paper.css";
 import "./styles/landing.css";
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Wordmark } from "./components/Wordmark";
+import { LegalLinks } from "./components/LegalLinks";
 import { formatSeasonPassPrice } from "./lib/season-pass";
 import { fetchFplData } from "./lib/fpl";
 import type { FplData } from "./lib/fpl";
@@ -151,7 +152,7 @@ export default function Home() {
       <footer className="paper-footer">
         <span className="paper-wordmark"><Wordmark/></span>
         <p>Independent. Not affiliated with the Premier League.</p>
-        <span>2026</span>
+        <LegalLinks />
       </footer>
     </div>
     <div className="paper-dock">

@@ -17,7 +17,7 @@ test("site url: default is the live host, env override is normalised, junk falls
   assert.equal(normalizeSiteUrl(""), "https://fpl-edge.elmolla10.workers.dev");
   assert.equal(normalizeSiteUrl("not a url"), "https://fpl-edge.elmolla10.workers.dev");
   assert.equal(normalizeSiteUrl("https://example.com///"), "https://example.com");
-  assert.deepEqual([...PUBLIC_PATHS], ["/", "/signin", "/signup", "/pay"]);
+  assert.deepEqual([...PUBLIC_PATHS], ["/", "/signin", "/signup", "/pay", "/privacy", "/terms"]);
 });
 
 test("robots: allows public pages, blocks /api/ and app-only surfaces, points at the sitemap", async () => {
@@ -41,7 +41,7 @@ test("sitemap: lists exactly the public pages on the site url", async () => {
   const { default: sitemap } = await import("../app/sitemap.ts");
   const { SITE_URL } = await import("../app/lib/site.ts");
   const urls = sitemap().map((e) => e.url);
-  assert.deepEqual(urls, [`${SITE_URL}/`, `${SITE_URL}/signin`, `${SITE_URL}/signup`, `${SITE_URL}/pay`]);
+  assert.deepEqual(urls, [`${SITE_URL}/`, `${SITE_URL}/signin`, `${SITE_URL}/signup`, `${SITE_URL}/pay`, `${SITE_URL}/privacy`, `${SITE_URL}/terms`]);
   for (const u of urls) assert.ok(!u.includes("/api/") && !u.includes("?"));
 });
 

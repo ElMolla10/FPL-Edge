@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { PUBLIC_PATHS, SITE_URL } from "./lib/site";
 
-const PRIORITY: Record<string, number> = { "/": 1, "/pay": 0.8, "/signup": 0.6, "/signin": 0.4 };
+const PRIORITY: Record<string, number> = { "/": 1, "/pay": 0.8, "/signup": 0.6, "/signin": 0.4, "/privacy": 0.3, "/terms": 0.3 };
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return PUBLIC_PATHS.map((path) => ({

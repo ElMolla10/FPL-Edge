@@ -106,3 +106,12 @@
 .paper-steps li.is-current{color:var(--text);font-weight:560}
 .paper-steps li.is-current b{background:var(--lime);border-color:var(--lime);color:var(--ink)}
 .paper-steps li.is-done b{background:var(--surface-sunken);color:var(--text)}
+
+/* Legal + support links, trust line */
+.paper-legal{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;margin-top:16px}
+.paper-legal a{color:var(--text-muted);text-decoration:underline;text-underline-offset:3px}
+.paper-legal a:hover{color:var(--lime)}
+.paper-trust-line{border-left:3px solid var(--lime);padding:8px 12px;margin-top:14px;font-size:14px;display:grid;gap:6px}
+.paper-trust-line a{color:var(--lime)}
+.paper-legal-page .paper-form-list li{line-height:1.5}
+.paper-legal-page a{color:var(--lime)}
