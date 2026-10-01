@@ -1,6 +1,7 @@
 "use client";
 
 import "../styles/desk.css";
+import {classifyUrgency} from "../lib/urgency";
 import {ComponentType,ReactNode,Suspense,lazy,useState,useEffect,useRef,useMemo} from "react";
 import {Wordmark} from "./Wordmark";
 
@@ -93,7 +94,6 @@ const fmt=(n:number|null|undefined)=>n?Math.round(n).toLocaleString():"—";
 // this value -- tightening that cache is a separate, app-wide change, deliberately out of scope here.
 const LIVE_GAMEWEEK_REFRESH_MS=60000;
 
-const certainty=(p:FplPlayer)=>p.status!=="a"?"CONFIRMED":projectionMetrics(p,0,[],0).startProbability>.72?"LIKELY":"UNCERTAIN";
 
 // Desktop primary (Kevin IA): Overview · Squad · Transfers · Final check · Players · Coach.
 // Research · PRO remain disclosures only — no new PRO features.
@@ -528,7 +528,6 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
   </>;
 
   const liveBankBlocked=isRankingFinanceUnavailable(meta);
-  const issues=a.issues;
   const next=a.events[0];
   let manager:ManagerMeta|null=null;
   try{manager=JSON.parse(localStorage.getItem("fpl-edge-manager")||"null")}catch{}
@@ -550,8 +549,9 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
     :meta?(meta.bankSource==="live-my-team"?"live FPL transfer bank":meta.liveOverlayError?"live bank unavailable":"official public data"):"builder estimate";
 
   // Urgent: max 3, and only players who affect the XI or the first bench autosub slot.
-  const xiAndFirstBench=new Set([...a.xi.players.map(p=>p.id),...(a.bench[0]?[a.bench[0].id]:[])]);
-  const urgent=issues.filter(p=>xiAndFirstBench.has(p.id)).slice(0,3);
+  const target=wd?.inPlayerId!=null?data.players.find(p=>p.id===wd.inPlayerId)??null:null;
+  const risk=classifyUrgency({xi:a.xi.players,bench:a.bench,startPct:p=>startPct(p,a.first,data),target});
+  const urgent=risk.urgent.slice(0,3);
   const primaryCta=decisionHold?{label:"Open Final Check →",view:"deadline" as View}:{label:"Open Transfers →",view:"transfers" as View};
 
   return <div className="coach-page overview-command">
@@ -586,10 +586,11 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
 
     <section className="urgent-card">
       <header>
-        <div><span>URGENT</span><h2>{urgent.length?`${urgent.length} XI risk${urgent.length>1?"s":""} before the deadline`:"No risks to your XI."}</h2></div>
+        <div><span>URGENT</span><h2>{urgent.length?`${urgent.length} urgent fix${urgent.length>1?"es":""} before the deadline`:"Nothing urgent this week."}</h2></div>
         <button type="button" onClick={()=>go("deadline")}>Open final check →</button>
       </header>
-      {urgent.length>0&&<div>{urgent.map(p=><article key={p.id}><b>{p.name}</b><span className={p.status!=="a"?"bad":"warn"}>{p.status!=="a"?"FLAGGED":"MINUTES RISK"}</span><p>{p.news||`${startPct(p,a.first,data)}% start chance.`}</p></article>)}</div>}
+      {urgent.length>0&&<div>{urgent.map(({player:p,reason})=><article key={p.id}><b>{p.name}</b><span className="bad">URGENT</span><p>{p.news||reason}</p></article>)}</div>}
+      {risk.monitor.length>0&&<p className="urgent-monitor">MONITOR · {risk.monitor.map(m=>`${m.player.name} (${startPct(m.player,a.first,data)}%)`).join(", ")} — bench minutes, no effect on this week's XI.</p>}
     </section>
 
     {/* Below the fold: the numbers behind the call. Engines unchanged — just not first paint. */}

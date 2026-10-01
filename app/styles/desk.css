@@ -673,3 +673,4 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .overview-detail{border:1px solid var(--line);border-radius:14px;padding:14px 18px;background:var(--surface-card)}
 .overview-detail>summary{cursor:pointer;font-weight:700;color:var(--text)}
 .overview-detail[open]>summary{margin-bottom:14px}
+.urgent-card .urgent-monitor{color:var(--text-muted);font-size:13px;margin:10px 0 0}

@@ -26,8 +26,8 @@ test("no scenario / percentile / NET-table copy in the first Home section", () =
   }
 });
 test("urgent: at most 3, XI + first bench only", () => {
-  assert.match(home, /a\.bench\[0\]/);
-  assert.match(home, /\.filter\(p=>xiAndFirstBench\.has\(p\.id\)\)\.slice\(0,3\)/);
+  assert.match(home, /classifyUrgency\(/);
+  assert.match(home, /risk\.urgent\.slice\(0,3\)/);
 });
 test("Transfers still has the full breakdown", () => {
   assert.match(transfers, /formatNet/);
