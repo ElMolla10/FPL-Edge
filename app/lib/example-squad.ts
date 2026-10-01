@@ -6,6 +6,10 @@ export const EXAMPLE_SQUAD_FLAG_KEY = "fpl-edge-example-squad";
 export const EXAMPLE_SQUAD_IDS_KEY = "fpl-edge-example-squad-ids";
 /** Real / manual draft key (account sync + Draft Lab save). */
 export const REAL_SQUAD_KEY = "fpl-edge-squad";
+/** Real lock receipts (account-synced). */
+export const REAL_LOCKS_KEY = "fpl-edge-locks";
+/** Demo lock receipts — isolated, never synced, cleared with the demo. Same LockRecord schema. */
+export const EXAMPLE_LOCKS_KEY = "fpl-edge-example-locks";
 export const EXAMPLE_SQUAD_LABEL = "Example squad — not your FPL team";
 
 function parseIds(key: string): number[] {
@@ -30,6 +34,7 @@ export function clearExampleSquadFlag(): void {
   try {
     localStorage.removeItem(EXAMPLE_SQUAD_FLAG_KEY);
     localStorage.removeItem(EXAMPLE_SQUAD_IDS_KEY);
+    localStorage.removeItem(EXAMPLE_LOCKS_KEY);
   } catch {
     /* ignore */
   }
@@ -176,4 +181,9 @@ export function exampleDeskSummary(data: FplData): ExampleDeskSummary | null {
   if (!xi.captain || xi.players.length !== 11) return null;
   const captainPoints = playerProjection(xi.captain, event.id, data.fixtures, event.id);
   return { name: event.name, deadline: event.deadline, total: xi.total, captain: xi.captain, captainPoints };
+}
+
+/** Lock storage key for the active desk mode: demo locks never land on the real (synced) key. */
+export function activeLocksKey(): string {
+  return isExampleSquadActive() ? EXAMPLE_LOCKS_KEY : REAL_LOCKS_KEY;
 }

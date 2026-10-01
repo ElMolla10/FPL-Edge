@@ -1,4 +1,5 @@
 "use client";
+import {activeLocksKey} from "../../lib/example-squad";
 
 import "../../styles/panel-team.css";
 import {useState,useEffect,useMemo,useRef} from "react";
@@ -171,7 +172,7 @@ export function Team({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{data:Fp
   // Hooks run unconditionally every render regardless of which branch is displayed -- the "current"
   // XI/captaincy is computed here even when a past or future week is what's actually shown.
   let locks:LockRecord[]=[];
-  try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
+  try{locks=JSON.parse(localStorage.getItem(activeLocksKey())||"[]")}catch{}
   const currentLock=currentAnchor?locks.find(l=>l.event===currentAnchor.id):undefined;
   // In-play: a lock for the live GW is the receipt -- it wins over official picks and later local edits.
   const liveLock=lockForLiveEvent(currentAnchor,locks);
@@ -204,7 +205,7 @@ function PlayerPanel({player,data,first,replacements,close}:{player:FplPlayer;da
 function PastGameweekView({data,event,history,officialRank}:{data:FplData;event:FplEvent;history:HistoryWeek[]|null;officialRank:OfficialRank|null}){
   const historyWeek=history?.find(w=>w.event===event.id);
   let locks:LockRecord[]=[];
-  try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
+  try{locks=JSON.parse(localStorage.getItem(activeLocksKey())||"[]")}catch{}
   const lock=locks.find(l=>l.event===event.id);
   const resolved=resolvePastGameweek(data.players,historyWeek,lock);
 

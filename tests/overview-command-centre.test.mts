@@ -63,7 +63,7 @@ test("Overview BEST DECISION selector matches Transfers vocabulary (MAKE/LEAN/HO
   assert.match(overview, /decisionHold/);
   assert.match(overview, /5-GW NET vs HOLD/);
   assert.match(overview, /badge-hold|badge-make/);
-  assert.match(overview, /Open Transfers/);
+  assert.match(overview, /Execute this move: Final Check/);
   // Same FT + wildcard inputs as Transfers ranking
   assert.match(overview, /rankingFreeTransfersForDecision|authoritativeFreeTransfers/);
   assert.match(overview, /wildcardActive/);

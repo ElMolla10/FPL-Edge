@@ -564,7 +564,7 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
   const inPlay=liveEvent(data.events);
   const inPlayLock=inPlay?lockForLiveEvent(inPlay,readLocks<LockRecord>()):null;
   const priceTeaser=buildPriceSheet({squad,players:data.players,outPlayerId:wd?.action==="MAKE"?wd.outPlayerId:null,inPlayerId:wd?.action==="MAKE"?wd.inPlayerId:null}).teaser;
-  const primaryCta=decisionHold?{label:"Open Final Check →",view:"deadline" as View}:{label:"Open Transfers →",view:"transfers" as View};
+  const primaryCta={label:decisionHold?"Close the week: Final Check →":"Execute this move: Final Check →",view:"deadline" as View};
 
   return <div className="coach-page overview-command">
     {/* Demo banner lives in coach chrome once. */}

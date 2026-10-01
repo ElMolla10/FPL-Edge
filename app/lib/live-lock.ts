@@ -1,3 +1,4 @@
+import {activeLocksKey} from "./example-squad";
 // In-play view: deadline passed, event not finished. The locked plan (if any) is the source of truth
 // for squad/XI/bench order/captain -- never localStorage edits made after the lock. Finished events
 // stay on the History/audit path; this module returns null for them.
@@ -28,5 +29,5 @@ export function lockedLiveSoFar(lock: LiveLock, players: readonly FplPlayer[]): 
 }
 
 export function readLocks<L = { event: number }>(): L[] {
-  try { const v = JSON.parse(localStorage.getItem("fpl-edge-locks") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
+  try { const v = JSON.parse(localStorage.getItem(activeLocksKey()) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
 }

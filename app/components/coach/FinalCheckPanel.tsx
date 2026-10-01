@@ -10,13 +10,14 @@ import {createOptimizer} from "../../lib/optimizer";
 import {readFreeTransfers,persist} from "../../lib/persistence";
 import {modeledAppearanceProbability} from "../../lib/bench-order";
 import {track} from "../../lib/track";
-import {isExampleSquadActive} from "../../lib/example-squad";
+import {activeLocksKey,EXAMPLE_LOCKS_KEY,REAL_LOCKS_KEY,isExampleSquadActive} from "../../lib/example-squad";
+import {ExecuteCard} from "./ExecuteCard";
 import {TransferRoute,solveTransferRoutes} from "../../lib/transfer-routes";
 import {Transfer,bestTransfers} from "../../lib/transfers";
 import {deriveSandboxFinancialContext} from "../../lib/squad-comparison";
 import {CaptaincyPicker,captainReturnHaul,captaincyRiskFraming,formation,receiptNumber,useCaptaincy} from "./PanelShared";
 import type {CaptainCandidate,LockRecord,ProjectionReceipt,ProjectionReceiptPlayer,ProjectionReceiptRoute} from "./PanelShared";
-import {ConnectTeam,analysis,useManager,withModelUtilityChange} from "./CoachCore";
+import {ConnectTeam,analysis,useManager,useWeeklyDecision,withModelUtilityChange} from "./CoachCore";
 import type {View} from "./CoachCore";
 
 type ReceiptTransferInput=Pick<Transfer,"gain1"|"gain3"|"gain5"|"individualGain1"|"individualGain3"|"individualGain5"|"rankScore"|"netDifference"|"hitCost"|"startProbIn"|"confidenceIn"|"risk"|"reviewRequired"|"anomalies">&Partial<Pick<Transfer,"qualityStatus"|"qualityScore"|"qualityReasons">>&{out:Pick<FplPlayer,"id"|"name">;incoming:Pick<FplPlayer,"id"|"name">};
@@ -124,6 +125,7 @@ export function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:V
   const[meta,setMeta]=useManager(revision);
   const squad=useMemo(()=>savedSquad(data),[data,revision,meta]);
   const a=analysis(data,squad);
+  const weekly=useWeeklyDecision(data,squad,meta);
   const[lockVersion,setLockVersion]=useState(0);
   const[lockError,setLockError]=useState("");
   const players=a?.xi.players??[];
@@ -146,7 +148,7 @@ export function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:V
   const captainMultiplier=plannedChip==="Triple Captain"?3:2;
   const xiIds=a.xi.players.map(p=>p.id);
   const benchIds=a.bench.map(p=>p.id);
-  let existingLocks:LockRecord[]=[];try{existingLocks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
+  let existingLocks:LockRecord[]=[];try{existingLocks=JSON.parse(localStorage.getItem(activeLocksKey())||"[]")}catch{}
   const existingLock=existingLocks.find(l=>l.event===a.first);
   const lockStatus=reconcileLock(existingLock,{xiIds,benchIds,captainId:captain.id,viceId:vice.id});
   const locked=lockStatus==="matches";
@@ -155,7 +157,7 @@ export function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:V
     setLockError("");
     const event=data.events.find(item=>item.id===a.first),capturedAt=new Date().toISOString();
     if(!event||Date.parse(capturedAt)>=Date.parse(event.deadline)){if(source==="manual")setLockError("The official deadline has passed. A pre-deadline receipt was not created.");return}
-    let locksNow:LockRecord[]=[];try{locksNow=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
+    let locksNow:LockRecord[]=[];try{locksNow=JSON.parse(localStorage.getItem(activeLocksKey())||"[]")}catch{}
     const currentLock=locksNow.find(item=>item.event===a.first);
     // Auto-snapshots only fill a missing current-model receipt; never overwrite a manual or existing receipt.
     if(source==="auto"&&currentLock?.receipt?.modelVersion===PROJECTION_MODEL_VERSION&&currentLock.receipt.schemaVersion===8)return;
@@ -168,7 +170,7 @@ export function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:V
       const routeRows=solveTransferRoutes(data,squad,bank,{horizon:5,freeTransfers,maxWeeklyHit:4,sellingPrices:finance.baselineSellingPrices,resultLimit:4,plannedChips});
       const receipt=createProjectionReceipt({data,eventIds:a.events.slice(0,5).map(item=>item.id),deadline:event.deadline,capturedAt,squad,xiIds,benchIds,captainId:captain.id,viceId:vice.id,bank,freeTransfers,transferRows,routeRows,plannedChip});
       const record:LockRecord={event:a.first,lockedAt:capturedAt,dataUpdatedAt:data.updatedAt,predicted:receipt.squad.predictedTotal,squadIds:squad.map(p=>p.id),xiIds,benchIds,captainId:captain.id,viceId:vice.id,receipt,source};
-      persist("fpl-edge-locks",JSON.stringify([...locksNow.filter(item=>item.event!==a.first),record]));setLockVersion(v=>v+1);
+      {const next=JSON.stringify([...locksNow.filter(item=>item.event!==a.first),record]);if(isExampleSquadActive())localStorage.setItem(EXAMPLE_LOCKS_KEY,next);else persist(REAL_LOCKS_KEY,next);}setLockVersion(v=>v+1);
       track("lock_created",{gw:a.first,mode:source,source:isExampleSquadActive()?"demo":"real"});
     }catch(error){if(source==="manual")setLockError(error instanceof Error?error.message:"Could not create the projection receipt.")}
   };
@@ -182,6 +184,7 @@ export function FinalCheck({data,go,revision,onTeamChange}:{data:FplData;go:(v:V
   const chipRows=chipHorizon.map((event,index)=>({eventId:event.id,scores:chipScoresForEvent(data,squad,event,chipHorizon.slice(index,index+5).map(e=>e.id),true)}));
   const chip=chipVerdictAcrossHorizon(chipRows);
   return <div className="coach-page">
+    <ExecuteCard decision={weekly.status==="ready"?weekly.decision:null} pending={weekly.status==="pending"} formation={formation(a.xi.players)} xi={a.xi.players} bench={a.bench} captain={captain} vice={vice} chip={chip.ready?chip.label:plannedChip??null} lockedGw={locked?a.first:null} onLock={()=>lock("manual")} go={go}/>
     <section className="lock-header"><div><span>LOCK-IN</span><h2>Your exact deadline plan.</h2><p>Generated from your saved squad and the latest official FPL feed.</p></div><div><b>{formation(a.xi.players)}</b><small>formation · {predicted.toFixed(1)} xPts{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></div></section>
     {lockStatus==="mismatch"&&existingLock&&<div className="lock-mismatch-banner"><b>⚠ Your locked plan differs from the current recommendation.</b><p>Locked {new Date(existingLock.lockedAt).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · projected {existingLock.predicted.toFixed(1)} pts. Review before the deadline, or press Lock This Team again to update it.</p></div>}
     <CaptaincyPicker players={a.xi.players} captain={captain} vice={vice} onCaptain={chooseCaptain} onVice={chooseVice} event={a.first} data={data}/>

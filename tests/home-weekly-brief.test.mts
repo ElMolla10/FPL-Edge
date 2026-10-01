@@ -17,8 +17,8 @@ test("Home brief renders canonical action, captain and projected GW", () => {
   assert.match(brief, /OverviewDeadlineStrip/);
   assert.match(brief, /shortReason/);
 });
-test("primary CTA follows the call: Transfers on MAKE, Final Check on HOLD", () => {
-  assert.match(home, /decisionHold\?\{label:"Open Final Check →",view:"deadline"[^}]*\}:\{label:"Open Transfers →",view:"transfers"/);
+test("primary CTA always opens the weekly close (Final Check), labelled by the call", () => {
+  assert.match(home, /const primaryCta=\{label:decisionHold\?"Close the week: Final Check →":"Execute this move: Final Check →",view:"deadline"/);
 });
 test("no scenario / percentile / NET-table copy in the first Home section", () => {
   for (const s of ["P10", "P50", "P90", "1,024", "scenario", "type-B", "5-GW NET", "price pressure"]) {

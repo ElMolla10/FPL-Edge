@@ -1,4 +1,5 @@
 "use client";
+import {activeLocksKey} from "../../lib/example-squad";
 
 import {useMemo,useState,ReactNode} from "react";
 import {Chip,useConnectedChipHistory,chipScoresForEvent} from "../LiveIntelligence";
@@ -143,7 +144,7 @@ export function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=
       const gwFixtures=data.fixtures.filter(f=>f.event===currentAnchor.id);
       const hasStarted=gwFixtures.some(f=>f.started);
       const allFixturesFinished=gwFixtures.length>0&&gwFixtures.every(f=>f.finished);
-      let locks:LockRecord[]=[];try{locks=JSON.parse(localStorage.getItem("fpl-edge-locks")||"[]")}catch{}
+      let locks:LockRecord[]=[];try{locks=JSON.parse(localStorage.getItem(activeLocksKey())||"[]")}catch{}
       const currentLock=locks.find(l=>l.event===currentAnchor.id);
       const currentOfficialPicks=manager?.event===currentAnchor.id?manager.picks:undefined;
       const currentResolution=resolveCurrentXi(squad,data.players,currentAnchor.id,data.fixtures,currentLock,currentOfficialPicks);
