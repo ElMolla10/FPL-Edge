@@ -20,8 +20,13 @@ const sheetName = (p: string) => (p === "globals.css" ? "base" : p.replace(/^sty
 test("each route imports only its own sheets (client modules, so vinext links them in render order)", () => {
   assert.doesNotMatch(src("layout.tsx"), /\.css["']/, "layout.tsx must not import CSS: a server-module CSS import is linked on every route, after the client sheets");
   const importsOf = (p: string) => [...src(p).matchAll(/^import "([^"]+\.css)";$/gm)].map((m) => m[1].replace(/^(\.\.?\/)+/, ""));
-  assert.deepEqual(importsOf("page.tsx"), ["globals.css", "styles/paper.css", "styles/landing.css"]);
-  for (const p of ["signin/page.tsx", "signup/page.tsx", "pay/page.tsx", "error.tsx"]) assert.deepEqual(importsOf(p), ["globals.css", "styles/paper.css"], p);
+  // base + paper are reached through the side-effect import of components/PaperStyles (a module with a real export, so Vite keeps its JS chunk:
+  // importing the CSS straight from several modules made the shared chunk pure-CSS, which Vite deletes while the assets manifest still preloads it -> 404)
+  const paperImport = (p: string) => [...src(p).matchAll(/^import "((?:\.\.?\/)+components\/PaperStyles)";$/gm)].length;
+  assert.deepEqual(importsOf("page.tsx"), ["styles/landing.css"]);
+  assert.equal(paperImport("page.tsx"), 1);
+  assert.ok(src("page.tsx").indexOf('import "./components/PaperStyles";') < src("page.tsx").indexOf('import "./styles/landing.css";'), "paper before landing");
+  for (const p of ["signin/page.tsx", "signup/page.tsx", "pay/page.tsx", "error.tsx"]) { assert.deepEqual(importsOf(p), [], p); assert.equal(paperImport(p), 1, p); }
   // server components cannot import the sheets themselves (vinext emits a second, mis-ordered copy): they render the client wrapper
   const paperStyles = src("components/PaperStyles.tsx");
   assert.match(paperStyles, /^"use client";/m);

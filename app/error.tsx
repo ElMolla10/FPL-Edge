@@ -1,8 +1,7 @@
 /* eslint-disable @next/next/no-html-link-for-pages -- error boundary: a hard navigation to "/" is the safest recovery, so plain <a> (same as not-found.tsx and the auth/pay pages) */
 "use client";
 
-import "./globals.css";
-import "./styles/paper.css";
+import "./components/PaperStyles";
 import { useEffect } from "react";
 import { Wordmark } from "./components/Wordmark";
 

@@ -1,7 +1,6 @@
 "use client";
 
-import "../globals.css";
-import "../styles/paper.css";
+import "../components/PaperStyles";
 import { useEffect, useState } from "react";
 import { SeasonUpgrade } from "../components/SeasonPass";
 import { Wordmark } from "../components/Wordmark";

@@ -1,7 +1,6 @@
 "use client";
 
-import "./globals.css";
-import "./styles/paper.css";
+import "./components/PaperStyles";
 import "./styles/landing.css";
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Wordmark } from "./components/Wordmark";

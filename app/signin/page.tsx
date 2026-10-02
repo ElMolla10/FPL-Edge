@@ -1,7 +1,6 @@
 "use client";
 
-import "../globals.css";
-import "../styles/paper.css";
+import "../components/PaperStyles";
 import { AuthForm } from "../components/AuthForm";
 import { Wordmark } from "../components/Wordmark";
 import { LegalLinks } from "../components/LegalLinks";
