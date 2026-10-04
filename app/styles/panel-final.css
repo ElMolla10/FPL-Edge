@@ -28,7 +28,7 @@
 .captain-risk-framing b{color:var(--text)}
 .lock-button{border:0;background:var(--lime);color:var(--on-lime);color:var(--on-lime);padding:18px;font-size:18px;font-weight:950;border-radius:8px}
 .lock-button small{display:block;font-size:12px;margin-top:4px}
-.lock-button.locked{background:var(--surface-raised);color:var(--text)}
+.lock-button.locked{background:var(--surface-raised);color:var(--text);border:1px solid var(--border)}
 .lock-mismatch-banner,.captain-risk-note{background:var(--danger-bg);border:1px solid var(--danger-text);border-radius:9px;padding:14px 18px}
 .lock-error{background:var(--danger-bg);border:1px solid var(--danger-text);border-radius:8px;padding:12px 16px;margin:0;color:var(--danger-text);font-size:13px;font-weight:600}
 .lock-mismatch-banner b{display:block;font-size:14px;color:var(--danger-text)}
