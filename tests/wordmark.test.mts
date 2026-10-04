@@ -29,7 +29,7 @@ test("headers and the sidebar use the wordmark, not the old italic E", () => {
   const coach = readCoachSource();
   const sidebar = coach.slice(coach.indexOf("coach-sidebar"), coach.indexOf("coach-main"));
   const header = coach.slice(coach.indexOf("coach-header"), coach.indexOf("header-tools"));
-  assert.match(sidebar, /sidebar-brand[\s\S]*<BrandMark\/>/); // full sidebar: the supplied logo tile, unchanged, 48px
+  assert.match(sidebar, /sidebar-brand[\s\S]*<BrandMark\/>/); // full sidebar: the supplied logo tile, unchanged, 64px
   assert.match(header, /header-wordmark[\s\S]*<Wordmark\/>/);
   const css = readAllCss();
   // FPL lime + EDGE chalk on dark; near-black type with a small lime rule on light (identity guide section 2).
@@ -58,7 +58,12 @@ test("the logo tile on public pages is the supplied artwork, unchanged: >=48px, 
   assert.match(mark, /Math\.max\(48, size\)/);
   assert.match(mark, /primary-logo-96\.png/);
   const css = readAllCss();
-  assert.match(css, /\.brand-logo\{display:block;width:48px;height:48px;border-radius:0;box-shadow:none\}/);
+  assert.match(css, /\.brand-logo\{display:block;width:52px;height:52px;border-radius:0;box-shadow:none\}/);
+  // enlarged: 52px base (>=48px), 64px in the desktop public header and the full sidebar; headers are tall enough that nothing overflows
+  assert.match(css, /\.paper-header \.brand-logo\{width:64px;height:64px\}/);
+  assert.match(css, /\.coach-sidebar \.sidebar-brand \.brand-logo\{width:64px;height:64px\}/);
+  assert.match(css, /\.paper-header\{height:calc\(76px \+ env\(safe-area-inset-top\)\)\}|height:calc\(76px \+ env\(safe-area-inset-top\)\)/);
+  assert.match(css, /\.paper-header\{height:calc\(88px \+ env\(safe-area-inset-top\)\)\}/);
   assert.doesNotMatch(css, /\.brand-logo[^{]*\{[^}]*(filter|background|border:)/);
   // the supplied 1024px artwork ships next to its two display resamples, byte-identical to the identity pack
   const shipped = readFileSync(new URL("../public/brand/primary-logo-1024.png", import.meta.url));
