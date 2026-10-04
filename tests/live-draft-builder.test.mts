@@ -342,7 +342,7 @@ test("Triple Captain sits under Bench Boost and pitch clicks go through the arm,
   const css = readAllCss();
   const draftCss = readStyle("panel-draft.css");
   // the split generator re-serialises at-rule params with a space; the phone block is the one that holds the builder pitch overrides
-  const phone = draftCss.slice(draftCss.lastIndexOf("@media (max-width:850px){", draftCss.indexOf(".builder-pitch-row article .remove-player{top:1px")));
+  const phone = draftCss.slice(draftCss.lastIndexOf("@media (max-width:1023px){", draftCss.indexOf(".builder-pitch-row article .remove-player{top:1px")));
   assert.match(phone, /\.builder-pitch-row article \.apply-chip-button\{display:none\}/);
   assert.match(css, /\.builder-pitch-row article \.apply-chip-button\{display:none\}/);
   assert.match(css, /\.coach-pitch-player \.apply-chip-button\{display:none\}/);

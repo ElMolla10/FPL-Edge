@@ -27,7 +27,7 @@ export function ExecuteCard({ decision, pending, formation, xi, bench, captain, 
     <FplMoveLink decision={decision} captainName={captain.name}/>
     <div className="execute-checklist"><span>MAKE THIS ON OFFICIAL FPL YOURSELF</span><ol>{s.checklist.map(line => <li key={line}>{line}</li>)}</ol></div>
     <div className="execute-actions">
-      <button type="button" className="lock-button" onClick={onLock}>{lockedGw === s.gameweek ? `LOCKED FOR GW${s.gameweek} ✓ · RE-LOCK` : "LOCK THIS TEAM"}</button>
+      <button type="button" className={lockedGw === s.gameweek ? "lock-button locked" : "lock-button"} onClick={onLock}>{lockedGw === s.gameweek ? `LOCKED FOR GW${s.gameweek} ✓ · RE-LOCK` : "LOCK THIS TEAM"}</button>
       <button type="button" className="execute-copy" onClick={() => copy("list", s.checklist.join("\n"))}>{copied === "list" ? "Copied ✓" : "Copy checklist"}</button>
       <button type="button" className="execute-copy" onClick={() => copy("share", s.shareText)}>{copied === "share" ? "Copied ✓" : "Copy share text"}</button>
       {s.move.action === "MAKE" && <button type="button" className="execute-copy" onClick={() => go("transfers")}>See the full breakdown</button>}

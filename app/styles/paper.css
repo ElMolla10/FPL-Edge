@@ -1,95 +1,79 @@
-/* paper: generated split of the former monolithic globals.css (source order preserved). */
-/* Wordmark: FPL stays the live lime token. EDGE is white on the default dark theme
-   and #161916 on light only. The sidebar is always a dark surface, so EDGE stays white there.
-   No italic E, no tile, no separate symbol. */
-.fpl-wordmark{display:inline;font-style:normal;font-weight:700;letter-spacing:0;line-height:1;white-space:nowrap;text-transform:none}
-.fpl-wordmark-fpl{color:var(--lime);font-weight:700;font-style:normal;letter-spacing:0}
-.fpl-wordmark-edge{color:#F7F7F5;font-weight:800;font-size:1.15em;font-style:normal;letter-spacing:0}
-[data-theme="light"] .fpl-wordmark-edge{color:#161916}
-.projection>p,.captain>p{font-size:12px;letter-spacing:.16em;font-weight:900;color:var(--text-muted-on-inverse);margin:0 0 8px}
-.steps{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--hairline)}
-.steps article{padding:44px 38px 20px 0;border-right:1px solid var(--hairline);margin-right:38px}
+/* paper: public pages (landing, sign in/up, pay, legal, 404, error, loading) -- FPL Edge identity v1.0.
+   Display = Space Grotesk, UI/body = Inter; dark default, light opt-in; 8px controls, 16px cards, lime only for actions and the recommendation rule. */
+.projection>p,.captain>p{font-size:12px;letter-spacing:.08em;font-weight:500;text-transform:uppercase;color:var(--text-muted);margin:0 0 8px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--border)}
+.steps article{padding:44px 38px 20px 0;border-right:1px solid var(--border);margin-right:38px}
 .steps article:last-child{border-right:0}
-.steps span{color:var(--pitch);font-size:13px;font-weight:900}
-.steps h3{font-size:25px;margin:44px 0 15px}
+.steps span{color:var(--accent-text);font-size:13px;font-weight:600}
+.steps h3{font-size:24px;margin:44px 0 15px}
 .steps p{color:var(--text-muted);line-height:1.7;font-size:14px}
 @media (max-width:720px){
 .steps{grid-template-columns:1fr}
-.steps article{border-right:0;border-bottom:1px solid var(--hairline);margin-right:0}
+.steps article{border-right:0;border-bottom:1px solid var(--border);margin-right:0}
 }
-.season-locked{border:1px solid var(--hairline);background:var(--canvas);color:var(--text);padding:22px 24px;margin:0 0 18px;display:flex;flex-direction:column;gap:10px}
-.season-locked span{font-size:13px;font-weight:900;letter-spacing:.16em;color:var(--text-muted)}
-.season-locked h2{font-size:22px;margin:0}
-.season-locked p{margin:0;color:var(--text-muted);font-size:14px;line-height:1.5}
-.season-locked button{align-self:flex-start;border:0;background:var(--pitch);color:var(--pitch-ink);padding:10px 14px;font-size:14px;font-weight:900;cursor:pointer}
-/* Phone marketing header only. Page buttons stay full width; the bar itself stays one row. */
-/* Marketing homepage. Uses the existing theme tokens so the default
-   data-theme="dark" (app/layout.tsx) paints this page the same dark as the app.
-   Scoped to .paper so the app shell is untouched. */
+.season-locked{border:1px solid var(--border);border-left:4px solid var(--lime);border-radius:var(--r-card);background:var(--surface);color:var(--text);padding:24px;margin:0 0 16px;display:flex;flex-direction:column;gap:12px}
+.season-locked span{font-size:12px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted)}
+.season-locked h2{font-size:24px;line-height:30px;margin:0}
+.season-locked p{margin:0;color:var(--text-muted);font-size:16px;line-height:24px}
+.season-locked button{align-self:flex-start;min-height:var(--tap);border:0;border-radius:var(--r-control);background:var(--lime);color:var(--on-lime);padding:0 20px;font-size:16px;font-weight:600;cursor:pointer}
 .paper{min-height:100vh;background:var(--canvas);color:var(--text);font-family:var(--font-ui)}
 :where(.paper) p{margin:0}
-.paper h1,.paper h2{font-family:var(--font-ui);font-style:normal;font-weight:560;letter-spacing:0;color:var(--text)}
-.paper h1{margin:0;font-size:32px;line-height:36px}
-.paper h2{margin:0 0 4px;font-size:22px;line-height:1.2}
-.paper-wrap{width:auto;margin:0 max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left))}
-.paper-header{position:sticky;top:0;z-index:20;height:calc(56px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top);box-sizing:border-box;background:var(--canvas);border-bottom:1px solid transparent}
-.paper-header-inner{height:100%;display:flex;align-items:center;justify-content:space-between}
-.paper-wordmark{font-size:16px;letter-spacing:0;text-transform:none;text-decoration:none}
-.paper-signin{font-size:14px;font-weight:500;color:var(--text);letter-spacing:0;text-transform:none;text-decoration:none;background:transparent;border:0;padding:0}
-.paper-label{font-size:14px;line-height:1.3;color:var(--text-muted);letter-spacing:0;text-transform:none;font-weight:500}
-.paper-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;height:48px;border-radius:10px;border:0;background:var(--lime);color:var(--ink);font-family:var(--font-ui);font-size:16px;font-weight:560;letter-spacing:0;text-decoration:none;cursor:pointer;padding:0 18px;box-sizing:border-box}
-.paper-btn:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
-.paper-amount{margin-top:8px;font-size:32px;line-height:1.1;font-weight:560;font-variant-numeric:tabular-nums lining-nums}
-.paper-lines{list-style:none;margin:16px 0 0;padding:0;font-size:16px;line-height:1.5;color:var(--text-muted)}
-.paper-lines li+li{margin-top:0}
-/* Sign in / sign up: show-password toggle sits inside the field's right edge. */
+.paper h1,.paper h2{font-family:var(--font-display);font-style:normal;font-weight:600;letter-spacing:-.02em;color:var(--text)}
+.paper h1{margin:0;font-size:40px;line-height:44px;font-weight:700;letter-spacing:-.03em}
+.paper h2{margin:0 0 4px;font-size:24px;line-height:30px}
+.paper-wrap{width:auto;margin:0 max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left))}
+.paper-header{position:sticky;top:0;z-index:20;height:calc(64px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top);box-sizing:border-box;background:var(--canvas);border-bottom:1px solid transparent}
+.paper-header.is-scrolled{border-bottom-color:var(--border)}
+.paper-header-inner{height:100%;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.paper-wordmark{display:inline-flex;align-items:center;min-height:var(--tap);font-size:16px;text-decoration:none}
+.paper-header-tools{display:flex;align-items:center;gap:8px}
+.paper-signin{display:inline-flex;align-items:center;min-height:var(--tap);padding:0 12px;border-radius:var(--r-control);font-size:14px;font-weight:600;color:var(--text);text-decoration:none}
+.paper-signin:hover{background:var(--surface-raised)}
+.paper-label{font-size:12px;line-height:16px;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500}
+.paper-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border-radius:var(--r-control);border:1px solid transparent;background:var(--lime);color:var(--on-lime);font-family:var(--font-ui);font-size:16px;font-weight:600;letter-spacing:0;text-decoration:none;cursor:pointer;padding:0 20px;box-sizing:border-box;transition:background-color var(--ease-fast),border-color var(--ease-fast),transform var(--ease-fast)}
+.paper-btn:hover{background:var(--lime-hover)}
+.paper-btn:active{transform:translateY(1px)}
+.paper-amount{margin-top:8px;font-family:var(--font-display);font-size:40px;line-height:44px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.paper-lines{list-style:none;margin:16px 0 0;padding:0;font-size:16px;line-height:24px;color:var(--text-muted)}
+.paper-lines li+li{margin-top:4px}
 .paper-password{position:relative;display:block}
-.paper-password input{padding-right:76px}
-.paper-password-toggle{position:absolute;top:0;right:0;height:48px;min-width:64px;padding:0 14px;border:0;background:transparent;color:var(--text-muted);font:inherit;font-size:14px;font-weight:560;cursor:pointer;border-radius:0 10px 10px 0}
+.paper-password input{padding-right:84px}
+.paper-password-toggle{position:absolute;top:0;right:0;height:48px;min-width:72px;padding:0 14px;border:0;background:transparent;color:var(--text-muted);font:inherit;font-size:14px;font-weight:600;cursor:pointer;border-radius:0 var(--r-control) var(--r-control) 0}
 .paper-password-toggle:hover,.paper-password-toggle[aria-pressed="true"]{color:var(--text)}
-.paper-password-toggle:focus-visible{outline:2px solid var(--lime);outline-offset:-2px}
-@media (max-width:899px){
-.paper{padding-bottom:calc(112px + env(safe-area-inset-bottom))}
-}
 @media (min-width:900px){
-.paper h1{font-size:52px;line-height:56px;white-space:nowrap}
-.paper h2{font-size:28px}
-.paper-wrap{width:min(1120px,calc(100% - 80px));margin:0 auto}
-.paper-header{height:calc(64px + env(safe-area-inset-top))}
-.paper-lead,.paper-why,.paper-row p,.paper-term,.paper-lines,.paper-note{font-size:17px}
+.paper-lead,.paper-why,.paper-row p,.paper-term,.paper-lines,.paper-note{font-size:18px;line-height:28px}
+.paper h1{font-size:64px;line-height:68px;letter-spacing:-.035em}
+.paper-wrap{width:min(1120px,calc(100% - 64px));margin:0 auto}
+.paper-header{height:calc(72px + env(safe-area-inset-top))}
 }
-/* Trust / onboarding P1–P4 */
-.paper-btn.paper-demo{background:transparent;color:var(--text);border:1px solid var(--line);margin-left:8px}
-/* Site-wide consistency pass: sign in, sign up, pay and 404 share the homepage (.paper) look;
-   calmer app overview surfaces. */
-.paper-form-wrap{padding:32px 0 64px}
-.paper-form{max-width:480px;margin:0 auto;background:var(--surface-card);border:1px solid var(--line);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:0}
-.paper .paper-form-title{margin:8px 0 0;font-size:28px;line-height:1.15;white-space:normal}
+.paper-btn.paper-demo{background:transparent;color:var(--text);border:1px solid var(--text-muted)}
+.paper-btn.paper-demo:hover{background:var(--surface-raised)}
+.paper-form-wrap{padding:24px 0 64px}
+.paper-form{max-width:480px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:24px;display:flex;flex-direction:column;gap:0}
+.paper .paper-form-title{margin:8px 0 0;font-size:28px;line-height:34px;white-space:normal;letter-spacing:-.02em}
 .paper-form .paper-amount{margin-top:4px;font-size:40px}
-.paper-form-lead{margin-top:8px;color:var(--text-muted);font-size:16px;line-height:1.5}
+.paper-form-lead{margin-top:8px;color:var(--text-muted);font-size:16px;line-height:24px}
 .paper-form-list{margin-top:16px}
 .paper-form-list li{padding-left:22px;position:relative}
-.paper-form-list li::before{content:"";position:absolute;left:4px;top:.6em;width:6px;height:6px;border-radius:50%;background:var(--lime)}
-.paper-field{margin-top:20px;display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:560;color:var(--text)}
-.paper-field+.paper-field{margin-top:14px}
-.paper-field input{width:100%;box-sizing:border-box;height:48px;border-radius:10px;border:1px solid var(--line);background:var(--canvas);color:var(--text);padding:0 14px;font:inherit;font-size:16px;font-weight:400}
-.paper-field input:focus{outline:2px solid var(--lime);outline-offset:1px;border-color:transparent}
-.paper-form-actions{margin-top:20px;display:flex;gap:10px;flex-wrap:wrap}
+.paper-form-list li::before{content:"";position:absolute;left:4px;top:.55em;width:3px;height:1em;background:var(--lime)}
+.paper-field{margin-top:20px;display:flex;flex-direction:column;gap:8px;font-size:14px;font-weight:600;color:var(--text)}
+.paper-field+.paper-field{margin-top:16px}
+.paper-field input{width:100%;box-sizing:border-box;height:48px;border-radius:var(--r-control);border:1px solid var(--text-muted);background:var(--canvas);color:var(--text);padding:0 14px;font:inherit;font-size:16px;font-weight:400}
+.paper-field input:focus{outline:3px solid var(--focus);outline-offset:2px}
+.paper-form-actions{margin-top:20px;display:flex;gap:12px;flex-wrap:wrap}
 .paper-form-actions .paper-btn{flex:1 1 140px}
-.paper-btn.paper-demo{background:transparent;color:var(--text);border:1px solid var(--line)}
-.paper-btn:disabled{opacity:.5;cursor:not-allowed}
-.paper-form-step{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);color:var(--text-muted);font-size:15px;line-height:1.5}
+.paper-btn:disabled{opacity:.55;cursor:not-allowed}
+.paper-form-step{margin-top:20px;padding-top:16px;border-top:1px solid var(--border);color:var(--text-muted);font-size:16px;line-height:24px}
 .paper-form-step .paper-form-actions{margin-top:12px}
-.paper-form-message{margin-top:16px;padding:10px 12px;border-radius:10px;background:var(--surface-sunken);color:var(--text);font-size:14px;line-height:1.5}
-.paper-form-switch{margin-top:16px;color:var(--text-muted);font-size:14px;line-height:1.5}
-.paper-form-switch a{color:var(--lime);text-decoration:underline;text-underline-offset:3px}
+.paper-form-message{margin-top:16px;padding:12px 14px;border-radius:var(--r-control);border-left:4px solid var(--text-muted);background:var(--surface-raised);color:var(--text);font-size:14px;line-height:20px}
+.paper-form-switch{margin-top:16px;color:var(--text-muted);font-size:14px;line-height:20px}
+.paper-form-switch a{display:inline-flex;align-items:center;min-height:var(--tap);color:var(--text);font-weight:600;text-decoration:underline;text-decoration-color:var(--lime);text-decoration-thickness:2px;text-underline-offset:4px}
 .paper-form-page{padding-bottom:0}
 @media (min-width:720px){
-.paper-form-wrap{padding:64px 0 96px}
+.paper-form-wrap{padding:48px 0 96px}
 .paper-form{padding:32px}
 }
-/* loading.tsx: quiet branded pulse (uses existing tokens only) */
-.paper-loading-bar{height:6px;width:120px;margin-top:14px;border-radius:999px;background:var(--lime);opacity:.55;animation:paper-loading-pulse 1.2s ease-in-out infinite}
+.paper-loading-bar{height:6px;width:120px;margin-top:16px;border-radius:999px;background:var(--lime);opacity:.55;animation:paper-loading-pulse 1.2s ease-in-out infinite}
 .paper-sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @keyframes paper-loading-pulse{0%,100%{opacity:.25}50%{opacity:.7}}
 @media (prefers-reduced-motion:reduce){
@@ -98,20 +82,17 @@
 @media (max-width:899px){
 .paper{padding-bottom:calc(132px + env(safe-area-inset-bottom))}
 }
-/* 6. Payment: sign in → phone → pay, read as a sequence. */
 .paper-steps{list-style:none;margin:20px 0 0;padding:0;display:flex;gap:8px;flex-wrap:wrap}
 .paper-steps li{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted)}
-.paper-steps li+li::before{content:"";width:14px;height:1px;background:var(--line);display:inline-block}
-.paper-steps b{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line);font-size:12px}
-.paper-steps li.is-current{color:var(--text);font-weight:560}
-.paper-steps li.is-current b{background:var(--lime);border-color:var(--lime);color:var(--ink)}
-.paper-steps li.is-done b{background:var(--surface-sunken);color:var(--text)}
-
-/* Legal + support links, trust line */
-.paper-legal{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;margin-top:16px}
-.paper-legal a{color:var(--text-muted);text-decoration:underline;text-underline-offset:3px}
-.paper-legal a:hover{color:var(--lime)}
-.paper-trust-line{border-left:3px solid var(--lime);padding:8px 12px;margin-top:14px;font-size:14px;display:grid;gap:6px}
-.paper-trust-line a{color:var(--lime)}
-.paper-legal-page .paper-form-list li{line-height:1.5}
-.paper-legal-page a{color:var(--lime)}
+.paper-steps li+li::before{content:"";width:14px;height:1px;background:var(--border);display:inline-block}
+.paper-steps b{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--text-muted);font-size:12px;font-variant-numeric:tabular-nums}
+.paper-steps li.is-current{color:var(--text);font-weight:600}
+.paper-steps li.is-current b{background:var(--lime);border-color:var(--lime);color:var(--on-lime)}
+.paper-steps li.is-done b{background:var(--surface-raised);color:var(--text)}
+.paper-legal{display:flex;flex-wrap:wrap;gap:4px 20px;font-size:14px;margin-top:16px}
+.paper-legal a{display:inline-flex;align-items:center;min-height:var(--tap);min-width:var(--tap);color:var(--text-muted);text-decoration:underline;text-underline-offset:4px}
+.paper-legal a:hover{color:var(--text)}
+.paper-trust-line{border-left:4px solid var(--lime);padding:8px 12px;margin-top:16px;font-size:14px;display:grid;gap:6px}
+.paper-trust-line a{color:var(--text);text-decoration:underline;text-underline-offset:4px}
+.paper-legal-page .paper-form-list li{line-height:24px}
+.paper-legal-page a{color:var(--text);text-decoration:underline;text-decoration-color:var(--lime);text-underline-offset:4px}

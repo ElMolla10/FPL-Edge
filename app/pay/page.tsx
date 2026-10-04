@@ -3,7 +3,7 @@
 import "../components/PaperStyles";
 import { useEffect, useState } from "react";
 import { SeasonUpgrade } from "../components/SeasonPass";
-import { Wordmark } from "../components/Wordmark";
+import { PaperHeader } from "../components/PaperHeader";
 import { track } from "../lib/track";
 import { isExampleSquadActive } from "../lib/example-squad";
 
@@ -16,12 +16,7 @@ export default function PayPage() {
   }, []);
 
   return <main className="paper paper-form-page">
-    <header className="paper-header">
-      <div className="paper-wrap paper-header-inner">
-        <a className="paper-wordmark" href="/" aria-label="FPL Edge home"><Wordmark/></a>
-        <a className="paper-signin" href="/">Back to site</a>
-      </div>
-    </header>
+    <PaperHeader action={{ href: "/", label: "Back to site" }} />
     <div className="paper-wrap paper-form-wrap">
       <SeasonUpgrade checkoutReturn={checkoutReturn} onDismiss={() => { window.location.assign("/"); }} />
     </div>

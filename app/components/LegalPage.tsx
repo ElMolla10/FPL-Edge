@@ -1,17 +1,12 @@
 import Link from "next/link";
 import { PaperStyles } from "./PaperStyles";
-import { Wordmark } from "./Wordmark";
+import { PaperHeader } from "./PaperHeader";
 import { LegalLinks } from "./LegalLinks";
 
 export function LegalPage({ label, title, children }: { label: string; title: string; children: React.ReactNode }) {
   return <main className="paper paper-form-page">
     <PaperStyles />
-    <header className="paper-header">
-      <div className="paper-wrap paper-header-inner">
-        <Link className="paper-wordmark" href="/" aria-label="FPL Edge home"><Wordmark/></Link>
-        <Link className="paper-signin" href="/">Back to site</Link>
-      </div>
-    </header>
+    <PaperHeader action={{ href: "/", label: "Back to site" }} />
     <div className="paper-wrap paper-form-wrap">
       <article className="paper-form paper-legal-page">
         <p className="paper-label">{label}</p>

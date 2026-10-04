@@ -1,16 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
-import { Fraunces, Inter } from "next/font/google";
 import { nonceFromCsp } from "./lib/security-headers";
+import { THEME_COLOR, themeInitScript } from "./lib/theme";
 
-// Feed the --font-ui/--font-display tokens in globals.css (fpl.page redesign, step 1). vinext's
-// next/font/google support is CDN-runtime-loading, not build-time self-hosted/subsetted the way
-// real Next.js does (confirmed via node_modules/vinext/README.md's support matrix) -- so this is
-// not actually self-hosted here despite Inter/Fraunces both being self-hostable fonts, and it
-// doesn't get real Next.js's fallback-metrics FOUC protection. Kept as the two font-loading calls
-// only, no manual <link>/@font-face alongside them.
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
-const fraunces = Fraunces({ subsets: ["latin"], weight: ["300"], variable: "--font-fraunces", display: "swap" });
 
 const HOME_TITLE = "FPL Edge — weekly FPL lineup, captain and transfer call";
 const HOME_DESCRIPTION = "A lineup, a captain, and whether to transfer. Free this gameweek.";
@@ -29,7 +21,7 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
-  openGraph: { title: HOME_TITLE, description: HOME_DESCRIPTION, type: "website", images: ["/og.png"] },
+  openGraph: { title: HOME_TITLE, description: HOME_DESCRIPTION, type: "website", images: [{ url: "/og.png", width: 1200, height: 630, alt: "FPL Edge. Your next move. Clear." }] },
   twitter: { card: "summary_large_image", title: HOME_TITLE, description: HOME_DESCRIPTION, images: ["/og.png"] },
 };
 
@@ -39,27 +31,25 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  // Match --canvas-dark so iOS chrome / overscroll isn't pure black.
-  themeColor: "#14181A",
+  // Match the dark canvas (#121614) so iOS chrome / overscroll isn't pure black; the theme script flips it for light.
+  themeColor: THEME_COLOR.dark,
 };
 
-// Inline, synchronous, and in <head> so it runs before first paint -- reading localStorage and
-// setting data-theme here (rather than in a React effect) is what prevents a flash of the wrong
-// theme on load. Step 3 (shell/nav) flips the app's default from OS-driven to dark-by-default:
-// no stored override, or a stored value that isn't literally "light", now resolves to dark.
-// ThemeToggle's own initial read mirrors this same "light" isn't dark logic.
-const themeInitScript = `try{var t=localStorage.getItem("fpl-edge-theme");document.documentElement.setAttribute("data-theme",t==="light"?"light":"dark")}catch(e){}`;
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // Per-request CSP nonce, minted in worker/index.ts and passed down as a request header (never trusted from the client:
   // the worker overwrites it). Undefined outside the worker (tests, dev) -> no nonce attribute, script still renders.
   const nonce = nonceFromCsp((await headers()).get("content-security-policy"));
   return (
-    <html lang="en" className={`${inter.variable} ${fraunces.variable}`} suppressHydrationWarning>
+    <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
         {/* vinext ViewportHead omits viewport-fit; keep export above and pin the meta here. */}
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <meta name="theme-color" content="#14181A" />
+        <meta name="theme-color" content={THEME_COLOR.dark} />
+        {/* Only the two weights/subsets the first paint needs; the latin-ext faces load on demand via unicode-range. */}
+        <link rel="preload" href="/fonts/inter-latin-400.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/inter-latin-600.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/space-grotesk-latin-var.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>{children}</body>

@@ -62,8 +62,9 @@ test("Overview BEST DECISION selector matches Transfers vocabulary (MAKE/LEAN/HO
   assert.match(overview, /useWeeklyDecision\(/);
   assert.match(overview, /decisionHold/);
   assert.match(overview, /5-GW NET vs HOLD/);
-  assert.match(overview, /badge-hold|badge-make/);
-  assert.match(overview, /Execute this move: Final Check/);
+  assert.match(overview, /decisionBadge\(/);
+  assert.match(overview, /Review transfer/);
+  assert.match(overview, /Compare options/);
   // Same FT + wildcard inputs as Transfers ranking
   assert.match(overview, /rankingFreeTransfersForDecision|authoritativeFreeTransfers/);
   assert.match(overview, /wildcardActive/);
@@ -98,8 +99,8 @@ test("Overview does not reintroduce tech freshness chip; jumps to Final Check / 
   assert.match(overview, /go\("transfers"\)/);
   assert.match(overview, /go\("draft"\)/);
   assert.match(overview, /URGENT RISKS|URGENT/);
-  assert.match(overview, /CAPTAIN/);
-  assert.match(overview, /PROJECTED GW/);
+  assert.match(overview, /Captain/);
+  assert.match(overview, /Projected XI points/);
   assert.match(overview, /OverviewDeadlineStrip|UP NEXT|overview-deadline-when/);
   assert.doesNotMatch(overview, /COUNTDOWN|setInterval\(\(\)=>setNow/);
 });
@@ -110,7 +111,7 @@ test("Transfers page still owns the full BEST DECISION hero and shared ranking h
   const transfersStart = coach.indexOf("function Transfers(");
   const transfersSlice = coach.slice(transfersStart, transfersStart + 14000);
   assert.match(transfersSlice, /useWeeklyDecision\(/);
-  assert.match(transfersSlice, /BEST DECISION/);
+  assert.match(transfersSlice, /Best decision|BEST DECISION/);
 });
 
 test("Overview known-state strip shows bank/FT/chip only when known — no invented personal data", () => {
@@ -127,7 +128,7 @@ test("Overview keeps the upcoming gameweek date but has no second live countdown
   const stripEnd = coach.indexOf("/** Same FT input Transfers uses", stripStart);
   assert.ok(stripStart >= 0 && stripEnd > stripStart, "Overview deadline strip marker must exist");
   const strip = coach.slice(stripStart, stripEnd);
-  assert.match(strip, /UP NEXT/);
+  assert.match(strip, /Up next/);
   assert.match(strip, /overview-deadline-when/);
   assert.match(strip, /event\.deadline/);
   assert.doesNotMatch(strip, /COUNTDOWN|setInterval/);

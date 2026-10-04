@@ -1,4 +1,5 @@
 "use client";
+import { ThemeToggle } from "./ThemeToggle";
 import {FplMoveLink} from "./FplMoveLink";
 
 import "../styles/desk.css";
@@ -6,6 +7,7 @@ import {classifyUrgency} from "../lib/urgency";
 import {track} from "../lib/track";
 import {ComponentType,ReactNode,Suspense,lazy,useState,useEffect,useRef,useMemo} from "react";
 import {Wordmark} from "./Wordmark";
+import {BrandMark} from "./BrandMark";
 
 
 import {plannedChipFor,readPlannedChips} from "../lib/chip-portfolio";
@@ -20,6 +22,7 @@ import {refreshConnectedTeamFromApi} from "../lib/team-live-refresh";
 import {TeamLinkAuthProvider,useTeamLinkAuth,TEAM_SIGN_IN_HREF} from "./team-link-auth";
 import {Transfer} from "../lib/transfers";
 import {formatHit,formatNet} from "../lib/weekly-decision";
+import {confidenceBand,decisionBadge,plainReason,signedPoints} from "../lib/decision-badge";
 import {scheduleDeferred} from "../lib/transfer-engine/schedule";
 import {ManagerMeta,deriveSandboxFinancialContext,isRankingFinanceUnavailable} from "../lib/squad-comparison";
 import {SeasonLocked} from "./SeasonLocked";
@@ -141,7 +144,26 @@ function NavIcon({id}:{id:string}){
 }
 
 function MobileSheet({title,onClose,children}:{title:string;onClose:()=>void;children:ReactNode}){
-  return <div className="mobile-sheet" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button type="button" onClick={onClose} aria-label="Close">×</button></header><div className="mobile-sheet-list">{children}</div></div>;
+  const ref=useRef<HTMLDivElement>(null);
+  // Modal focus management: focus moves into the sheet, Tab/Shift+Tab stay inside it, Escape closes, focus returns to the trigger.
+  useEffect(()=>{
+    const root=ref.current;if(!root)return;
+    const opener=document.activeElement as HTMLElement|null;
+    const focusables=()=>Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled])')).filter(el=>el.offsetParent!==null||el===document.activeElement);
+    focusables()[0]?.focus();
+    const onKey=(e:KeyboardEvent)=>{
+      if(e.key==="Escape"){e.preventDefault();onClose();return}
+      if(e.key!=="Tab")return;
+      const items=focusables();if(!items.length)return;
+      const first=items[0],last=items[items.length-1];
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+    };
+    document.addEventListener("keydown",onKey);
+    return()=>{document.removeEventListener("keydown",onKey);if(opener&&document.contains(opener))opener.focus()};
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/unmount only; onClose identity changes every render
+  },[]);
+  return <div className="mobile-sheet" ref={ref} role="dialog" aria-modal="true" aria-label={title} onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><header><h2>{title}</h2><button type="button" onClick={onClose} aria-label="Close">×</button></header><div className="mobile-sheet-list">{children}</div></div>;
 }
 
 const MORE_VIEW_LABELS:Partial<Record<View,string>>={prices:"Price sheet",
@@ -257,31 +279,27 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   // sheet's tab is active (clears Home/Coach/content tabs). Final check stays in More.
   // Transfers under My Squad: phoneSquadViews includes transfers so go("transfers") keeps My Squad active.
   // My Fixtures stays under My Squad on phone even though desktop Research owns the disclosure entry.
-  const phoneSquadViews=new Set<View>(["team","transfers","squad-fixtures"]);
-  const phoneProViews=new Set<View>(proItems.map(([key])=>key));
-  const phoneMoreResearch=researchRest.filter(([key])=>key!=="squad-fixtures");
-  const phoneMoreViews=new Set<View>(["deadline","players",...phoneMoreResearch.map(([key])=>key)]);
-  // Exactly one bottom tab active: sheet open → that sheet's tab only; else content partition.
-  // More-routed child pages (Players, Final check, …) clear More lime and show PhoneMoreCrumb instead.
+  const phoneSquadViews=new Set<View>(["team","squad-fixtures"]);
+  const phoneMoreViews=new Set<View>(["deadline","players",...researchRest.filter(([key])=>key!=="squad-fixtures").map(([key])=>key),...proItems.map(([key])=>key)]);
+  // Exactly one bottom tab is active. Home · Squad · Transfers · Coach are direct destinations; More holds Final check, Players,
+  // Research and the (locked) PRO tools, and stays active on any of those child pages, where PhoneMoreCrumb shows the way back.
   const phoneHomeActive=!mobileOverlay&&view==="overview";
-  const phoneSquadActive=mobileOverlay==="My Squad"||(!mobileOverlay&&phoneSquadViews.has(view));
-  const phoneProActive=mobileOverlay==="PRO"||(!mobileOverlay&&phoneProViews.has(view));
+  const phoneSquadActive=!mobileOverlay&&phoneSquadViews.has(view);
+  const phoneTransfersActive=!mobileOverlay&&view==="transfers";
   const phoneCoachActive=!mobileOverlay&&view==="coach";
-  const phoneMoreActive=mobileOverlay==="More";
   const phoneMoreChild=!mobileOverlay&&phoneMoreViews.has(view);
+  const phoneMoreActive=mobileOverlay==="More"||phoneMoreChild;
   // Phase 1 chrome-strip: sticky header = Wordmark · GW countdown · Sign in/Account only.
   // Season pass lives under More; floating Coach pill removed; freshness owned by sidebar (desktop) / slim line (phone).
   return <TeamLinkAuthProvider value={teamAuth}><main className={desk==="visitor"?"coach-shell signed-out":"coach-shell"}>
-    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack}><Wordmark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)} {...warm(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" id="sidebar-research-btn" aria-expanded={sidebarMenu==="research"} aria-controls="sidebar-research-menu" className={(researchRest.some(([key])=>key===view)?"active":"")+(sidebarMenu==="research"?" open":"")} onClick={()=>toggleSidebarGroup("research",researchRest)} {...warm(researchRest[0][0])}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop" id="sidebar-research-menu" role="group" aria-labelledby="sidebar-research-btn">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)} {...warm(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" id="sidebar-pro-btn" aria-expanded={sidebarMenu==="pro"} aria-controls="sidebar-pro-menu" className={"sidebar-pro-btn"+(proItems.some(([key])=>key===view)?" active":"")+(sidebarMenu==="pro"?" open":"")} onClick={()=>toggleSidebarGroup("pro",proItems)} {...warm(proItems[0][0])}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop" id="sidebar-pro-menu" role="group" aria-labelledby="sidebar-pro-btn">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)} {...warm(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note" aria-label="Data connection"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?fresh.label:(error&&!data?"Not connected":"Connecting…")}</b>{fresh?.showDetail?<small className="freshness-debug">{fresh.detailLabel}</small>:null}</div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
+    <aside className="coach-sidebar"><button className="brand sidebar-brand" onClick={onBack} aria-label="FPL Edge, back to the website"><BrandMark/></button><nav className="coach-primary">{sideNav.map(([key,label])=><button key={key} className={view===key?"active":""} onClick={()=>go(key)} {...warm(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</nav><div className="sidebar-menus"><button type="button" id="sidebar-research-btn" aria-expanded={sidebarMenu==="research"} aria-controls="sidebar-research-menu" className={(researchRest.some(([key])=>key===view)?"active":"")+(sidebarMenu==="research"?" open":"")} onClick={()=>toggleSidebarGroup("research",researchRest)} {...warm(researchRest[0][0])}><i><NavIcon id="research"/></i><span>Research</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="research"&&<div className="sidebar-drop" id="sidebar-research-menu" role="group" aria-labelledby="sidebar-research-btn">{researchRest.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)} {...warm(key)}><i><NavIcon id={key}/></i><span>{label}</span></button>)}</div>}</div><div className="sidebar-pro"><button type="button" id="sidebar-pro-btn" aria-expanded={sidebarMenu==="pro"} aria-controls="sidebar-pro-menu" className={"sidebar-pro-btn"+(proItems.some(([key])=>key===view)?" active":"")+(sidebarMenu==="pro"?" open":"")} onClick={()=>toggleSidebarGroup("pro",proItems)} {...warm(proItems[0][0])}><i><NavIcon id="pro"/></i><span>PRO</span><i className="nav-caret" aria-hidden="true"/></button>{sidebarMenu==="pro"&&<div className="sidebar-drop" id="sidebar-pro-menu" role="group" aria-labelledby="sidebar-pro-btn">{proItems.map(([key,label])=><button key={key} className={view===key?"active":""} aria-current={view===key?"page":undefined} onClick={()=>go(key)} {...warm(key)}><i><NavIcon id={key}/></i><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}</div>}</div><div className="coach-data-note" aria-label="Data connection"><span className={`fresh-dot ${fresh?.tone||"stale"}`}/><div><b>{fresh?fresh.label:(error&&!data?"Not connected":"Connecting…")}</b>{fresh?.showDetail?<small className="freshness-debug">{fresh.detailLabel}</small>:null}</div></div><ThemeToggle/><button className="back-link" onClick={onBack}>← Back to site</button></aside>
     <section className="coach-main"><header className="coach-header"><span className="brand header-wordmark"><Wordmark/></span><div className="header-tools">{data&&<DeadlineClock data={data}/>}{desk==="visitor"?<div className="signin-action"><a className="team-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a></div>:<AccountBar onAuthChange={runSync} onAccount={onAccount} initialOpen={startAuth}/>}</div></header>
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading} phoneQuiet/>{phoneMoreChild&&<PhoneMoreCrumb view={view} onOpenMore={()=>setMobileOverlay("More")}/>}{exampleActive&&<p className="example-squad-banner" role="status">{EXAMPLE_SQUAD_LABEL}. Transfers, captaincy and explanations use this demo XV — sign in to connect your real team.</p>}<Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay} onLoadExample={()=>{if(activateExampleSquad(data)){setExampleActive(true);setRevision(x=>x+1)}}} exampleActive={exampleActive} onClearExample={()=>{clearExampleSquadFlag();setExampleActive(false);setRevision(x=>x+1)}}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
     </section>
     {(desk==="free"||desk==="season")&&<footer className="coach-footer"><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>}
-    <nav className="coach-mobile-nav" aria-label="Phone primary"><button className={phoneHomeActive?"active":""} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={phoneSquadActive?"active":""} onClick={()=>toggleMobileOverlay("My Squad")} {...warm("team")}><i><NavIcon id="team"/></i>My Squad</button><button className={phoneProActive?"active":""} onClick={()=>toggleMobileOverlay("PRO")} {...warm(proItems[0][0])}><i><NavIcon id="pro"/></i>PRO</button><button className={phoneCoachActive?"active":""} onClick={()=>go("coach")} {...warm("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={phoneMoreActive?"active":""} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
+    <nav className="coach-mobile-nav" aria-label="Phone primary"><button className={phoneHomeActive?"active":""} aria-current={phoneHomeActive?"page":undefined} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={phoneSquadActive?"active":""} aria-current={phoneSquadActive?"page":undefined} onClick={()=>go("team")} {...warm("team")}><i><NavIcon id="team"/></i>Squad</button><button className={phoneTransfersActive?"active":""} aria-current={phoneTransfersActive?"page":undefined} onClick={()=>go("transfers")} {...warm("transfers")}><i><NavIcon id="transfers"/></i>Transfers</button><button className={phoneCoachActive?"active":""} aria-current={phoneCoachActive?"page":undefined} onClick={()=>go("coach")} {...warm("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={phoneMoreActive?"active":""} aria-haspopup="dialog" aria-expanded={mobileOverlay==="More"} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
     {mobileOverlay&&<MobileSheet title={mobileOverlay} onClose={()=>setMobileOverlay(null)}>
-      {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span>{key==="transfers"?<small className="sheet-hint">Single · Route · Watch</small>:null}</button>)}
-      {mobileOverlay==="PRO"&&proItems.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)} {...warm(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}
-      {mobileOverlay==="More"&&<><button type="button" className={view==="deadline"?"sheet-active":""} onClick={()=>go("deadline")} {...warm("deadline")}><span>Final check</span></button><button type="button" className={view==="players"?"sheet-active":""} onClick={()=>go("players")} {...warm("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span></button>)}<button type="button" className="sheet-refresh" onClick={()=>{load();setMobileOverlay(null)}} disabled={loading}><span>{loading?"Refreshing…":"Refresh FPL data"}</span>{fresh?<small className="sheet-hint">Updated {fresh.label}</small>:null}</button>{desk==="season"?<p className="sheet-account-note">Season pass active · managed on your account</p>:(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
+      {mobileOverlay==="More"&&<><button type="button" className={view==="deadline"?"sheet-active":""} onClick={()=>go("deadline")} {...warm("deadline")}><span>Final check</span></button><button type="button" className={view==="players"?"sheet-active":""} onClick={()=>go("players")} {...warm("players")}><span>Players</span></button><h3 className="sheet-section">Research</h3>{researchRest.map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span></button>)}<h3 className="sheet-section">PRO tools</h3>{proItems.map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}<h3 className="sheet-section">Account and display</h3><button type="button" className="sheet-refresh" onClick={()=>{load();setMobileOverlay(null)}} disabled={loading}><span>{loading?"Refreshing…":"Refresh FPL data"}</span>{fresh?<small className="sheet-hint">Updated {fresh.label}</small>:null}</button>{desk==="season"?<p className="sheet-account-note">Season pass active · managed on your account</p>:(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}<div className="sheet-theme"><ThemeToggle/></div></>}
     </MobileSheet>}
   </main></TeamLinkAuthProvider>
 }
@@ -392,20 +410,6 @@ function Freshness({data,onRefresh,loading,phoneQuiet=false,loadFailed=false}:{d
 
 // Squad/watchlist/locks persist to the server (see app/lib/persistence.ts) when signed in via
 // either method below; both resolve to the same account (see app/lib/auth.ts).
-// Step 3: the app defaults to dark now (see layout.tsx's themeInitScript), which already ran
-// synchronously in <head> before this component's client-side render -- so the initial state is
-// read straight from the DOM via useState's lazy-initializer form rather than guessed and
-// corrected in a later effect. That removes the artificial extra render/repaint cycle a
-// useEffect-based correction adds on top of hydration. This runs during SSR too (CoachApp is
-// server-rendered -- confirmed by tests/mini-league-ui.test.mts crashing here without the guard),
-// where `document` doesn't exist at all, so the guard below is load-bearing, not defensive
-// boilerplate: SSR has no choice but to guess, and "dark" matches the app's real default. This
-// toggle only ever writes an explicit "light"/"dark" override once the user actually clicks it.
-function ThemeToggle(){
-  const[theme,setTheme]=useState<"light"|"dark">(()=>typeof document!=="undefined"&&document.documentElement.getAttribute("data-theme")==="light"?"light":"dark");
-  const toggle=()=>{const next=theme==="dark"?"light":"dark";setTheme(next);document.documentElement.setAttribute("data-theme",next);persist("fpl-edge-theme",next)};
-  return <button type="button" className={theme==="dark"?"theme-toggle on":"theme-toggle"} role="switch" aria-checked={theme==="dark"} aria-label={theme==="dark"?"Dark mode on":"Light mode on"} onClick={toggle}><span>{theme==="dark"?"Dark":"Light"}</span><i/></button>;
-}
 
 function AccountBar({onAuthChange,onAccount,initialOpen=false}:{onAuthChange:()=>void;onAccount:(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>void;initialOpen?:boolean}){
   const[account,setAccount]=useState<{email:string;method:"password";seasonPassActive:boolean;seasonPassEndsAt:string|null}|null>(null);
@@ -493,7 +497,7 @@ function TeamBar({data,revision,onTeamChange}:{data:FplData|null;revision:number
 
 function OverviewDeadlineStrip({event}:{event:{name:string;deadline:string}}){
   return <section className="overview-deadline" aria-label="Upcoming gameweek">
-    <div><span>UP NEXT</span><h2>{event.name}</h2>
+    <div><span>Up next</span><h2>{event.name}</h2>
       <p className="overview-deadline-when">Deadline · {new Date(event.deadline).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
     </div>
   </section>;
@@ -565,7 +569,8 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
   const inPlay=liveEvent(data.events);
   const inPlayLock=inPlay?lockForLiveEvent(inPlay,readLocks<LockRecord>()):null;
   const priceTeaser=buildPriceSheet({squad,players:data.players,outPlayerId:wd?.action==="MAKE"?wd.outPlayerId:null,inPlayerId:wd?.action==="MAKE"?wd.inPlayerId:null}).teaser;
-  const primaryCta={label:decisionHold?"Close the week: Final Check →":"Execute this move: Final Check →",view:"deadline" as View};
+  const primaryCta={label:decisionHold?"Run final check":"Review transfer",view:"deadline" as View};
+  const badge=decisionBadge(decisionHold?"HOLD":"MAKE",wd?.classification);
 
   return <div className="coach-page overview-command">
     {/* Demo banner lives in coach chrome once. */}
@@ -579,23 +584,30 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
         try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}
         if(live.updated)onTeamChange();
       }}/></Suspense>:<>
-      <section className="recommended-move best-decision-hero overview-best-decision" aria-label="Best decision">
+      {/* 1 What should I do · 2 Why · 3 What next. Supporting numbers follow in the cards below. */}
+      <section className="recommended-move best-decision-hero overview-best-decision decision-card" aria-label="This week's call">
         <div className="call-label">
-          <span>{wildcardActive?"WILDCARD THIS WEEK":"THIS WEEK'S CALL"}</span>
-          <b className={decisionHold?"badge-hold":"badge-make"}>{!wd?"…":decisionHold?(wildcardActive?"KEEP":"HOLD"):"MAKE"}</b>
+          <span>{wildcardActive?"Wildcard this week":"This week's call"}</span>
+          <b className={`decision-badge badge-${badge.tone}`} title={badge.meaning}>{wd?badge.text:"…"}</b>
         </div>
-        <h2>{!wd?"Calculating this week's call…":decisionHold
-          ?(wildcardActive?"KEEP — leave this Wildcard squad unchanged":"HOLD — no transfer this week")
-          :`${wd.outName} → ${wd.inName}`}</h2>
-        <div className="engine-why" aria-label="Why"><span>WHY</span><p className="engine-reason-hero">{shortReason}</p></div>
+        <h2 className="decision-move">{!wd?"Calculating this week's call…":decisionHold
+          ?(wildcardActive?"Keep your Wildcard squad":"Keep this week — no transfer")
+          :<><span>{wd.outName}</span><i aria-label="replaced by">→</i><span>{wd.inName}</span></>}</h2>
+        <div className="engine-why" aria-label="Why"><span>Why</span><p className="engine-reason-hero">{plainReason(shortReason)}</p></div>
+        {wd&&!decisionHold&&<p className="decision-projection"><b>{signedPoints(wd.net5gw)} pts</b> estimated over the next 5 gameweeks vs keeping your squad{wd.hitCost?`, after a −${wd.hitCost} hit`:", no hit"}.</p>}
+        {wd&&!decisionHold&&<p className="decision-confidence-line"><b>Model confidence: {confidenceBand(wd.confidence)??"n/a"}{wd.confidence!=null?` (${Math.round(wd.confidence*100)}%)`:""}</b> · how much evidence backs the projection for {wd.inName}{wd.risk?`; risk ${wd.risk.toLowerCase()}`:""}. Estimates can miss.</p>}
         {!wildcardActive&&ftAssumed&&<small className="brief-assumption">FT assumed: {fts}</small>}
-      <div className="command-metrics overview-captain-metrics" aria-label="Captain and projected points">
-        <article><span>CAPTAIN</span><b>{activeCaptain.name}</b><small>{captainTerm.toFixed(1)} xPts{plannedChip==="Triple Captain"?" · Triple Captain":""}</small></article>
-        <article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></article>
-      </div>
-      <button type="button" className="overview-transfers-link overview-primary-cta" onClick={()=>go(primaryCta.view)} {...warm(primaryCta.view)}>{primaryCta.label}</button>
-      {wd?.action==="MAKE"&&<FplMoveLink decision={wd} captainName={data.players.find(p=>p.id===canonicalCaptainId)?.name??null} variant="secondary"/>}
+        <div className="decision-actions">
+          <button type="button" className="overview-transfers-link overview-primary-cta" onClick={()=>go(primaryCta.view)} {...warm(primaryCta.view)}>{primaryCta.label}</button>
+          <button type="button" className="decision-secondary" onClick={()=>go("transfers")} {...warm("transfers")}>Compare options</button>
+        </div>
+        {wd?.action==="MAKE"&&<FplMoveLink decision={wd} captainName={data.players.find(p=>p.id===canonicalCaptainId)?.name??null} variant="secondary"/>}
       </section>
+      <div className="command-metrics overview-captain-metrics" aria-label="Supporting projections">
+        <article><span>Projected XI points · {next.name.replace("Gameweek ","GW")}</span><b>{projected.toFixed(1)}</b><small>estimated, including {activeCaptain.name} as captain{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></article>
+        <article><span>Captain</span><b>{activeCaptain.name}</b><small>{captainTerm.toFixed(1)} estimated xPts{plannedChip==="Triple Captain"?" · Triple Captain":""}</small></article>
+        <article><span>Model confidence</span><b>{wd&&!decisionHold&&wd.confidence!=null?`${confidenceBand(wd.confidence)} · ${Math.round(wd.confidence*100)}%`:"—"}</b><small>{wd&&!decisionHold&&wd.confidence!=null?"Evidence strength for the incoming player. Not a guarantee.":"Shown when a transfer is recommended."}</small></article>
+      </div>
       </>}
     </section>
 

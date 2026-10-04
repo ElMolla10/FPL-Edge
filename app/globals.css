@@ -1,136 +1,79 @@
 @import "tailwindcss";
-:root{--ink:#07100d;--ink2:#0d1b16;--lime:#b9f43b;--green:#25d27d;--wline:rgba(255,255,255,.12);--paper:#f3f5ee;--text:#07100d;--text-muted:#66766e;--surface-card:#ffffff;--surface-sunken:#f1f4ef;--line:rgba(8,18,14,.16);--surface-inverse:#07140f;--text-on-inverse:#ffffff;--text-muted-on-inverse:#99a9a0;--success-bg:#e6f3d4;--success-text:#426400;--warning-bg:#fff0c8;--warning-text:#77560d;--danger-bg:#ffe0da;--danger-text:#9a3428;--info-bg:#e4eefb;--info-text:#1d5a96}
-@media (prefers-color-scheme:dark){
-:root:not([data-theme="light"]){--paper:#0b120f;--text:#eef2ec;--text-muted:#93a39a;--surface-card:#141e19;--surface-sunken:#0e1712;--line:rgba(255,255,255,.12);--surface-inverse:#141e19;--text-muted-on-inverse:#93a39a;--success-bg:#132a1c;--success-text:#8fe3a6;--warning-bg:#2e2410;--warning-text:#f0c96a;--danger-bg:#2e1512;--danger-text:#f3897a;--info-bg:#101f2e;--info-text:#7cc0f0}
+/* FPL Edge visual identity v1.0 -- design tokens, themes, fonts and resets (base sheet; see docs/BRAND-IDENTITY.md).
+   Source of truth: design-tokens.json / brand.css of the identity pack. Dark is the DEFAULT on every first visit (the
+   OS colour scheme is deliberately ignored); light is an opt-in toggle stored in `fpl-edge-theme-v2` by the layout's
+   nonce'd head script. Fonts are self-hosted from /fonts (OFL licences next to them), never a third-party CDN. */
+@font-face{font-family:"Inter";font-style:normal;font-weight:100 500;font-display:swap;src:url(/fonts/inter-latin-400.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD,U+0394,U+2190,U+2192,U+2194,U+2197,U+21D2,U+2211,U+2260,U+2264-2265,U+25C7,U+25CF,U+2605,U+2713,U+26A0}
+@font-face{font-family:"Inter";font-style:normal;font-weight:600 900;font-display:swap;src:url(/fonts/inter-latin-600.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD,U+0394,U+2190,U+2192,U+2194,U+2197,U+21D2,U+2211,U+2260,U+2264-2265,U+25C7,U+25CF,U+2605,U+2713,U+26A0}
+@font-face{font-family:"Inter";font-style:normal;font-weight:100 900;font-display:swap;src:url(/fonts/inter-latin-ext-var.woff2) format("woff2");unicode-range:U+0100-02AF,U+1E00-1EFF,U+2020,U+20A0-20CF,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Space Grotesk";font-style:normal;font-weight:300 700;font-display:swap;src:url(/fonts/space-grotesk-latin-var.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Space Grotesk";font-style:normal;font-weight:300 700;font-display:swap;src:url(/fonts/space-grotesk-latin-ext-var.woff2) format("woff2");unicode-range:U+0100-02AF,U+1E00-1EFF,U+2020,U+20A0-20CF,U+2113,U+2C60-2C7F,U+A720-A7FF}
+:root{
+  /* brand roles (dark = default) */
+  --canvas:#121614;--surface:#18201B;--surface-raised:#1F2A23;--border:#35443A;--text:#F7F7F5;--text-muted:#B3BEB5;
+  --lime:#B9F43B;--lime-hover:#C6F85F;--on-lime:#121614;--positive:#66D9A0;--warning:#F5C76B;--negative:#FF8D91;
+  --accent-text:#B9F43B;--positive-text:#66D9A0;--warning-text:#F5C76B;--negative-text:#FF8D91;
+  --selected-bg:#F7F7F5;--selected-text:#121614;--focus:#F7F7F5;--shadow-float:0 8px 24px rgba(0,0,0,.45);--scrim:rgba(8,11,9,.72);
+  --success-bg:#233A2E;--success-text:#66D9A0;--warning-bg:#373726;--warning-line:#6B6238;--danger-bg:#382F2C;--danger-text:#FF8D91;--info-bg:#1F2A23;--info-text:#F7F7F5;
+  --fdr-1:#66D9A0;--fdr-2:#BFE8C8;--fdr-3:#E7E2C4;--fdr-4:#F5B8A8;--fdr-5:#FF8D91;--fdr-ink:#121614;
+  --pitch-grass:#1E4D38;
+  /* typography */
+  --font-ui:"Inter",ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --font-display:"Space Grotesk",var(--font-ui);
+  /* shape, space, layout */
+  --r-control:8px;--r-card:16px;--r-sheet:24px;--r-badge:4px;
+  --sidebar-w:224px;--content-max:1280px;--gutter:32px;--tap:44px;--ease-fast:140ms;
+  color-scheme:dark;
 }
-[data-theme="dark"]{--paper:#0b120f;--text:#eef2ec;--text-muted:#93a39a;--surface-card:#141e19;--surface-sunken:#0e1712;--line:rgba(255,255,255,.12);--surface-inverse:#141e19;--text-muted-on-inverse:#93a39a;--success-bg:#132a1c;--success-text:#8fe3a6;--warning-bg:#2e2410;--warning-text:#f0c96a;--danger-bg:#2e1512;--danger-text:#f3897a;--info-bg:#101f2e;--info-text:#7cc0f0}
+[data-theme="light"]{--lime-hover:#A9E02D;
+  --canvas:#F7F7F5;--surface:#FFFFFF;--surface-raised:#EDF2EC;--border:#D7DFD8;--text:#121614;--text-muted:#526057;
+  --accent-text:#121614;--positive-text:#0B6B3A;--warning-text:#7A5200;--negative-text:#B3261E;
+  --selected-bg:#121614;--selected-text:#F7F7F5;--focus:#121614;--shadow-float:0 8px 24px rgba(18,22,20,.16);--scrim:rgba(18,22,20,.48);
+  --success-bg:#E3F4EA;--success-text:#0B6B3A;--warning-bg:#FFF3D6;--warning-line:#E3C57F;--danger-bg:#FFE6E7;--danger-text:#B3261E;--info-bg:#EDF2EC;--info-text:#121614;
+  color-scheme:light;
+}
 *{box-sizing:border-box}
-html{scroll-behavior:smooth;background:var(--canvas);color-scheme:dark}
-[data-theme="light"]{color-scheme:light}
-body{margin:0;background:var(--canvas);color:var(--text);font-family:Arial,Helvetica,sans-serif;min-height:100%;min-height:100dvh}
-button,a{font:inherit}
+html{scroll-behavior:smooth;background:var(--canvas);-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--canvas);color:var(--text);font-family:var(--font-ui);font-size:16px;line-height:1.5;min-height:100%;min-height:100dvh;-webkit-font-smoothing:antialiased}
+button,a,input,select,textarea{font:inherit}
 button{cursor:pointer}
 a{color:inherit;text-decoration:none}
 footer{background:var(--canvas);color:var(--text)}
-/* Step 2 (marketing page redesign) removed the light-mode pin that used to live here --
-   the marketing page now adopts the real token system and respects the app-wide theme
-   default like everything else, per the explicit decision made when the overhaul was
-   approved. See app/page.tsx's Home() for the corresponding removal of data-theme="light". */
-/* ============================================================================
-   fpl.page-inspired redesign -- Step 1 of 5: design tokens + base primitives.
-   Purely additive: no existing selector below this line is modified, and none
-   of the primitive classes introduced here (.btn / .panel / .data-row) are
-   referenced by any page yet, so nothing renders differently until a later
-   step actually applies them. The app's light/dark DEFAULT is unchanged this
-   round (still OS-driven via the existing :root/[data-theme] mechanism above)
-   -- flipping the default to dark is deferred to the shell/nav step, since it
-   requires touching app/layout.tsx and CoachApp.tsx's ThemeToggle, both out
-   of scope here.
-
-   Raw two-value color pairs, as approved. Note: the approved dark-mode page
-   background is named --canvas-dark/--canvas-light here, NOT --ink -- the
-   existing --ink (#07100d, defined at the top of this file) is a distinct,
-   already-widely-used marketing-page brand color and keeps its own value
-   untouched; reusing its name for this different color/role would have
-   silently repainted the marketing page. --hairline-dark/--hairline-light
-   are also a deliberately separate pair from the existing --line token above
-   (different value, different pattern) -- don't merge the two without
-   re-deriving whether that's actually safe first. */
-:root{
-  --canvas-dark:#14181A;
-  --canvas-light:#F6F7F5;
-  --hairline-dark:rgba(246,247,245,0.12);
-  --hairline-light:#DEE2DE;
-  --pitch-dark:#5C9A8A;
-  --pitch-light:#2F5D50;
-  --rise-dark:#5C9A8A;
-  --rise-light:#2F5D50;
-  --fall-dark:#B0523E;
-  --fall-light:#8C3A2B;
-
-  /* Approved: Inter (--font-ui) and Fraunces at weight 300 (--font-display), both
-     loaded via next/font/google in app/layout.tsx, which sets --font-inter/--font-fraunces
-     on <html>. The system stack after each stays as the fallback next/font itself falls
-     back to before the webfont loads (display:"swap"), and as safety if the variable is
-     ever missing. */
-  --font-ui:var(--font-inter),ui-sans-serif,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  --font-display:var(--font-fraunces),Georgia,"Times New Roman",serif;
-
-  /* Theme-reactive aliases, following the exact same light-default/dark-override
-     pattern as the existing tokens above -- so primitives can reference one
-     name (--canvas, --hairline, --pitch, --rise, --fall) and get the correct
-     value under today's OS-driven mechanism now, with zero rework needed once
-     a later step flips the default. */
-  --canvas:var(--canvas-light);
-  --hairline:var(--hairline-light);
-  --pitch:var(--pitch-light);
-  --rise:var(--rise-light);
-  --fall:var(--fall-light);
-
-  /* --pitch-ink: the readable text/icon color for content sitting ON var(--pitch).
-     Added while wiring step 2 (marketing page), which needed this exact "text on
-     the accent color" pairing in three places (.btn-primary, .proof-strip,
-     .pro-tag) -- extracted once here instead of repeating the same two-rule
-     dark-mode override three times. pitch-light (#2F5D50, dark forest green)
-     needs light ink; pitch-dark (#5C9A8A, mid-tone teal) needs dark ink -- the
-     inverse of how --canvas itself flips, which is why this needs its own
-     alias rather than reusing --canvas. */
-  --pitch-ink:var(--canvas-light);
+:focus-visible{outline:3px solid var(--focus);outline-offset:3px;border-radius:var(--r-control)}
+@media (prefers-reduced-motion:reduce){
+html{scroll-behavior:auto}
+*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
-@media (prefers-color-scheme:dark){
-:root:not([data-theme="light"]){
-    --canvas:var(--canvas-dark);
-    --hairline:var(--hairline-dark);
-    --pitch:var(--pitch-dark);
-    --rise:var(--rise-dark);
-    --fall:var(--fall-dark);
-    --pitch-ink:var(--canvas-dark);
-  }
-}
-[data-theme="dark"]{
-  --canvas:var(--canvas-dark);
-  --hairline:var(--hairline-dark);
-  --pitch:var(--pitch-dark);
-  --rise:var(--rise-dark);
-  --fall:var(--fall-dark);
-  --pitch-ink:var(--canvas-dark);
-}
-/* ─── Native <select>/<option> dark-theme contrast (site-wide) ─────────────
-   Symptom: opened native select popups showed a white/system list with light
-   option text (near-invisible) under dark chrome — same root cause as the
-   earlier Players filter fix (.players-select): browsers paint the option-list
-   popup from the <select>'s own background/color pair. Transparent/default
-   background + inherited light `color` ⇒ white popup + light text.
-
-   Global rule: always pair an opaque theme surface with theme text tokens so
-   every native select inherits readable closed chrome and (where the browser
-   allows) readable option lists. color-scheme already flips on html /
-   [data-theme="light"]; inherit it so OS pickers can prefer a dark chrome.
-
-   Limitation: some mobile OS native pickers ignore CSS on <option>; closed
-   select chrome and desktop Chromium/Firefox option lists are still fixed.
-   ──────────────────────────────────────────────────────────────────────── */
-select{
-  background-color:var(--surface-card);
-  color:var(--text);
-  color-scheme:inherit;
-}
-option{
-  background-color:var(--surface-card);
-  color:var(--text);
-}
-@media (max-width:850px){
+/* Native <select>/<option>: opaque theme surface + theme text so OS pickers stay readable in both themes. */
+select{background-color:var(--surface);color:var(--text);color-scheme:inherit}
+option{background-color:var(--surface);color:var(--text)}
+@media (max-width:1023px){
 body{overflow-x:clip}
 }
-/* ─── Kevin QA P0/P1: phone tab clearance · dual-active CSS helpers · overflow ─── */
+/* Phone bottom-bar clearance (safe-area aware) -- the tab bar and its 120px of team-bar room. */
 :root{
-  --phone-tab-content-h:56px; /* padding-top 8 + button min-height 48 */
-  --phone-tab-h:calc(var(--phone-tab-content-h) + max(16px,env(safe-area-inset-bottom,0px)));
-  --phone-main-pad-bottom:calc(var(--phone-tab-h) + 120px); /* team-bar room + last cards */
+  --phone-tab-content-h:64px;
+  --phone-tab-h:calc(var(--phone-tab-content-h) + max(8px,env(safe-area-inset-bottom,0px)));
+  --phone-main-pad-bottom:calc(var(--phone-tab-h) + 120px);
 }
-@media (max-width:850px){
+@media (max-width:1023px){
 html{scroll-padding-bottom:var(--phone-tab-h)}
 }
 @media (max-width:899px){
 html{scroll-padding-bottom:calc(132px + env(safe-area-inset-bottom))}
 }
+/* typeset wordmark (narrow navigation / footers): FPL lime + EDGE chalk on dark; near-black type + a small lime rule on light */
+.fpl-wordmark{display:inline;font-family:var(--font-display);font-style:normal;font-weight:700;letter-spacing:-.01em;line-height:1;white-space:nowrap;text-transform:none}
+.fpl-wordmark-fpl{color:var(--lime)}
+.fpl-wordmark-edge{color:var(--text)}
+[data-theme="light"] .fpl-wordmark-fpl{color:var(--text);box-shadow:inset 0 -.2em var(--lime)}
+.brand{display:inline-flex;align-items:center;gap:11px;font-weight:600;letter-spacing:-.03em;border:0;background:transparent;color:inherit}
+.brand-logo{display:block;width:48px;height:48px;border-radius:0;box-shadow:none}
+/* light-theme switch (public header + app sidebar): 44px target, pressed = light on */
+.theme-toggle{display:inline-flex;align-items:center;gap:8px;min-height:var(--tap);min-width:var(--tap);padding:0 12px;border:1px solid var(--text-muted);border-radius:var(--r-control);background:transparent;color:var(--text);font-size:14px;font-weight:500;line-height:1;justify-content:center;transition:background-color var(--ease-fast),border-color var(--ease-fast)}
+.theme-toggle:hover{background:var(--surface-raised)}
+.theme-toggle[aria-pressed="true"]{border-color:var(--text);background:var(--surface-raised)}
+.theme-toggle-icon{flex:none}
+.theme-toggle-state{margin-left:auto;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted)}
+.theme-toggle-compact{padding:0}
+.theme-toggle-compact .theme-toggle-state{display:none}

@@ -213,4 +213,4 @@ export function Coach({data,go,revision,onTeamChange}:{data:FplData;go:(v:View)=
   </div>;
 }
 
-function CoachAnswerCard({label,children}:{label:string;children:ReactNode}){return <section className="coach-answer-card"><span>{label.toUpperCase()}</span>{children}</section>}
+function CoachAnswerCard({label,children}:{label:string;children:ReactNode}){return <section className="coach-answer-card" aria-live="polite"><span>{label}</span>{children}</section>}

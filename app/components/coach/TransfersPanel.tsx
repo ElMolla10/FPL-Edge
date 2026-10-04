@@ -1,4 +1,5 @@
 "use client";
+import {decisionBadge,plainReason} from "../../lib/decision-badge";
 import {FplMoveLink} from "../FplMoveLink";
 
 import "../../styles/panel-transfers.css";
@@ -140,11 +141,11 @@ export function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{da
           Presentation only — do not change transfer-engine ranking / classification / NET math.
           Route planner card CONTENT frozen (E): TransferRoutePlanner body fields/solver copy untouched. */}
       <section className="recommended-move best-decision-hero" aria-label="Best decision">
-        <div className="call-label"><span>{wildcardActive?"WILDCARD BEST SWAP":"BEST DECISION"}</span><b className={decisionHold?"badge-hold":"badge-make"}>{decisionHold?(wildcardActive?"KEEP":"HOLD"):(decision!.classification??"MAKE")}</b></div>
-        <h2>{!wd?"Calculating this week's call…":decisionHold?(wildcardActive?"KEEP — leave this temporary Wildcard squad unchanged":"HOLD — do not transfer now"):`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
-        <p className="best-decision-lede">{decisionHold
+        <div className="call-label"><span>{wildcardActive?"Wildcard best swap":"Best decision"}</span><b className={`decision-badge badge-${decisionBadge(decisionHold?"HOLD":"MAKE",decision?.classification).tone}`} title={decisionBadge(decisionHold?"HOLD":"MAKE",decision?.classification).meaning}>{decisionBadge(decisionHold?"HOLD":"MAKE",decision?.classification).text}</b></div>
+        <h2>{!wd?"Calculating this week's call…":decisionHold?(wildcardActive?"Keep your temporary Wildcard squad":"Keep this week — do not transfer now"):`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
+        <p className="best-decision-lede">{plainReason(decisionHold
           ?(wildcardActive?"Should I swap on Wildcard? No strong full-squad upgrade clears the bar — keep iterating the temporary squad before the deadline.":fts<=0?"Should I transfer? No — with 0 FT, no move clears the hit-adjusted NET vs the type-B HOLD plan (bank FT, keep future free upgrades).":"Should I transfer? No — HOLD now, bank the free transfer, and keep future free upgrades available.")
-          :(wildcardActive?`Should I swap on Wildcard? Yes — full-squad objective improves without using FT or hit logic.`:`Should I transfer? Yes — clears the risk-adjusted 5-GW NET vs HOLD bar.`)}</p>
+          :(wildcardActive?`Should I swap on Wildcard? Yes — full-squad objective improves without using FT or hit logic.`:`Should I transfer? Yes — clears the risk-adjusted 5-GW NET vs HOLD bar.`))}</p>
         {wd&&!wildcardActive&&<FplMoveLink decision={wd} captainName={data.players.find(p=>p.id===wd.captainId)?.name??null} variant="secondary"/>}
         <div className="best-decision-metrics" aria-label="Decision metrics">
           <span><small>{wildcardActive?"MODE":"HIT"}</small><b>{wildcardActive?"Wildcard":(decisionHold?"Free":(decision!.hitLabel??(decision!.hitCost?`−${decision!.hitCost}`:"Free")))}</b></span>
@@ -162,7 +163,7 @@ export function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{da
         {!wildcardActive&&!decisionHold&&decision&&decision.nextGwGross!=null&&decision.holdNextGwGross!=null&&<p className="best-decision-immediate" aria-label="Immediate this-GW net">Immediate (this GW) net {(((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost)>=0)?"+":""}{((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost).toFixed(1)} — secondary to 5-GW NET above; expand any route for the full hit breakdown.</p>}
         <div className="engine-why" aria-label="Why">
           <span>WHY</span>
-          <p className="engine-reason-hero">{decisionHold?(decision?.engineReason??(wildcardActive?"Wildcard KEEP: no swap clears the full-squad bar; unlimited changes remain until the deadline.":"Type-B HOLD: no transfer now; future free transfers stay available.")):(decision?.engineReason??"")}</p>
+          <p className="engine-reason-hero">{plainReason(decisionHold?(decision?.engineReason??(wildcardActive?"Wildcard KEEP: no swap clears the full-squad bar; unlimited changes remain until the deadline.":"Type-B HOLD: no transfer now; future free transfers stay available.")):(decision?.engineReason??""))}</p>
         </div>
         {decisionHold&&bestAlt&&<aside className="best-decision-alt"><span>BEST ALTERNATIVE</span><b>{bestAlt.out.name} → {bestAlt.incoming.name}</b><small>{bestAlt.classification??"WATCH"} · {wildcardActive?"Wildcard":(bestAlt.hitLabel??(bestAlt.hitCost?`−${bestAlt.hitCost}`:"Free"))} · {wildcardActive?"5-GW squad Δ":"5-GW NET vs HOLD"} {(bestAlt.fiveGwNetVsHold??bestAlt.netEv5??0)>=0?"+":""}{(bestAlt.fiveGwNetVsHold??bestAlt.netEv5??0).toFixed(1)} · risk-adj {(bestAlt.riskAdjustedFiveGwNetVsHold??bestAlt.riskAdjustedNet5??0)>=0?"+":""}{(bestAlt.riskAdjustedFiveGwNetVsHold??bestAlt.riskAdjustedNet5??0).toFixed(1)}</small><p>{bestAlt.engineReason??""}</p></aside>}
         {!decisionHold&&a&&decision&&<PersonalTransferPlace elementOut={decision.out.id} elementIn={decision.incoming.id} event={a.first} purchasePrice={decision.incoming.price} outName={decision.out.name} inName={decision.incoming.name} note="Shortcut for the best decision — expand any ranked route below, or use Draft Lab sandbox, to place a different transfer."/>}

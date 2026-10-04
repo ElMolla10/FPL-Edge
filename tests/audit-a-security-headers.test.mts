@@ -108,7 +108,7 @@ test("built worker (dist) serves HTML with enforcing CSP whose nonce matches eve
   const tags = html.match(/<script(?![^>]*\bsrc=)[^>]*>/g) ?? [];
   assert.ok(tags.length >= 3, "expected vinext + theme inline scripts");
   for (const tag of tags) assert.ok(tag.includes(`nonce="${nonce}"`), `inline script without nonce: ${tag}`);
-  const themeTag = html.match(/<script[^>]*>try\{var t=localStorage/);
+  const themeTag = html.match(/<script[^>]*>try\{var s=localStorage/);
   assert.ok(themeTag?.[0].includes(`nonce="${nonce}"`), "theme-init script carries the nonce");
   // a client-supplied CSP request header can't inject its own nonce
   const spoof = await worker.fetch(new Request("https://fpl-edge.example.workers.dev/", { headers: { accept: "text/html", "content-security-policy": "script-src 'nonce-EVIL'" } }), env, ctx);

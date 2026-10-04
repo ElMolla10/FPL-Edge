@@ -80,5 +80,7 @@ test("user-facing projection strength is called Projection evidence, not Model c
     "../app/lib/transfer-quality.ts",
   ].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
   assert.match(sources, /Projection evidence/);
-  assert.doesNotMatch(sources, /Model confidence|model confidence|player-confidence|Route confidence|Confidence IN/);
+  // Brand identity: the Overview shows one separate "Model confidence" card (engine evidence strength for the
+  // incoming player, explained in-line). The per-player/route confusions below stay banned.
+  assert.doesNotMatch(sources, /player-confidence|Route confidence|Confidence IN/);
 });
