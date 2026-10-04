@@ -67,7 +67,7 @@
 .paper-form-step .paper-form-actions{margin-top:12px}
 .paper-form-message{margin-top:16px;padding:12px 14px;border-radius:var(--r-control);border-left:4px solid var(--text-muted);background:var(--surface-raised);color:var(--text);font-size:14px;line-height:20px}
 .paper-form-switch{margin-top:16px;color:var(--text-muted);font-size:14px;line-height:20px}
-.paper-form-switch a{color:var(--text);font-weight:600;text-decoration:underline;text-decoration-color:var(--lime);text-decoration-thickness:2px;text-underline-offset:4px}
+.paper-form-switch a{display:inline-flex;align-items:center;min-height:var(--tap);color:var(--text);font-weight:600;text-decoration:underline;text-decoration-color:var(--lime);text-decoration-thickness:2px;text-underline-offset:4px}
 .paper-form-page{padding-bottom:0}
 @media (min-width:720px){
 .paper-form-wrap{padding:48px 0 96px}
@@ -90,7 +90,7 @@
 .paper-steps li.is-current b{background:var(--lime);border-color:var(--lime);color:var(--on-lime)}
 .paper-steps li.is-done b{background:var(--surface-raised);color:var(--text)}
 .paper-legal{display:flex;flex-wrap:wrap;gap:4px 20px;font-size:14px;margin-top:16px}
-.paper-legal a{display:inline-flex;align-items:center;min-height:var(--tap);color:var(--text-muted);text-decoration:underline;text-underline-offset:4px}
+.paper-legal a{display:inline-flex;align-items:center;min-height:var(--tap);min-width:var(--tap);color:var(--text-muted);text-decoration:underline;text-underline-offset:4px}
 .paper-legal a:hover{color:var(--text)}
 .paper-trust-line{border-left:4px solid var(--lime);padding:8px 12px;margin-top:16px;font-size:14px;display:grid;gap:6px}
 .paper-trust-line a{color:var(--text);text-decoration:underline;text-underline-offset:4px}

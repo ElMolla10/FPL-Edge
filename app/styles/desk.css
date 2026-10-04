@@ -578,7 +578,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .paper-form-step .paper-form-actions{margin-top:12px}
 .paper-form-message{margin-top:16px;padding:12px 14px;border-radius:var(--r-control);border-left:4px solid var(--text-muted);background:var(--surface-raised);color:var(--text);font-size:14px;line-height:20px}
 .paper-form-switch{margin-top:16px;color:var(--text-muted);font-size:14px;line-height:20px}
-.paper-form-switch a{color:var(--text);font-weight:600;text-decoration:underline;text-decoration-color:var(--lime);text-decoration-thickness:2px;text-underline-offset:4px}
+.paper-form-switch a{display:inline-flex;align-items:center;min-height:var(--tap);color:var(--text);font-weight:600;text-decoration:underline;text-decoration-color:var(--lime);text-decoration-thickness:2px;text-underline-offset:4px}
 @media (min-width:720px){
 .paper-form{padding:32px}
 }
@@ -670,7 +670,7 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .price-sheet-row ol{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0;padding:0;list-style:none}
 .price-sheet-row li{display:flex;flex-direction:column;padding:6px 8px;border-radius:6px;background:var(--surface-raised);font-weight:600}
 .price-sheet .rise{color:var(--accent-text)}
-.price-sheet .fall{color:var(--warning,var(--negative))}
+.price-sheet .fall{color:var(--warning-text)}
 .price-sheet-back{margin-top:12px}
 .overview-live-lock{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;width:100%;margin:0 0 12px;padding:12px 16px;background:var(--surface);border:1px solid var(--accent-text);border-radius:9px;text-align:left;color:inherit;cursor:pointer}
 .overview-live-lock span{font-size:12px;font-weight:600;letter-spacing:.06em;color:var(--accent-text)}
