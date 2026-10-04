@@ -743,3 +743,5 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 @media (max-width:1023px){
   .coach-main{padding-left:max(20px,calc(20px + env(safe-area-inset-left,0px)));padding-right:max(20px,calc(20px + env(safe-area-inset-right,0px)))}
 }
+.empty-command .wide-action{background:var(--lime);color:var(--on-lime);border:0}
+.empty-command .wide-action:hover{background:var(--lime-hover)}

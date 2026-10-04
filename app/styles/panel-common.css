@@ -642,7 +642,7 @@
 .coach-intent-picker button{border:1px solid var(--border);background:var(--surface);padding:11px 15px;font-size:13px;font-weight:600}
 .coach-intent-picker button.active{background:var(--surface-raised);color:var(--text);border-color:var(--surface-raised)}
 .coach-answer-card{background:var(--surface);border-radius:9px;padding:22px;margin-top:14px;display:flex;flex-direction:column;gap:12px}
-.coach-answer-card>span{font-size:12px;color:var(--success-text);font-weight:600;letter-spacing:.08em}
+.coach-answer-card>span{font-size:12px;color:var(--success-text);font-weight:600;letter-spacing:.08em;text-transform:uppercase}
 .coach-answer-card select{border:1px solid var(--border);background:var(--canvas);color:var(--text);padding:10px;font-size:13px;align-self:flex-start}
 .coach-answer-card p{font-size:14px;line-height:1.55;margin:0;background:var(--canvas);padding:14px;border-radius:6px}
 .signin-action small{max-width:240px;font-size:13px;line-height:1.35;color:var(--text-muted);text-align:right}
