@@ -33,7 +33,7 @@ const PAIRS: [string, string, number][] = [
   ["--warning-text", "--warning-bg", 4.5],
   ["--selected-text", "--selected-bg", 4.5],
   ["--fdr-ink", "--fdr-1", 4.5], ["--fdr-ink", "--fdr-2", 4.5], ["--fdr-ink", "--fdr-3", 4.5], ["--fdr-ink", "--fdr-4", 4.5], ["--fdr-ink", "--fdr-5", 4.5],
-  // non-text: focus ring and the secondary-button outline against the surfaces they sit on
+  // non-text: focus outline and the secondary-button outline against the surfaces they sit on
   ["--focus", "--canvas", 3], ["--focus", "--surface", 3], ["--focus", "--surface-raised", 3],
   ["--text-muted", "--canvas", 3],
 ];
