@@ -22,7 +22,7 @@
 .paper h1{margin:0;font-size:40px;line-height:44px;font-weight:700;letter-spacing:-.03em}
 .paper h2{margin:0 0 4px;font-size:24px;line-height:30px}
 .paper-wrap{width:auto;margin:0 max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left))}
-.paper-header{position:sticky;top:0;z-index:20;height:calc(64px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top);box-sizing:border-box;background:var(--canvas);border-bottom:1px solid transparent}
+.paper-header{position:sticky;top:0;z-index:20;height:calc(76px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top);box-sizing:border-box;background:var(--canvas);border-bottom:1px solid transparent}
 .paper-header.is-scrolled{border-bottom-color:var(--border)}
 .paper-header-inner{height:100%;display:flex;align-items:center;justify-content:space-between;gap:12px}
 .paper-wordmark{display:inline-flex;align-items:center;min-height:var(--tap);font-size:16px;text-decoration:none}
@@ -44,7 +44,8 @@
 .paper-lead,.paper-why,.paper-row p,.paper-term,.paper-lines,.paper-note{font-size:18px;line-height:28px}
 .paper h1{font-size:64px;line-height:68px;letter-spacing:-.035em}
 .paper-wrap{width:min(1120px,calc(100% - 64px));margin:0 auto}
-.paper-header{height:calc(72px + env(safe-area-inset-top))}
+.paper-header{height:calc(88px + env(safe-area-inset-top))}
+.paper-header .brand-logo{width:64px;height:64px}
 }
 .paper-btn.paper-demo{background:transparent;color:var(--text);border:1px solid var(--text-muted)}
 .paper-btn.paper-demo:hover{background:var(--surface-raised)}

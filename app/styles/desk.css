@@ -719,8 +719,9 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .weekly-brief .overview-captain-metrics{grid-template-columns:1fr}
   .weekly-brief .decision-card .overview-primary-cta,.decision-secondary{flex:1 1 100%}
 }
-/* Brand: the supplied logo tile sits (unchanged, 48px) at the top of the full sidebar; the typeset wordmark is only the narrow-layout mark. */
-.coach-sidebar .sidebar-brand{padding:0;margin:0 0 32px;min-height:48px;display:flex;align-items:center}
+/* Brand: the supplied logo tile sits (unchanged, 64px) at the top of the full sidebar; the typeset wordmark is only the narrow-layout mark. */
+.coach-sidebar .sidebar-brand{padding:0;margin:0 0 32px;min-height:64px;display:flex;align-items:center}
+.coach-sidebar .sidebar-brand .brand-logo{width:64px;height:64px}
 @media (min-width:1024px){.header-wordmark{display:none}}
 .coach-sidebar{border-right:1px solid var(--border)}
 .coach-sidebar nav button,.sidebar-drop button{min-height:40px;transition:background-color .14s,color .14s}
