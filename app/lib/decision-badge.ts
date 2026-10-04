@@ -33,3 +33,14 @@ export function signedPoints(n: number): string {
   const v = Math.round(n * 10) / 10;
   return `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`;
 }
+
+/** Display-only wording pass on the engine's own sentence: same facts, no HOLD / NET jargon. */
+export function plainReason(reason: string): string {
+  return reason
+    .replace(/\bType-B HOLD\b/g, "Keep")
+    .replace(/\bvs\.? HOLD\b/gi, "vs keeping")
+    .replace(/\bHOLD\b/g, "keep")
+    .replace(/\brisk-adj\b/g, "risk-adjusted")
+    .replace(/\b5-GW NET\b/g, "5-gameweek net")
+    .replace(/\b3-GW NET\b/g, "3-gameweek net");
+}

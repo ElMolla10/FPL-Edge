@@ -1,31 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { THEME_COLOR, THEME_KEY, resolveTheme, type Theme } from "../lib/theme";
 
+const listeners = new Set<() => void>();
 function apply(theme: Theme) {
   document.documentElement.setAttribute("data-theme", theme);
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[theme]);
+  listeners.forEach(l => l());
 }
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  // Another tab changed the stored choice: follow it (storage events never fire in the tab that wrote).
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === THEME_KEY) apply(resolveTheme(event.newValue));
+  };
+  window.addEventListener("storage", onStorage);
+  return () => { listeners.delete(listener); window.removeEventListener("storage", onStorage); };
+}
+const current = (): Theme => (document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark");
+const server = (): Theme => "dark";
 
 /** Accessible light-theme switch used on the public pages and in the app. Pressed = light theme on. Click is the only writer of the stored choice. */
 export function ThemeToggle({ compact = false }: { compact?: boolean }) {
-  const [theme, setTheme] = useState<Theme>("dark");
-  useEffect(() => {
-    setTheme(document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark");
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== THEME_KEY) return;
-      const next = resolveTheme(event.newValue);
-      apply(next);
-      setTheme(next);
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  const theme = useSyncExternalStore(subscribe, current, server);
   const toggle = () => {
     const next: Theme = theme === "light" ? "dark" : "light";
     apply(next);
-    setTheme(next);
     try { localStorage.setItem(THEME_KEY, next); } catch { /* private mode: the choice just lasts for this page */ }
   };
   return (

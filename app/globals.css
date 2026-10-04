@@ -18,19 +18,13 @@
   --selected-bg:#F7F7F5;--selected-text:#121614;--focus:#F7F7F5;--shadow-float:0 8px 24px rgba(0,0,0,.45);--scrim:rgba(8,11,9,.72);
   --success-bg:#233A2E;--success-text:#66D9A0;--warning-bg:#373726;--warning-line:#6B6238;--danger-bg:#382F2C;--danger-text:#FF8D91;--info-bg:#1F2A23;--info-text:#F7F7F5;
   --fdr-1:#66D9A0;--fdr-2:#BFE8C8;--fdr-3:#E7E2C4;--fdr-4:#F5B8A8;--fdr-5:#FF8D91;--fdr-ink:#121614;
-  --pitch-grass:#1E4D38;--pitch-grass-2:#1A4632;--pitch-line:rgba(247,247,245,.4);
+  --pitch-grass:#1E4D38;
   /* typography */
   --font-ui:"Inter","Inter Fallback",ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   --font-display:"Space Grotesk","Space Grotesk Fallback",var(--font-ui);
   /* shape, space, layout */
   --r-control:8px;--r-card:16px;--r-sheet:24px;--r-badge:4px;
-  --sidebar-w:224px;--content-max:1280px;--gutter:32px;--tap:44px;--ease-fast:140ms;--ease-sheet:200ms;
-  /* compatibility aliases for the pre-identity token names still used across the sheets */
-  --paper:var(--canvas);--surface-card:var(--surface);--surface-sunken:var(--canvas);--line:var(--border);--hairline:var(--border);
-  --ink:#121614;--ink2:#1F2A23;--green:var(--positive);--wline:var(--border);
-  --surface-inverse:var(--surface-raised);--text-on-inverse:var(--text);--text-muted-on-inverse:var(--text-muted);
-  --pitch:var(--lime);--pitch-ink:var(--on-lime);--rise:var(--positive-text);--fall:var(--negative-text);
-  --canvas-dark:#121614;--canvas-light:#F7F7F5;
+  --sidebar-w:224px;--content-max:1280px;--gutter:32px;--tap:44px;--ease-fast:140ms;
   color-scheme:dark;
 }
 [data-theme="light"]{--lime-hover:#A9E02D;
@@ -38,8 +32,6 @@
   --accent-text:#121614;--positive-text:#0B6B3A;--warning-text:#7A5200;--negative-text:#B3261E;
   --selected-bg:#121614;--selected-text:#F7F7F5;--focus:#121614;--shadow-float:0 8px 24px rgba(18,22,20,.16);--scrim:rgba(18,22,20,.48);
   --success-bg:#E3F4EA;--success-text:#0B6B3A;--warning-bg:#FFF3D6;--warning-line:#E3C57F;--danger-bg:#FFE6E7;--danger-text:#B3261E;--info-bg:#EDF2EC;--info-text:#121614;
-  --pitch-line:rgba(247,247,245,.55);
-  --surface-sunken:#EDF2EC;
   color-scheme:light;
 }
 *{box-sizing:border-box}

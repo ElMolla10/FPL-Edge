@@ -24,3 +24,12 @@ test("signed points use a real minus sign and one decimal", () => {
   assert.equal(signedPoints(-1.26), "−1.3");
   assert.equal(signedPoints(0), "+0.0");
 });
+
+import { plainReason } from "../app/lib/decision-badge.ts";
+test("plainReason only rewords, never changes numbers", () => {
+  const src = "Modelled +8.6 risk-adj 5-GW NET vs HOLD after Free hit; clears MAKE floor +2.0 with margin.";
+  const out = plainReason(src);
+  assert.equal(out, "Modelled +8.6 risk-adjusted 5-gameweek net vs keeping after Free hit; clears MAKE floor +2.0 with margin.");
+  assert.deepEqual(out.match(/\d+\.\d+/g), src.match(/\d+\.\d+/g));
+  assert.equal(plainReason("Type-B HOLD: no transfer now"), "Keep: no transfer now");
+});

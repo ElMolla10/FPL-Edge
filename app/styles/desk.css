@@ -119,7 +119,7 @@
 }
 .overview-jumps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .overview-jumps button{border:1px solid var(--border);background:var(--surface);padding:16px 14px;text-align:left;border-radius:8px;cursor:pointer;display:flex;flex-direction:column;gap:6px}
-.overview-jumps button:hover{border-color:var(--ink)}
+.overview-jumps button:hover{border-color:var(--text)}
 .overview-jumps button b{font-size:14px;font-weight:600;color:var(--text)}
 @media (max-width:1023px){
 .overview-jumps{grid-template-columns:1fr}
@@ -691,10 +691,10 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 }
 /* ── Decision card (Overview + Transfers hero): move first, evidence second, uncertainty third.
    One lime vertical rule marks the current recommendation. ── */
-.weekly-brief .decision-card.recommended-move{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--lime);border-radius:var(--radius-card);padding:24px;display:grid;gap:12px}
+.weekly-brief .decision-card.recommended-move{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--lime);border-radius:var(--r-card);padding:24px;display:grid;gap:12px}
 .decision-card .call-label{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .decision-card .call-label span{font-size:12px;line-height:16px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted)}
-.decision-badge{display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:var(--radius-badge);border:1px solid var(--border);font-size:12px;line-height:16px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.decision-badge{display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:var(--r-badge);border:1px solid var(--border);font-size:12px;line-height:16px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
 .decision-card .call-label b.decision-badge.badge-make,.best-decision-hero .call-label b.decision-badge.badge-make{background:var(--lime);color:var(--on-lime);border-color:var(--lime)}
 .decision-card .call-label b.decision-badge.badge-watch,.best-decision-hero .call-label b.decision-badge.badge-watch{background:var(--warning-bg);color:var(--warning-text);border-color:var(--warning-line)}
 .decision-card .call-label b.decision-badge.badge-keep,.best-decision-hero .call-label b.decision-badge.badge-keep{background:transparent;color:var(--text);border-color:var(--text-muted)}
@@ -707,10 +707,10 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .decision-confidence-line b{color:var(--text)}
 .decision-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:4px}
 .weekly-brief .decision-card .overview-primary-cta{min-width:200px;min-height:48px;margin:0;padding:0 24px;font-size:16px}
-.decision-secondary{min-height:48px;padding:0 20px;border:1px solid var(--text-muted);background:transparent;color:var(--text);border-radius:var(--radius-control);font-size:16px;font-weight:600;cursor:pointer;transition:background-color .14s,border-color .14s}
+.decision-secondary{min-height:48px;padding:0 20px;border:1px solid var(--text-muted);background:transparent;color:var(--text);border-radius:var(--r-control);font-size:16px;font-weight:600;cursor:pointer;transition:background-color .14s,border-color .14s}
 .decision-secondary:hover{background:var(--surface-raised);border-color:var(--text)}
 .weekly-brief .overview-captain-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
-.weekly-brief .overview-captain-metrics article{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:16px}
+.weekly-brief .overview-captain-metrics article{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:16px}
 .weekly-brief .overview-captain-metrics span{font-size:12px;line-height:16px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
 .weekly-brief .overview-captain-metrics b{font-family:var(--font-display);font-size:28px;line-height:32px;font-weight:700;font-variant-numeric:tabular-nums;margin:8px 0 4px}
 .weekly-brief .overview-captain-metrics small{font-size:14px;line-height:20px;display:block}
@@ -718,4 +718,28 @@ a.team-open{display:block;text-align:center;text-decoration:none}
   .weekly-brief .decision-card.recommended-move{padding:16px}
   .weekly-brief .overview-captain-metrics{grid-template-columns:1fr}
   .weekly-brief .decision-card .overview-primary-cta,.decision-secondary{flex:1 1 100%}
+}
+/* Brand: the supplied logo tile sits (unchanged, 48px) at the top of the full sidebar; the typeset wordmark is only the narrow-layout mark. */
+.coach-sidebar .sidebar-brand{padding:0;margin:0 0 32px;min-height:48px;display:flex;align-items:center}
+@media (min-width:1024px){.header-wordmark{display:none}}
+.coach-sidebar{border-right:1px solid var(--border)}
+.coach-sidebar nav button,.sidebar-drop button{min-height:40px;transition:background-color .14s,color .14s}
+/* Mobile More sheet: a bottom sheet (24px top radius), scrim behind, 200ms opacity/transform entrance. */
+.mobile-sheet{top:auto;max-height:calc(100dvh - 56px);border:1px solid var(--border);border-bottom:0;border-radius:var(--r-sheet) var(--r-sheet) 0 0;box-shadow:var(--shadow-float);padding-top:20px;animation:sheet-in .2s ease-out}
+.mobile-sheet::before{content:"";position:fixed;inset:0;background:var(--scrim);z-index:-1}
+.mobile-sheet h2{font-family:var(--font-display);font-size:24px;line-height:30px;letter-spacing:0}
+.mobile-sheet>header>button{width:var(--tap);height:var(--tap)}
+.sheet-section{margin:16px 0 0;font-size:12px;line-height:16px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted)}
+.sheet-account-note{margin:8px 0 0;font-size:14px;line-height:20px;color:var(--text-muted)}
+.sheet-theme{margin-top:8px}
+.sheet-theme .theme-toggle{width:100%;justify-content:flex-start}
+@keyframes sheet-in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+/* Layout: 224px sidebar, content max 1280, 32px gutters (20px on phones), 16/24 body. */
+.coach-shell{font-size:16px;line-height:1.5}
+@media (min-width:1024px){
+  .coach-main{padding:32px var(--gutter) 64px}
+  .coach-main>*{max-width:var(--content-max);margin-left:auto;margin-right:auto}
+}
+@media (max-width:1023px){
+  .coach-main{padding-left:max(20px,calc(20px + env(safe-area-inset-left,0px)));padding-right:max(20px,calc(20px + env(safe-area-inset-right,0px)))}
 }

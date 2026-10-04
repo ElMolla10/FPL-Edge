@@ -1,5 +1,5 @@
 "use client";
-import {decisionBadge} from "../../lib/decision-badge";
+import {decisionBadge,plainReason} from "../../lib/decision-badge";
 import {FplMoveLink} from "../FplMoveLink";
 
 import "../../styles/panel-transfers.css";
@@ -163,7 +163,7 @@ export function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{da
         {!wildcardActive&&!decisionHold&&decision&&decision.nextGwGross!=null&&decision.holdNextGwGross!=null&&<p className="best-decision-immediate" aria-label="Immediate this-GW net">Immediate (this GW) net {(((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost)>=0)?"+":""}{((decision.nextGwGross-decision.holdNextGwGross)-decision.hitCost).toFixed(1)} — secondary to 5-GW NET above; expand any route for the full hit breakdown.</p>}
         <div className="engine-why" aria-label="Why">
           <span>WHY</span>
-          <p className="engine-reason-hero">{decisionHold?(decision?.engineReason??(wildcardActive?"Wildcard KEEP: no swap clears the full-squad bar; unlimited changes remain until the deadline.":"Type-B HOLD: no transfer now; future free transfers stay available.")):(decision?.engineReason??"")}</p>
+          <p className="engine-reason-hero">{plainReason(decisionHold?(decision?.engineReason??(wildcardActive?"Wildcard KEEP: no swap clears the full-squad bar; unlimited changes remain until the deadline.":"Type-B HOLD: no transfer now; future free transfers stay available.")):(decision?.engineReason??""))}</p>
         </div>
         {decisionHold&&bestAlt&&<aside className="best-decision-alt"><span>BEST ALTERNATIVE</span><b>{bestAlt.out.name} → {bestAlt.incoming.name}</b><small>{bestAlt.classification??"WATCH"} · {wildcardActive?"Wildcard":(bestAlt.hitLabel??(bestAlt.hitCost?`−${bestAlt.hitCost}`:"Free"))} · {wildcardActive?"5-GW squad Δ":"5-GW NET vs HOLD"} {(bestAlt.fiveGwNetVsHold??bestAlt.netEv5??0)>=0?"+":""}{(bestAlt.fiveGwNetVsHold??bestAlt.netEv5??0).toFixed(1)} · risk-adj {(bestAlt.riskAdjustedFiveGwNetVsHold??bestAlt.riskAdjustedNet5??0)>=0?"+":""}{(bestAlt.riskAdjustedFiveGwNetVsHold??bestAlt.riskAdjustedNet5??0).toFixed(1)}</small><p>{bestAlt.engineReason??""}</p></aside>}
         {!decisionHold&&a&&decision&&<PersonalTransferPlace elementOut={decision.out.id} elementIn={decision.incoming.id} event={a.first} purchasePrice={decision.incoming.price} outName={decision.out.name} inName={decision.incoming.name} note="Shortcut for the best decision — expand any ranked route below, or use Draft Lab sandbox, to place a different transfer."/>}

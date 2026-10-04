@@ -63,7 +63,7 @@
 .watchlist-grid article>small{font-size:13px;color:var(--success-text)}
 .watchlist-grid footer{background:transparent;color:var(--text);margin-top:14px;display:flex;justify-content:space-between;gap:10px}
 .watchlist-grid footer>div{display:flex;gap:4px}
-.watchlist-grid footer i{font-style:normal;background:var(--canvas);color:var(--ink);padding:5px;font-size:12px}
+.watchlist-grid footer i{font-style:normal;background:var(--surface-raised);color:var(--text);padding:5px;font-size:12px}
 .watchlist-grid footer button{border:0;background:var(--danger-bg);color:var(--danger-text);font-size:12px;font-weight:600}
 .watch-compare-control{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .watch-compare-control small{font-size:13px;color:var(--success-text)}
