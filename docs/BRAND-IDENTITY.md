@@ -24,7 +24,9 @@ Old -> new (all call sites migrated, compatibility aliases removed): `--paper/--
 
 ## Theme
 
-Dark is the default for every first visit, regardless of OS setting. The nonce'd inline script in `<head>` (`app/lib/theme.ts`) reads only `fpl-edge-theme-v2`, written **only by a click on the toggle**. The old `fpl-edge-theme` key is deliberately ignored, so anyone who was auto-themed starts dark. `ThemeToggle` (`aria-pressed`, label "Light theme", 44px) is in every public page header, the sidebar and the mobile More sheet; other tabs follow through the `storage` event.
+Dark is the default whenever there is no explicit choice, regardless of OS setting. The nonce'd inline script in `<head>` (`app/lib/theme.ts`) reads `fpl-edge-theme-v2`, written **only by a click on the toggle**. `ThemeToggle` (`aria-pressed`, label "Light theme", 44px) is in every public page header, the sidebar and the mobile More sheet; other tabs follow through the `storage` event.
+
+**Legacy migration.** origin/main stored the choice in `fpl-edge-theme` (`"light"`/`"dark"`). In the old source (and every earlier revision containing the key) the only writer is the old sidebar switch's click handler (`persist("fpl-edge-theme", next)`); nothing wrote it automatically and the OS scheme was never stored. So a legacy `"light"` can only be an explicit user choice: it is honoured and copied into `fpl-edge-theme-v2` on first load. A legacy `"dark"`, garbage or absent value starts dark. The legacy key is left in place so a rollback still works. Covered by `tests/theme-default.test.mts` and the Playwright proof in `/workspace/brand-tools/verify.mjs`.
 
 ## Logo
 
