@@ -77,3 +77,37 @@ The supplied artwork is used unchanged: `public/brand/primary-logo-1024.png` is 
 | `--fdr-ink` on `--fdr-5` | 8.23:1 | 8.23:1 |
 | `--focus` on `--canvas` | 17.02:1 | 17.02:1 |
 | `--focus` on `--surface` | 15.52:1 | 18.25:1 |
+
+## Verification and performance (final build)
+
+Screenshots: `docs/screenshots/brand-identity/` (contact sheets per theme and width, selected full-size WebP, a few "before"). Full PNG sets are kept outside the repo.
+
+| Check | Result |
+|---|---|
+| `npm test` | 11/11 and 1086/1086 pass |
+| `tsc --noEmit` | clean |
+| `npm run build` | OK |
+| Lint ratchet | 200 errors vs 208 baseline (baseline updated) |
+| Unused-CSS audit | 0 dead rules |
+| CSP (18 views, all routes, 390 and 1440, signed-in empty state) | 0 violations, inline scripts nonce'd |
+| Failed requests | only the intentional 404 page |
+| Theme | fresh `colorScheme: light` starts dark; toggle persists across reload/routes/tabs; old key ignored |
+| Overflow / tap / contrast audit (390/768/1440, both themes) | 0 findings at 768 and 1440; at 390 only inline support-email links (22px) and the Draft Lab remove-player × (14px visible, 44px hit area) |
+
+Performance, same machine, baseline = origin/main:
+
+| Metric | Before | After |
+|---|---|---|
+| First-load CSS `/` raw/gz | 30,915 / 7,581 | 30,781 / 7,589 |
+| First-load CSS signin/signup/pay/404/terms | 24,932 / 6,114 | 24,246 / 6,063 |
+| Total JS in dist | 865,799 B (58 files) | 851,690 B (57 files) |
+| Font preloads | 10 | 3 |
+| Mobile FCP/LCP (Slow-4G, 4x CPU, median of 5) `/` | 1136 / 1136 | 684 / 684 |
+| `/signin` | 1040 / 1040 | 656 / 656 |
+| `/pay` | 1144 / 1144 | 684 / 684 |
+| `/?demo=1` | 1140 / 4752 | 756 / 3876 |
+| Overview gate longest main-thread block | 154 ms | 237 ms (limit 500, no freeze) |
+| Overview gate max interaction frame delay | 33 ms | 337 ms |
+| Overview second visit | 127 ms | 113 ms |
+
+The Overview interaction delay is a regression versus baseline (still under the gate's 500 ms limit).
