@@ -1,4 +1,5 @@
 "use client";
+import { ThemeToggle } from "./ThemeToggle";
 import {FplMoveLink} from "./FplMoveLink";
 
 import "../styles/desk.css";
@@ -141,7 +142,26 @@ function NavIcon({id}:{id:string}){
 }
 
 function MobileSheet({title,onClose,children}:{title:string;onClose:()=>void;children:ReactNode}){
-  return <div className="mobile-sheet" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button type="button" onClick={onClose} aria-label="Close">×</button></header><div className="mobile-sheet-list">{children}</div></div>;
+  const ref=useRef<HTMLDivElement>(null);
+  // Modal focus management: focus moves into the sheet, Tab/Shift+Tab stay inside it, Escape closes, focus returns to the trigger.
+  useEffect(()=>{
+    const root=ref.current;if(!root)return;
+    const opener=document.activeElement as HTMLElement|null;
+    const focusables=()=>Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled])')).filter(el=>el.offsetParent!==null||el===document.activeElement);
+    focusables()[0]?.focus();
+    const onKey=(e:KeyboardEvent)=>{
+      if(e.key==="Escape"){e.preventDefault();onClose();return}
+      if(e.key!=="Tab")return;
+      const items=focusables();if(!items.length)return;
+      const first=items[0],last=items[items.length-1];
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+    };
+    document.addEventListener("keydown",onKey);
+    return()=>{document.removeEventListener("keydown",onKey);if(opener&&document.contains(opener))opener.focus()};
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/unmount only; onClose identity changes every render
+  },[]);
+  return <div className="mobile-sheet" ref={ref} role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button type="button" onClick={onClose} aria-label="Close">×</button></header><div className="mobile-sheet-list">{children}</div></div>;
 }
 
 const MORE_VIEW_LABELS:Partial<Record<View,string>>={prices:"Price sheet",
@@ -257,18 +277,16 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
   // sheet's tab is active (clears Home/Coach/content tabs). Final check stays in More.
   // Transfers under My Squad: phoneSquadViews includes transfers so go("transfers") keeps My Squad active.
   // My Fixtures stays under My Squad on phone even though desktop Research owns the disclosure entry.
-  const phoneSquadViews=new Set<View>(["team","transfers","squad-fixtures"]);
-  const phoneProViews=new Set<View>(proItems.map(([key])=>key));
-  const phoneMoreResearch=researchRest.filter(([key])=>key!=="squad-fixtures");
-  const phoneMoreViews=new Set<View>(["deadline","players",...phoneMoreResearch.map(([key])=>key)]);
-  // Exactly one bottom tab active: sheet open → that sheet's tab only; else content partition.
-  // More-routed child pages (Players, Final check, …) clear More lime and show PhoneMoreCrumb instead.
+  const phoneSquadViews=new Set<View>(["team","squad-fixtures"]);
+  const phoneMoreViews=new Set<View>(["deadline","players",...researchRest.filter(([key])=>key!=="squad-fixtures").map(([key])=>key),...proItems.map(([key])=>key)]);
+  // Exactly one bottom tab is active. Home · Squad · Transfers · Coach are direct destinations; More holds Final check, Players,
+  // Research and the (locked) PRO tools, and stays active on any of those child pages, where PhoneMoreCrumb shows the way back.
   const phoneHomeActive=!mobileOverlay&&view==="overview";
-  const phoneSquadActive=mobileOverlay==="My Squad"||(!mobileOverlay&&phoneSquadViews.has(view));
-  const phoneProActive=mobileOverlay==="PRO"||(!mobileOverlay&&phoneProViews.has(view));
+  const phoneSquadActive=!mobileOverlay&&phoneSquadViews.has(view);
+  const phoneTransfersActive=!mobileOverlay&&view==="transfers";
   const phoneCoachActive=!mobileOverlay&&view==="coach";
-  const phoneMoreActive=mobileOverlay==="More";
   const phoneMoreChild=!mobileOverlay&&phoneMoreViews.has(view);
+  const phoneMoreActive=mobileOverlay==="More"||phoneMoreChild;
   // Phase 1 chrome-strip: sticky header = Wordmark · GW countdown · Sign in/Account only.
   // Season pass lives under More; floating Coach pill removed; freshness owned by sidebar (desktop) / slim line (phone).
   return <TeamLinkAuthProvider value={teamAuth}><main className={desk==="visitor"?"coach-shell signed-out":"coach-shell"}>
@@ -277,11 +295,9 @@ export default function CoachApp({onBack,startAuth=false,startExample=false}:{on
       {loading&&!data?<Loading label="Loading your FPL decision engine…"/>:error&&!data?<Loading label={error} retry={load}/>:data?<><Freshness data={data} onRefresh={load} loading={loading} phoneQuiet/>{phoneMoreChild&&<PhoneMoreCrumb view={view} onOpenMore={()=>setMobileOverlay("More")}/>}{exampleActive&&<p className="example-squad-banner" role="status">{EXAMPLE_SQUAD_LABEL}. Transfers, captaincy and explanations use this demo XV — sign in to connect your real team.</p>}<Page view={view} data={data} go={go} revision={revision} onTeamChange={()=>setRevision(x=>x+1)} desk={desk} onUpgrade={openPay} onLoadExample={()=>{if(activateExampleSquad(data)){setExampleActive(true);setRevision(x=>x+1)}}} exampleActive={exampleActive} onClearExample={()=>{clearExampleSquadFlag();setExampleActive(false);setRevision(x=>x+1)}}/><p className="truth-note">Official FPL supplies players, prices, fixtures, flags and results. FPL Edge projections and recommendations are estimates with uncertainty—not guarantees.</p></>:null}
     </section>
     {(desk==="free"||desk==="season")&&<footer className="coach-footer"><TeamBar data={data} revision={revision} onTeamChange={()=>setRevision(x=>x+1)}/></footer>}
-    <nav className="coach-mobile-nav" aria-label="Phone primary"><button className={phoneHomeActive?"active":""} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={phoneSquadActive?"active":""} onClick={()=>toggleMobileOverlay("My Squad")} {...warm("team")}><i><NavIcon id="team"/></i>My Squad</button><button className={phoneProActive?"active":""} onClick={()=>toggleMobileOverlay("PRO")} {...warm(proItems[0][0])}><i><NavIcon id="pro"/></i>PRO</button><button className={phoneCoachActive?"active":""} onClick={()=>go("coach")} {...warm("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={phoneMoreActive?"active":""} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
+    <nav className="coach-mobile-nav" aria-label="Phone primary"><button className={phoneHomeActive?"active":""} aria-current={phoneHomeActive?"page":undefined} onClick={()=>go("overview")}><i><NavIcon id="overview"/></i>Home</button><button className={phoneSquadActive?"active":""} aria-current={phoneSquadActive?"page":undefined} onClick={()=>go("team")} {...warm("team")}><i><NavIcon id="team"/></i>Squad</button><button className={phoneTransfersActive?"active":""} aria-current={phoneTransfersActive?"page":undefined} onClick={()=>go("transfers")} {...warm("transfers")}><i><NavIcon id="transfers"/></i>Transfers</button><button className={phoneCoachActive?"active":""} aria-current={phoneCoachActive?"page":undefined} onClick={()=>go("coach")} {...warm("coach")}><i><NavIcon id="coach"/></i>Coach</button><button className={phoneMoreActive?"active":""} aria-haspopup="dialog" aria-expanded={mobileOverlay==="More"} onClick={()=>toggleMobileOverlay("More")}><i><NavIcon id="more"/></i>More</button></nav>
     {mobileOverlay&&<MobileSheet title={mobileOverlay} onClose={()=>setMobileOverlay(null)}>
-      {mobileOverlay==="My Squad"&&([["team","My team"],["transfers","Transfers"],["squad-fixtures","My Fixtures"]] as const).map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span>{key==="transfers"?<small className="sheet-hint">Single · Route · Watch</small>:null}</button>)}
-      {mobileOverlay==="PRO"&&proItems.map(([key,label])=><button type="button" key={key} onClick={()=>go(key)} {...warm(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}
-      {mobileOverlay==="More"&&<><button type="button" className={view==="deadline"?"sheet-active":""} onClick={()=>go("deadline")} {...warm("deadline")}><span>Final check</span></button><button type="button" className={view==="players"?"sheet-active":""} onClick={()=>go("players")} {...warm("players")}><span>Players</span></button>{phoneMoreResearch.map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span></button>)}<button type="button" className="sheet-refresh" onClick={()=>{load();setMobileOverlay(null)}} disabled={loading}><span>{loading?"Refreshing…":"Refresh FPL data"}</span>{fresh?<small className="sheet-hint">Updated {fresh.label}</small>:null}</button>{desk==="season"?<p className="sheet-account-note">Season pass active · managed on your account</p>:(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}</>}
+      {mobileOverlay==="More"&&<><button type="button" className={view==="deadline"?"sheet-active":""} onClick={()=>go("deadline")} {...warm("deadline")}><span>Final check</span></button><button type="button" className={view==="players"?"sheet-active":""} onClick={()=>go("players")} {...warm("players")}><span>Players</span></button><h3 className="sheet-section">Research</h3>{researchRest.map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span></button>)}<h3 className="sheet-section">PRO tools</h3>{proItems.map(([key,label])=><button type="button" key={key} className={view===key?"sheet-active":""} onClick={()=>go(key)} {...warm(key)}><span>{label}</span>{desk!=="season"&&<NavLock/>}</button>)}<h3 className="sheet-section">Account and display</h3><button type="button" className="sheet-refresh" onClick={()=>{load();setMobileOverlay(null)}} disabled={loading}><span>{loading?"Refreshing…":"Refresh FPL data"}</span>{fresh?<small className="sheet-hint">Updated {fresh.label}</small>:null}</button>{desk==="season"?<p className="sheet-account-note">Season pass active · managed on your account</p>:(desk==="visitor"||desk==="free")&&<a className="sheet-link" href="/pay"><span>Season pass, {formatSeasonPassPrice()}</span></a>}<div className="sheet-theme"><ThemeToggle/></div></>}
     </MobileSheet>}
   </main></TeamLinkAuthProvider>
 }
@@ -392,20 +408,6 @@ function Freshness({data,onRefresh,loading,phoneQuiet=false,loadFailed=false}:{d
 
 // Squad/watchlist/locks persist to the server (see app/lib/persistence.ts) when signed in via
 // either method below; both resolve to the same account (see app/lib/auth.ts).
-// Step 3: the app defaults to dark now (see layout.tsx's themeInitScript), which already ran
-// synchronously in <head> before this component's client-side render -- so the initial state is
-// read straight from the DOM via useState's lazy-initializer form rather than guessed and
-// corrected in a later effect. That removes the artificial extra render/repaint cycle a
-// useEffect-based correction adds on top of hydration. This runs during SSR too (CoachApp is
-// server-rendered -- confirmed by tests/mini-league-ui.test.mts crashing here without the guard),
-// where `document` doesn't exist at all, so the guard below is load-bearing, not defensive
-// boilerplate: SSR has no choice but to guess, and "dark" matches the app's real default. This
-// toggle only ever writes an explicit "light"/"dark" override once the user actually clicks it.
-function ThemeToggle(){
-  const[theme,setTheme]=useState<"light"|"dark">(()=>typeof document!=="undefined"&&document.documentElement.getAttribute("data-theme")==="light"?"light":"dark");
-  const toggle=()=>{const next=theme==="dark"?"light":"dark";setTheme(next);document.documentElement.setAttribute("data-theme",next);persist("fpl-edge-theme",next)};
-  return <button type="button" className={theme==="dark"?"theme-toggle on":"theme-toggle"} role="switch" aria-checked={theme==="dark"} aria-label={theme==="dark"?"Dark mode on":"Light mode on"} onClick={toggle}><span>{theme==="dark"?"Dark":"Light"}</span><i/></button>;
-}
 
 function AccountBar({onAuthChange,onAccount,initialOpen=false}:{onAuthChange:()=>void;onAccount:(account:{seasonPassActive:boolean;seasonPassEndsAt:string|null}|null)=>void;initialOpen?:boolean}){
   const[account,setAccount]=useState<{email:string;method:"password";seasonPassActive:boolean;seasonPassEndsAt:string|null}|null>(null);

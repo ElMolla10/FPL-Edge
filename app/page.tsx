@@ -4,6 +4,7 @@ import "./components/PaperStyles";
 import "./styles/landing.css";
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Wordmark } from "./components/Wordmark";
+import { PaperHeader } from "./components/PaperHeader";
 import { LegalLinks } from "./components/LegalLinks";
 import { formatSeasonPassPrice } from "./lib/season-pass";
 import { fetchFplData } from "./lib/fpl";
@@ -66,29 +67,26 @@ export default function Home() {
   const points = (value: number | null) => value === null ? "—" : value.toFixed(1);
 
   return <main className="paper">
-    <header className={scrolled ? "paper-header is-scrolled" : "paper-header"}>
-      <div className="paper-wrap paper-header-inner">
-        <a className="paper-wordmark" href="/" aria-label="FPL Edge home"><Wordmark/></a>
-        <a className="paper-signin" href="/signin?return_to=%2F%3Fapp%3D1">Sign in</a>
-      </div>
-    </header>
+    <PaperHeader scrolled={scrolled} action={{ href: "/signin?return_to=%2F%3Fapp%3D1", label: "Sign in" }} />
     <div className="paper-wrap">
       <section className="paper-hero">
         <div className="paper-copy">
-          {desk?.name ? <p className="paper-kicker">{desk.name}</p> : null}
+          <p className="paper-kicker">Your next move. Clear.</p>
           <h1>This week&apos;s move.</h1>
           <p className="paper-lead">A lineup, a captain, and whether to transfer. Free this gameweek.</p>
           <div className="paper-hero-actions">
             <button type="button" className="paper-btn paper-open" onClick={openDesk}>Check your FPL team</button>
             <button type="button" className="paper-btn paper-demo" onClick={openDemo}>Open Demo</button>
           </div>
+          <p className="paper-trust">Official FPL data · No password needed</p>
         </div>
         <article className="paper-card" aria-label="Example decision">
+          <p className="paper-badge-row"><span className="paper-badge">Example</span><span className="paper-card-eyebrow">This week&apos;s call</span></p>
           <div className="paper-card-top">
-            <span className="paper-live"><i aria-hidden="true" />This gameweek</span>
+            <span className="paper-live"><i aria-hidden="true" />{desk?.name ?? "This gameweek"}</span>
             <span className="paper-clock">{clock || "—"}</span>
           </div>
-          <p className="paper-card-label">Projected XI</p>
+          <p className="paper-card-label">Projected XI points <span className="paper-estimated">· estimated</span></p>
           <p className="paper-card-number">{points(desk?.total ?? null)}</p>
           <p className="paper-call">Save the transfer.</p>
           <p className="paper-why">A connected squad is what makes a move worth more than rolling.</p>
@@ -158,7 +156,7 @@ export default function Home() {
     </div>
     <div className="paper-dock">
       <p className="paper-dock-trust">Official FPL data · No password needed</p>
-      <button type="button" className="paper-btn" onClick={openDesk}>Check my team</button>
+      <button type="button" className="paper-btn" onClick={openDesk}>Check your FPL team</button>
       <button type="button" className="paper-btn paper-demo" onClick={openDemo}>Open Demo</button>
     </div>
   </main>;

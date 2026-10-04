@@ -28,8 +28,8 @@ test("every desk panel stays behind a dynamic import", () => {
 
 test("nav items prefetch their chunk on hover, focus and touchstart; idle warms the rest", () => {
   assert.match(shell, /const warm=\(view:View\)=>\(\{onPointerEnter:\(\)=>preloadView\(view\),onFocus:\(\)=>preloadView\(view\),onTouchStart:\(\)=>preloadView\(view\)\}\)/);
-  // sidebar primary + Research/PRO dropdown rows + the two group toggles, phone tabs (Squad, PRO, Coach) and sheet rows
-  assert.ok((shell.match(/\{\.\.\.warm\(/g) ?? []).length >= 14);
+  // sidebar primary + Research/PRO dropdown rows + the two group toggles, phone tabs (Squad, Transfers, Coach) and More-sheet rows
+  assert.ok((shell.match(/\{\.\.\.warm\(/g) ?? []).length >= 13);
   assert.match(shell, /toggleSidebarGroup\("research",researchRest\)\} \{\.\.\.warm\(researchRest\[0\]\[0\]\)\}/);
   assert.match(shell, /toggleSidebarGroup\("pro",proItems\)\} \{\.\.\.warm\(proItems\[0\]\[0\]\)\}/);
   assert.match(shell, /PREFETCH_AFTER_PAINT:readonly View\[\]=\["team","transfers","players","coach","deadline"\]/);

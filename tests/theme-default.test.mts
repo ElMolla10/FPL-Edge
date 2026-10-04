@@ -2,48 +2,70 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { THEME_KEY, themeInitScript, resolveTheme } from "../app/lib/theme.ts";
 
-// Extracts and executes the actual inline script layout.tsx ships in <head> (not a
-// re-implementation of it) -- this is the source of truth for the app's dark-by-default
-// behavior (step 3 of the fpl.page redesign), and it runs before React ever mounts, so it
-// can't be exercised through a normal component render.
-const layoutSource = readFileSync(fileURLToPath(new URL("../app/layout.tsx", import.meta.url)), "utf8");
-const match = layoutSource.match(/const themeInitScript = `([^`]+)`;/);
-if (!match) throw new Error("themeInitScript template literal not found in app/layout.tsx");
-const themeInitScript = match[1];
-
-function runThemeInitScript(storedValue: string | null) {
+// Executes the real inline <head> script (app/lib/theme.ts -> app/layout.tsx, stamped with the CSP nonce). It is the source of truth for the
+// identity's rule "dark on every first visit, regardless of the OS colour scheme; light only after an explicit toggle click".
+function run(storage: Record<string, string> | "throws", prefersLight = false) {
   let attr: string | null = null;
-  const sandbox = {
-    localStorage: { getItem: () => storedValue },
-    document: { documentElement: { setAttribute: (name: string, value: string) => { if (name === "data-theme") attr = value; } } },
+  let themeColor: string | null = null;
+  const doc = {
+    documentElement: { setAttribute: (name: string, value: string) => { if (name === "data-theme") attr = value; } },
+    querySelector: (sel: string) => (sel.includes("theme-color") ? { setAttribute: (_n: string, v: string) => { themeColor = v; } } : null),
   };
-  new Function("localStorage", "document", themeInitScript)(sandbox.localStorage, sandbox.document);
-  return attr;
+  const ls = { getItem: (k: string) => { if (storage === "throws") throw new Error("blocked"); return k in storage ? storage[k] : null; } };
+  // matchMedia is provided on purpose: the script must never consult it
+  const matchMedia = () => { throw new Error("prefers-color-scheme must be ignored"); };
+  new Function("localStorage", "document", "matchMedia", themeInitScript)(ls, doc, matchMedia);
+  void prefersLight;
+  return { attr, themeColor };
 }
 
-test("theme-init script defaults to dark when no preference is stored", () => {
-  assert.equal(runThemeInitScript(null), "dark");
+test("fresh visit (nothing stored) is dark, even when the OS prefers light", () => {
+  assert.deepEqual(run({}, true), { attr: "dark", themeColor: null });
 });
 
-test("theme-init script defaults to dark for a garbage/legacy stored value", () => {
-  assert.equal(runThemeInitScript("system"), "dark");
+test("the legacy pre-identity key is ignored: a previously auto/system-chosen or toggled theme starts dark", () => {
+  assert.equal(run({ "fpl-edge-theme": "light" }).attr, "dark");
+  assert.equal(run({ "fpl-edge-theme": "dark" }).attr, "dark");
 });
 
-test("theme-init script respects an explicit stored dark override", () => {
-  assert.equal(runThemeInitScript("dark"), "dark");
+test("garbage in the v2 key falls back to dark", () => {
+  assert.equal(run({ [THEME_KEY]: "system" }).attr, "dark");
+  assert.equal(run({ [THEME_KEY]: "" }).attr, "dark");
 });
 
-test("theme-init script respects an explicit stored light override", () => {
-  assert.equal(runThemeInitScript("light"), "light");
+test("an explicit stored light choice persists and updates the theme-color meta", () => {
+  assert.deepEqual(run({ [THEME_KEY]: "light" }), { attr: "light", themeColor: "#F7F7F5" });
 });
 
-test("theme-init script fails safe to no attribute set if localStorage throws", () => {
-  let attr: string | null = null;
-  const sandbox = {
-    localStorage: { getItem: () => { throw new Error("blocked"); } },
-    document: { documentElement: { setAttribute: (name: string, value: string) => { if (name === "data-theme") attr = value; } } },
-  };
-  assert.doesNotThrow(() => new Function("localStorage", "document", themeInitScript)(sandbox.localStorage, sandbox.document));
-  assert.equal(attr, null);
+test("an explicit stored dark choice stays dark", () => {
+  assert.equal(run({ [THEME_KEY]: "dark" }).attr, "dark");
+});
+
+test("blocked storage fails safe: no throw, CSS default (dark) applies", () => {
+  assert.doesNotThrow(() => run("throws"));
+  assert.equal(run("throws").attr, null);
+});
+
+test("resolveTheme only ever yields light for a literal 'light'", () => {
+  assert.equal(resolveTheme("light"), "light");
+  for (const v of [null, undefined, "", "dark", "LIGHT", "system", "auto"]) assert.equal(resolveTheme(v as string | null), "dark");
+});
+
+test("the script is stamped with the CSP nonce, <html> defaults to data-theme=dark, and the old key / prefers-color-scheme are gone", () => {
+  const layout = readFileSync(fileURLToPath(new URL("../app/layout.tsx", import.meta.url)), "utf8");
+  assert.match(layout, /<script nonce=\{nonce\} dangerouslySetInnerHTML=\{\{ __html: themeInitScript \}\} \/>/);
+  assert.match(layout, /<html lang="en" data-theme="dark"/);
+  assert.doesNotMatch(themeInitScript, /matchMedia|prefers-color-scheme/);
+  assert.doesNotMatch(readFileSync(fileURLToPath(new URL("../app/globals.css", import.meta.url)), "utf8"), /prefers-color-scheme/);
+});
+
+test("only the toggle's click handler writes the stored choice", () => {
+  const toggle = readFileSync(fileURLToPath(new URL("../app/components/ThemeToggle.tsx", import.meta.url)), "utf8");
+  const writes = toggle.match(/localStorage\.setItem\(/g) ?? [];
+  assert.equal(writes.length, 1);
+  assert.ok(toggle.indexOf("localStorage.setItem(") > toggle.indexOf("const toggle = () =>"), "the write sits inside the click handler");
+  assert.match(toggle, /aria-pressed=\{theme === "light"\}/);
+  assert.match(toggle, /aria-label="Light theme"/);
 });

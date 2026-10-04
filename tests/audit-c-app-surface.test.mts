@@ -68,7 +68,7 @@ test("error.tsx is a client component, wired to reset, and links home", async ()
   assert.match(html, /The desk hit a snag\./);
   assert.match(html, /<button[^>]*>Try again<\/button>/);
   assert.match(html, /href="\/"/);
-  assert.match(html, /fpl-wordmark/);
+  assert.match(html, /brand-logo/);
   assert.doesNotMatch(html, /boom/, "must not leak the underlying error message to users");
 });
 
@@ -76,12 +76,12 @@ test("not-found.tsx and loading.tsx render the branded shell with a home link", 
   const { default: NotFound } = await import("../app/not-found.tsx");
   const nf = renderToStaticMarkup(createElement(NotFound));
   assert.match(nf, /This page is offside\./);
-  assert.match(nf, /fpl-wordmark/);
+  assert.match(nf, /brand-logo/);
   assert.match(nf, /href="\/"[^>]*>Back to home/);
 
   const { RouteLoading } = await import("../app/components/RouteLoading.tsx");
   const ld = renderToStaticMarkup(createElement(RouteLoading));
-  assert.match(ld, /fpl-wordmark/);
+  assert.match(ld, /brand-logo/);
   assert.match(ld, /aria-busy="true"/);
   assert.match(ld, /paper-loading-bar/);
   for (const seg of ["signin", "signup", "pay"]) {

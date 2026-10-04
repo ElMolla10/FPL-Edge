@@ -3,7 +3,7 @@
 
 import "./components/PaperStyles";
 import { useEffect } from "react";
-import { Wordmark } from "./components/Wordmark";
+import { PaperHeader } from "./components/PaperHeader";
 
 // Route-level error boundary (renders inside the root layout, so fonts/theme/tokens apply).
 // `reset` re-renders the failed segment; the home link is the always-safe way out.
@@ -14,11 +14,7 @@ export default function RouteError({ error, reset }: { error: Error & { digest?:
   }, [error]);
 
   return <main className="paper paper-form-page" role="alert">
-    <header className="paper-header">
-      <div className="paper-wrap paper-header-inner">
-        <a className="paper-wordmark" href="/" aria-label="FPL Edge home"><Wordmark/></a>
-      </div>
-    </header>
+    <PaperHeader />
     <div className="paper-wrap paper-form-wrap">
       <section className="paper-form">
         <p className="paper-label">Something went wrong</p>

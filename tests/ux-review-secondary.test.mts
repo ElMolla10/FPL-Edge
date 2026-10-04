@@ -64,7 +64,7 @@ test("sidebar Research/PRO: expanded state, navigation to the first item, group 
 
 test("homepage footer has breathing room; phone Overview is tighter without touching the shared ranking", () => {
   const css = readAllCss();
-  assert.match(css, /\.paper-footer\{margin-top:72px;padding-top:24px;border-top:1px solid var\(--hairline\)/);
+  assert.match(css, /\.paper-footer\{margin-top:64px;padding-top:24px;border-top:1px solid var\(--border\)/);
   assert.match(css, /\.urgent-card>div>article:nth-child\(n\+4\)\{display:none\}/);
   const overview = read("app/components/CoachApp.tsx");
   assert.match(overview, /useWeeklyDecision\(/);
