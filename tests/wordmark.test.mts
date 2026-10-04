@@ -29,7 +29,7 @@ test("headers and the sidebar use the wordmark, not the old italic E", () => {
   const coach = readCoachSource();
   const sidebar = coach.slice(coach.indexOf("coach-sidebar"), coach.indexOf("coach-main"));
   const header = coach.slice(coach.indexOf("coach-header"), coach.indexOf("header-tools"));
-  assert.match(sidebar, /sidebar-brand[\s\S]*<Wordmark\/>/);
+  assert.match(sidebar, /sidebar-brand[\s\S]*<BrandMark\/>/); // full sidebar: the supplied logo tile, unchanged, 48px
   assert.match(header, /header-wordmark[\s\S]*<Wordmark\/>/);
   const css = readAllCss();
   // FPL lime + EDGE chalk on dark; near-black type with a small lime rule on light (identity guide section 2).
