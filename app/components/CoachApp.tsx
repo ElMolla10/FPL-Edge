@@ -21,6 +21,7 @@ import {refreshConnectedTeamFromApi} from "../lib/team-live-refresh";
 import {TeamLinkAuthProvider,useTeamLinkAuth,TEAM_SIGN_IN_HREF} from "./team-link-auth";
 import {Transfer} from "../lib/transfers";
 import {formatHit,formatNet} from "../lib/weekly-decision";
+import {confidenceBand,decisionBadge,signedPoints} from "../lib/decision-badge";
 import {scheduleDeferred} from "../lib/transfer-engine/schedule";
 import {ManagerMeta,deriveSandboxFinancialContext,isRankingFinanceUnavailable} from "../lib/squad-comparison";
 import {SeasonLocked} from "./SeasonLocked";
@@ -495,7 +496,7 @@ function TeamBar({data,revision,onTeamChange}:{data:FplData|null;revision:number
 
 function OverviewDeadlineStrip({event}:{event:{name:string;deadline:string}}){
   return <section className="overview-deadline" aria-label="Upcoming gameweek">
-    <div><span>UP NEXT</span><h2>{event.name}</h2>
+    <div><span>Up next</span><h2>{event.name}</h2>
       <p className="overview-deadline-when">Deadline · {new Date(event.deadline).toLocaleString([],{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
     </div>
   </section>;
@@ -567,7 +568,8 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
   const inPlay=liveEvent(data.events);
   const inPlayLock=inPlay?lockForLiveEvent(inPlay,readLocks<LockRecord>()):null;
   const priceTeaser=buildPriceSheet({squad,players:data.players,outPlayerId:wd?.action==="MAKE"?wd.outPlayerId:null,inPlayerId:wd?.action==="MAKE"?wd.inPlayerId:null}).teaser;
-  const primaryCta={label:decisionHold?"Close the week: Final Check →":"Execute this move: Final Check →",view:"deadline" as View};
+  const primaryCta={label:decisionHold?"Run final check":"Review transfer",view:"deadline" as View};
+  const badge=decisionBadge(decisionHold?"HOLD":"MAKE",wd?.classification);
 
   return <div className="coach-page overview-command">
     {/* Demo banner lives in coach chrome once. */}
@@ -581,23 +583,30 @@ function Overview({data,go,revision,onTeamChange,onLoadExample,onClearExample}:{
         try{setMeta(JSON.parse(localStorage.getItem("fpl-edge-manager")||"null"))}catch{}
         if(live.updated)onTeamChange();
       }}/></Suspense>:<>
-      <section className="recommended-move best-decision-hero overview-best-decision" aria-label="Best decision">
+      {/* 1 What should I do · 2 Why · 3 What next. Supporting numbers follow in the cards below. */}
+      <section className="recommended-move best-decision-hero overview-best-decision decision-card" aria-label="This week's call">
         <div className="call-label">
-          <span>{wildcardActive?"WILDCARD THIS WEEK":"THIS WEEK'S CALL"}</span>
-          <b className={decisionHold?"badge-hold":"badge-make"}>{!wd?"…":decisionHold?(wildcardActive?"KEEP":"HOLD"):"MAKE"}</b>
+          <span>{wildcardActive?"Wildcard this week":"This week's call"}</span>
+          <b className={`decision-badge badge-${badge.tone}`} title={badge.meaning}>{wd?badge.text:"…"}</b>
         </div>
-        <h2>{!wd?"Calculating this week's call…":decisionHold
-          ?(wildcardActive?"KEEP — leave this Wildcard squad unchanged":"HOLD — no transfer this week")
-          :`${wd.outName} → ${wd.inName}`}</h2>
-        <div className="engine-why" aria-label="Why"><span>WHY</span><p className="engine-reason-hero">{shortReason}</p></div>
+        <h2 className="decision-move">{!wd?"Calculating this week's call…":decisionHold
+          ?(wildcardActive?"Keep your Wildcard squad":"Keep this week — no transfer")
+          :<><span>{wd.outName}</span><i aria-label="replaced by">→</i><span>{wd.inName}</span></>}</h2>
+        <div className="engine-why" aria-label="Why"><span>Why</span><p className="engine-reason-hero">{shortReason}</p></div>
+        {wd&&!decisionHold&&<p className="decision-projection"><b>{signedPoints(wd.net5gw)} pts</b> estimated over the next 5 gameweeks vs keeping your squad{wd.hitCost?`, after a −${wd.hitCost} hit`:", no hit"}.</p>}
+        {wd&&!decisionHold&&<p className="decision-confidence-line"><b>Model confidence: {confidenceBand(wd.confidence)??"n/a"}{wd.confidence!=null?` (${Math.round(wd.confidence*100)}%)`:""}</b> · how much evidence backs {wd.inName}'s projection{wd.risk?`; risk ${wd.risk.toLowerCase()}`:""}. Estimates can miss.</p>}
         {!wildcardActive&&ftAssumed&&<small className="brief-assumption">FT assumed: {fts}</small>}
-      <div className="command-metrics overview-captain-metrics" aria-label="Captain and projected points">
-        <article><span>CAPTAIN</span><b>{activeCaptain.name}</b><small>{captainTerm.toFixed(1)} xPts{plannedChip==="Triple Captain"?" · Triple Captain":""}</small></article>
-        <article><span>PROJECTED GW</span><b>{projected.toFixed(1)}</b><small>including {activeCaptain.name} captaincy{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></article>
-      </div>
-      <button type="button" className="overview-transfers-link overview-primary-cta" onClick={()=>go(primaryCta.view)} {...warm(primaryCta.view)}>{primaryCta.label}</button>
-      {wd?.action==="MAKE"&&<FplMoveLink decision={wd} captainName={data.players.find(p=>p.id===canonicalCaptainId)?.name??null} variant="secondary"/>}
+        <div className="decision-actions">
+          <button type="button" className="overview-transfers-link overview-primary-cta" onClick={()=>go(primaryCta.view)} {...warm(primaryCta.view)}>{primaryCta.label}</button>
+          <button type="button" className="decision-secondary" onClick={()=>go("transfers")} {...warm("transfers")}>Compare options</button>
+        </div>
+        {wd?.action==="MAKE"&&<FplMoveLink decision={wd} captainName={data.players.find(p=>p.id===canonicalCaptainId)?.name??null} variant="secondary"/>}
       </section>
+      <div className="command-metrics overview-captain-metrics" aria-label="Supporting projections">
+        <article><span>Projected XI points · {next.name.replace("Gameweek ","GW")}</span><b>{projected.toFixed(1)}</b><small>estimated, including {activeCaptain.name} as captain{plannedChip==="Triple Captain"?" + Triple Captain":plannedChip==="Bench Boost"?" + Bench Boost":""}</small></article>
+        <article><span>Captain</span><b>{activeCaptain.name}</b><small>{captainTerm.toFixed(1)} estimated xPts{plannedChip==="Triple Captain"?" · Triple Captain":""}</small></article>
+        <article><span>Model confidence</span><b>{wd&&!decisionHold&&wd.confidence!=null?`${confidenceBand(wd.confidence)} · ${Math.round(wd.confidence*100)}%`:"—"}</b><small>{wd&&!decisionHold&&wd.confidence!=null?"Evidence strength for the incoming player. Not a guarantee.":"Shown when a transfer is recommended."}</small></article>
+      </div>
       </>}
     </section>
 

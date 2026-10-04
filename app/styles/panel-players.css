@@ -8,10 +8,10 @@
 .research-table article>div{display:flex;gap:4px}
 .research-table article>div button{border:1px solid var(--border);background:var(--canvas);color:var(--text);padding:6px;font-size:12px;font-weight:600;cursor:pointer}
 .research-table article>div button:hover{border-color:var(--text-muted);color:var(--text)}
-.research-table article>div button.active{background:var(--surface-raised);color:var(--lime);border-color:var(--surface-raised)}
+.research-table article>div button.active{background:var(--surface-raised);color:var(--accent-text);border-color:var(--surface-raised)}
 .compare-drawer{background:var(--surface-raised);color:var(--text);border-radius:10px;padding:22px}
 .compare-drawer>header{display:flex;justify-content:space-between;gap:20px}
-.compare-drawer>header span,.compare-drawer>footer span{font-size:12px;color:var(--lime);font-weight:600;letter-spacing:.1em}
+.compare-drawer>header span,.compare-drawer>footer span{font-size:12px;color:var(--accent-text);font-weight:600;letter-spacing:.08em}
 .compare-drawer h2{font-size:25px;margin:6px 0}
 .compare-drawer>header button{border:1px solid var(--border);background:transparent;color:var(--text);padding:8px 13px}
 .compare-drawer>div{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:14px 0}
@@ -47,7 +47,7 @@
 .research-table article>div{gap:3px}
 .research-table article>div button{padding:5px 8px;font-size:12px;border:1px solid var(--border);background:var(--canvas);color:var(--text);border-radius:5px}
 .research-table article>div button:hover{background:var(--surface);color:var(--text)}
-.research-table article>div button.active{background:var(--surface-raised);color:var(--lime);border-color:var(--surface-raised)}
+.research-table article>div button.active{background:var(--surface-raised);color:var(--accent-text);border-color:var(--surface-raised)}
 .research-table article>div button:disabled{opacity:.45;cursor:not-allowed}
 .research-table.sticky-head{max-height:min(74vh,760px)}
 .compare-drawer>header span,.compare-drawer>footer span{color:var(--text-muted)}
@@ -123,9 +123,9 @@
   padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);box-shadow:var(--shadow-float);
 }
 .players-actions-menu-panel button{width:100%;text-align:left;border:1px solid var(--border);background:var(--canvas);color:var(--text);padding:8px 10px;font-size:13px;font-weight:600;border-radius:6px}
-.players-actions-menu-panel button.active{background:var(--surface-raised);color:var(--lime);border-color:var(--surface-raised)}
+.players-actions-menu-panel button.active{background:var(--surface-raised);color:var(--accent-text);border-color:var(--surface-raised)}
 .players-filter-toggle{display:none}
-.players-filter-toggle.is-active{color:var(--lime)}
+.players-filter-toggle.is-active{color:var(--accent-text)}
 /* Desktop: advanced row always visible (Filters toggle stays hidden). Phone collapses via last 850px. */
 .players-filter-advanced{display:flex;flex-wrap:wrap;align-items:stretch;margin-top:0}
 .research-table:not(.wide)>header>span:first-child,
@@ -133,7 +133,7 @@
   position:sticky;left:0;z-index:2;background:var(--surface);
 }
 .research-table article>div.players-row-actions button{border:1px solid var(--border);background:var(--canvas);color:var(--text);padding:6px 8px;font-size:12px;font-weight:600;cursor:pointer;border-radius:5px}
-.research-table article>div.players-row-actions button.active{background:var(--surface-raised);color:var(--lime);border-color:var(--surface-raised)}
+.research-table article>div.players-row-actions button.active{background:var(--surface-raised);color:var(--accent-text);border-color:var(--surface-raised)}
 .research-table article>div.players-row-actions button:disabled{opacity:.45;cursor:not-allowed}
 @media (max-width:720px){
 .players-filter-primary{flex-direction:column}

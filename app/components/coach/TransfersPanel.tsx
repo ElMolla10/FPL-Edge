@@ -1,4 +1,5 @@
 "use client";
+import {decisionBadge} from "../../lib/decision-badge";
 import {FplMoveLink} from "../FplMoveLink";
 
 import "../../styles/panel-transfers.css";
@@ -140,8 +141,8 @@ export function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{da
           Presentation only — do not change transfer-engine ranking / classification / NET math.
           Route planner card CONTENT frozen (E): TransferRoutePlanner body fields/solver copy untouched. */}
       <section className="recommended-move best-decision-hero" aria-label="Best decision">
-        <div className="call-label"><span>{wildcardActive?"WILDCARD BEST SWAP":"BEST DECISION"}</span><b className={decisionHold?"badge-hold":"badge-make"}>{decisionHold?(wildcardActive?"KEEP":"HOLD"):(decision!.classification??"MAKE")}</b></div>
-        <h2>{!wd?"Calculating this week's call…":decisionHold?(wildcardActive?"KEEP — leave this temporary Wildcard squad unchanged":"HOLD — do not transfer now"):`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
+        <div className="call-label"><span>{wildcardActive?"Wildcard best swap":"Best decision"}</span><b className={`decision-badge badge-${decisionBadge(decisionHold?"HOLD":"MAKE",decision?.classification).tone}`} title={decisionBadge(decisionHold?"HOLD":"MAKE",decision?.classification).meaning}>{decisionBadge(decisionHold?"HOLD":"MAKE",decision?.classification).text}</b></div>
+        <h2>{!wd?"Calculating this week's call…":decisionHold?(wildcardActive?"Keep your temporary Wildcard squad":"Keep this week — do not transfer now"):`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
         <p className="best-decision-lede">{decisionHold
           ?(wildcardActive?"Should I swap on Wildcard? No strong full-squad upgrade clears the bar — keep iterating the temporary squad before the deadline.":fts<=0?"Should I transfer? No — with 0 FT, no move clears the hit-adjusted NET vs the type-B HOLD plan (bank FT, keep future free upgrades).":"Should I transfer? No — HOLD now, bank the free transfer, and keep future free upgrades available.")
           :(wildcardActive?`Should I swap on Wildcard? Yes — full-squad objective improves without using FT or hit logic.`:`Should I transfer? Yes — clears the risk-adjusted 5-GW NET vs HOLD bar.`)}</p>

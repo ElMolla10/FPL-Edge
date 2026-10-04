@@ -10,15 +10,15 @@ const brief = home.slice(start, end);
 
 test("Home brief renders canonical action, captain and projected GW", () => {
   assert.ok(start > 0 && end > start);
-  assert.match(brief, /wd\.outName\} → \$\{wd\.inName\}/);
-  assert.match(brief, /HOLD — no transfer this week/);
-  assert.match(brief, /CAPTAIN/);
-  assert.match(brief, /PROJECTED GW/);
+  assert.match(brief, /wd\.outName\}<\/span><i aria-label="replaced by">→<\/i><span>\{wd\.inName/);
+  assert.match(brief, /Keep this week — no transfer/);
+  assert.match(brief, /Captain/);
+  assert.match(brief, /Projected XI points/);
   assert.match(brief, /OverviewDeadlineStrip/);
   assert.match(brief, /shortReason/);
 });
 test("primary CTA always opens the weekly close (Final Check), labelled by the call", () => {
-  assert.match(home, /const primaryCta=\{label:decisionHold\?"Close the week: Final Check →":"Execute this move: Final Check →",view:"deadline"/);
+  assert.match(home, /const primaryCta=\{label:decisionHold\?"Run final check":"Review transfer",view:"deadline"/);
 });
 test("no scenario / percentile / NET-table copy in the first Home section", () => {
   for (const s of ["P10", "P50", "P90", "1,024", "scenario", "type-B", "5-GW NET", "price pressure"]) {

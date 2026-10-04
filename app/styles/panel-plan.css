@@ -69,7 +69,7 @@
 .panel{background:var(--canvas);color:var(--text);padding:20px;border-radius:0;box-shadow:none}
 .nav-lock:before{content:"";position:absolute;left:1px;top:-5px;width:4px;height:3px;border:1.5px solid var(--border);border-bottom:0;border-radius:5px 5px 0 0}
 /* Manual path: an outline button, so it does not disappear into the dark card. */
-.empty-command button,.wide-action{background:transparent;color:var(--text);border:1.5px solid currentColor;border-radius:8px}
+.empty-command button{background:transparent;color:var(--text);border:1.5px solid currentColor;border-radius:8px}
 .sidebar-drop button{border:0;background:transparent;color:var(--text-muted);text-align:left;padding:8px 10px;display:flex;align-items:center;gap:8px;border-radius:6px;font-size:14px;font-weight:600}
 .pitch-empty button{border:1.5px solid #fff;background:transparent;color:#fff;border-radius:8px;padding:10px 14px;font-weight:600}
 @media (max-width:1023px){
@@ -127,7 +127,7 @@
 /* 3. Decision desk (desktop): body and label sizes up ~1-2px, layout unchanged. */
 .coach-shell{font-size:15px}
 .coach-sidebar nav button,.sidebar-menus>button,.sidebar-pro-btn,.sidebar-drop button{font-size:15px}
-.theme-toggle,.coach-sidebar .back-link{font-size:14px}
+.coach-sidebar .back-link{font-size:14px}
 .team-signin,.signin-action .team-signin{font-size:14px}
 .example-squad-banner,.coach-main:has(.overview-command) .example-squad-banner{font-size:14px;line-height:1.45}
 .overview-best-decision .overview-transfers-link,.urgent-card>header button{font-size:15px}
