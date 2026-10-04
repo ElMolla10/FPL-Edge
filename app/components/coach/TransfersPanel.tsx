@@ -143,9 +143,9 @@ export function Transfers({data,go,revision,onTeamChange,fullDesk,onUpgrade}:{da
       <section className="recommended-move best-decision-hero" aria-label="Best decision">
         <div className="call-label"><span>{wildcardActive?"Wildcard best swap":"Best decision"}</span><b className={`decision-badge badge-${decisionBadge(decisionHold?"HOLD":"MAKE",decision?.classification).tone}`} title={decisionBadge(decisionHold?"HOLD":"MAKE",decision?.classification).meaning}>{decisionBadge(decisionHold?"HOLD":"MAKE",decision?.classification).text}</b></div>
         <h2>{!wd?"Calculating this week's call…":decisionHold?(wildcardActive?"Keep your temporary Wildcard squad":"Keep this week — do not transfer now"):`${decision!.out.name} → ${decision!.incoming.name}`}</h2>
-        <p className="best-decision-lede">{decisionHold
+        <p className="best-decision-lede">{plainReason(decisionHold
           ?(wildcardActive?"Should I swap on Wildcard? No strong full-squad upgrade clears the bar — keep iterating the temporary squad before the deadline.":fts<=0?"Should I transfer? No — with 0 FT, no move clears the hit-adjusted NET vs the type-B HOLD plan (bank FT, keep future free upgrades).":"Should I transfer? No — HOLD now, bank the free transfer, and keep future free upgrades available.")
-          :(wildcardActive?`Should I swap on Wildcard? Yes — full-squad objective improves without using FT or hit logic.`:`Should I transfer? Yes — clears the risk-adjusted 5-GW NET vs HOLD bar.`)}</p>
+          :(wildcardActive?`Should I swap on Wildcard? Yes — full-squad objective improves without using FT or hit logic.`:`Should I transfer? Yes — clears the risk-adjusted 5-GW NET vs HOLD bar.`))}</p>
         {wd&&!wildcardActive&&<FplMoveLink decision={wd} captainName={data.players.find(p=>p.id===wd.captainId)?.name??null} variant="secondary"/>}
         <div className="best-decision-metrics" aria-label="Decision metrics">
           <span><small>{wildcardActive?"MODE":"HIT"}</small><b>{wildcardActive?"Wildcard":(decisionHold?"Free":(decision!.hitLabel??(decision!.hitCost?`−${decision!.hitCost}`:"Free")))}</b></span>
