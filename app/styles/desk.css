@@ -202,9 +202,9 @@
 .coach-mobile-nav{position:fixed;display:grid;grid-template-columns:repeat(5,1fr);gap:4px;left:0;right:0;bottom:0;background:var(--surface-raised);border-top:1px solid var(--border);box-shadow:var(--shadow-float);z-index:70;overflow:visible;padding-top:8px;padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(8px,env(safe-area-inset-right,0px));padding-bottom:max(16px,env(safe-area-inset-bottom,0px))}
 .coach-mobile-nav button{border:0;background:transparent;color:var(--text);min-height:48px;padding:6px 2px;font-size:13px;font-weight:600;letter-spacing:.01em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:12px}
 .coach-mobile-nav button i{font-style:normal;font-size:18px;width:28px;height:28px;display:grid;place-items:center;border-radius:9px;color:inherit}
-.coach-mobile-nav button:active{background:var(--surface-raised)}
-.coach-mobile-nav button.active{color:var(--accent-text);background:var(--surface-raised)}
-.coach-mobile-nav button.active i{color:var(--accent-text)}
+.coach-mobile-nav button:active{background:var(--surface)}
+.coach-mobile-nav button.active{color:var(--text);background:transparent}
+.coach-mobile-nav button.active i{width:52px;border-radius:14px;background:var(--selected-bg);color:var(--selected-text)}
 .coach-shell:not(.signed-out) .coach-mobile-nav{border-top:0;box-shadow:none}
 .connect-hero{grid-template-columns:1fr}
 .command-metrics{grid-template-columns:repeat(3,1fr)}
@@ -415,9 +415,9 @@ a.team-open{display:block;text-align:center;text-decoration:none}
 .coach-mobile-nav{background:var(--surface-raised);border-top:1px solid var(--border);box-shadow:var(--shadow-float);gap:4px;overflow:visible;padding-top:8px;padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(8px,env(safe-area-inset-right,0px));padding-bottom:max(16px,env(safe-area-inset-bottom,0px))}
 .coach-mobile-nav button{border:0;background:transparent;color:var(--text);min-height:48px;padding:6px 2px;font-size:13px;font-weight:600;letter-spacing:.01em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:12px}
 .coach-mobile-nav button i{font-style:normal;width:28px;height:28px;display:grid;place-items:center;border-radius:9px;color:inherit}
-.coach-mobile-nav button:active{background:var(--surface-raised)}
-.coach-mobile-nav button.active{color:var(--accent-text);background:var(--surface-raised)}
-.coach-mobile-nav button.active i{color:var(--accent-text)}
+.coach-mobile-nav button:active{background:var(--surface)}
+.coach-mobile-nav button.active{color:var(--text);background:transparent}
+.coach-mobile-nav button.active i{width:52px;border-radius:14px;background:var(--selected-bg);color:var(--selected-text)}
 .coach-footer{bottom:calc(56px + max(16px,env(safe-area-inset-bottom,0px)));z-index:65;background:var(--surface-raised);border-top:1px solid var(--border);box-shadow:none}
 .coach-shell:not(.signed-out) .coach-mobile-nav{border-top:0;box-shadow:none}
 }

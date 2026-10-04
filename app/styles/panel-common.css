@@ -832,3 +832,13 @@
 @media (max-width:1023px){
 .empty-desk-action{align-self:stretch;width:100%}
 }
+/* Horizontal scroll cue: tables that scroll sideways fade out at the edge that still has content (scroll-driven, CSS only;
+   browsers without animation-timeline simply show no fade). */
+@supports (animation-timeline:scroll(self inline)){
+.gw-projections,.chip-week-table,.history-live-table,.accuracy-table,.season-table,.pool-table,.fixture-board,.route-week-grid,.research-table.wide,.mini-league-table-scroll{animation:scroll-cue linear both;animation-timeline:scroll(self inline)}
+}
+@keyframes scroll-cue{
+0%{mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}
+96%{mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}
+100%{mask-image:linear-gradient(to right,#000,#000)}
+}
