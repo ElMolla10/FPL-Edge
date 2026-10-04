@@ -3,13 +3,11 @@
    Source of truth: design-tokens.json / brand.css of the identity pack. Dark is the DEFAULT on every first visit (the
    OS colour scheme is deliberately ignored); light is an opt-in toggle stored in `fpl-edge-theme-v2` by the layout's
    nonce'd head script. Fonts are self-hosted from /fonts (OFL licences next to them), never a third-party CDN. */
-@font-face{font-family:"Inter";font-style:normal;font-weight:100 900;font-display:swap;src:url(/fonts/inter-latin-var.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Inter";font-style:normal;font-weight:100 500;font-display:swap;src:url(/fonts/inter-latin-400.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Inter";font-style:normal;font-weight:600 900;font-display:swap;src:url(/fonts/inter-latin-600.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 @font-face{font-family:"Inter";font-style:normal;font-weight:100 900;font-display:swap;src:url(/fonts/inter-latin-ext-var.woff2) format("woff2");unicode-range:U+0100-02AF,U+1E00-1EFF,U+2020,U+20A0-20CF,U+2113,U+2C60-2C7F,U+A720-A7FF}
 @font-face{font-family:"Space Grotesk";font-style:normal;font-weight:300 700;font-display:swap;src:url(/fonts/space-grotesk-latin-var.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 @font-face{font-family:"Space Grotesk";font-style:normal;font-weight:300 700;font-display:swap;src:url(/fonts/space-grotesk-latin-ext-var.woff2) format("woff2");unicode-range:U+0100-02AF,U+1E00-1EFF,U+2020,U+20A0-20CF,U+2113,U+2C60-2C7F,U+A720-A7FF}
-/* metric-matched fallbacks: no layout shift when the webfonts swap in */
-@font-face{font-family:"Inter Fallback";src:local("Arial"),local("Liberation Sans"),local("Helvetica");size-adjust:104.68%;ascent-override:92.54%;descent-override:23.04%;line-gap-override:0%}
-@font-face{font-family:"Space Grotesk Fallback";src:local("Arial"),local("Liberation Sans"),local("Helvetica");size-adjust:101.77%;ascent-override:96.69%;descent-override:28.69%;line-gap-override:0%}
 :root{
   /* brand roles (dark = default) */
   --canvas:#121614;--surface:#18201B;--surface-raised:#1F2A23;--border:#35443A;--text:#F7F7F5;--text-muted:#B3BEB5;
@@ -20,8 +18,8 @@
   --fdr-1:#66D9A0;--fdr-2:#BFE8C8;--fdr-3:#E7E2C4;--fdr-4:#F5B8A8;--fdr-5:#FF8D91;--fdr-ink:#121614;
   --pitch-grass:#1E4D38;
   /* typography */
-  --font-ui:"Inter","Inter Fallback",ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  --font-display:"Space Grotesk","Space Grotesk Fallback",var(--font-ui);
+  --font-ui:"Inter",ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --font-display:"Space Grotesk",var(--font-ui);
   /* shape, space, layout */
   --r-control:8px;--r-card:16px;--r-sheet:24px;--r-badge:4px;
   --sidebar-w:224px;--content-max:1280px;--gutter:32px;--tap:44px;--ease-fast:140ms;

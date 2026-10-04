@@ -47,7 +47,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="theme-color" content={THEME_COLOR.dark} />
         {/* Only the two weights/subsets the first paint needs; the latin-ext faces load on demand via unicode-range. */}
-        <link rel="preload" href="/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/inter-latin-400.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/inter-latin-600.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
         <link rel="preload" href="/fonts/space-grotesk-latin-var.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
