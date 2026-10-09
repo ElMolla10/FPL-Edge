@@ -58,7 +58,8 @@ test("bot routes are owner-gated, and every mutating route rejects cross-site re
 
 test("no owner PII or bot entry id is committed", () => {
   const tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" }).split("\n").filter((f) => f && !/\.(png|jpe?g|webp|woff2?|ico)$/.test(f));
-  const pii = [["imody10", "@gmail"].join(""), ["2615", "93"].join("")];
+  // Owner identifiers kept out of the source in plain text (base64), so this test does not itself leak them.
+  const pii = ["aW1vZHkxMEBnbWFpbC5jb20=", "MjYxNTkz", "aW1vZHkxMA=="].map((b) => Buffer.from(b, "base64").toString("utf8"));
   for (const file of tracked) {
     let text: string;
     try {
