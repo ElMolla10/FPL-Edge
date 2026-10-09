@@ -18,3 +18,7 @@ Design source: /workspace/notes/FPL-EDGE-AUTONOMOUS-BOT-FEASIBILITY.md (Option A
 - best-decision.ts + chip-scores.ts extraction committed
 - migration 0012_fpl_bot.sql + journal; app/lib/fpl-bot/{config,crypto,store,types,fpl-client,payloads,validate,hash,schedule,planner,auth,runner}.ts written, tsc clean
 - NEXT: worker scheduled() hook, runtime-env keys, routes (/api/bot/status, /api/bot/control, /api/bot/fpl-auth/reconnect), /bot page, tests, docs
+
+## Checkpoint (routes + page)
+- Done: API routes /api/bot/status (GET), /api/bot/control (POST), /api/bot/fpl-auth/reconnect (POST); /bot page with bookmarklet (#bot_rt/#bot_at), mode/kill controls, runs/decisions/errors, initial-squad helper (Draft Lab worker, Pure Optimum).
+- Next: tests (validate, schedule, hash, config/resolveMode, store w/ fake D1, runner do-nothing/kill/wrong-account, fpl-client allowPost), security tests (route guard lists), docs, lint ratchet, build, draft PR.
