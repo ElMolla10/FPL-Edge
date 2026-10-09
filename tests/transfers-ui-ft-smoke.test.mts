@@ -16,8 +16,9 @@ test("Transfers UI: wires authoritative live FT (limit − made) into rankings",
   assert.match(coach, /authoritativeFreeTransfers/);
   assert.match(coach, /HOLD[\s\S]*NO TRANSFER/);
   // Must import client-safe ft-state — barrel pulls store → db → cloudflare:workers into Vite client.
-  assert.match(coach, /from ["'](?:\.\.\/)+lib\/personal-fpl-transfer\/ft-state["']/);
-  assert.doesNotMatch(coach, /from ["'](?:\.\.\/)+lib\/personal-fpl-transfer["']/);
+  // (the pipeline now lives in app/lib/best-decision.ts, which imports it as ./personal-fpl-transfer/ft-state)
+  assert.match(coach, /from ["'](?:(?:\.\.\/)+lib\/|\.\/)personal-fpl-transfer\/ft-state["']/);
+  assert.doesNotMatch(coach, /from ["'](?:(?:\.\.\/)+lib\/|\.\/)personal-fpl-transfer(?:\/index)?["']/);
   // Overview must not hardcode FT=1 into bestTransfers anymore
   assert.doesNotMatch(coach, /bestTransfers\(data,squad,finance\.baselineBank,1,/);
 });
@@ -47,7 +48,7 @@ test("Transfers UI: Wildcard Optimization mode switch (not Free transfer labels)
   // Must not show FT selector while Wildcard is active
   assert.match(coach, /fullDesk&&!wildcardActive&&<label>Free transfers/);
   // Chip-state import is client-safe (not the personal-fpl barrel)
-  assert.match(coach, /from ["'](?:\.\.\/)+lib\/personal-fpl-transfer\/chip-state["']/);
+  assert.match(coach, /from ["'](?:(?:\.\.\/)+lib\/|\.\/)personal-fpl-transfer\/chip-state["']/);
 });
 
 test("team API prefers live my-team activeChip for pending Wildcard", () => {
