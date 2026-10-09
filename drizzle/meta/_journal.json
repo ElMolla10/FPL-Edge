@@ -85,6 +85,13 @@
       "when": 1790000000000,
       "tag": "0011_telemetry",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1790500000000,
+      "tag": "0012_fpl_bot",
+      "breakpoints": true
     }
   ]
 }

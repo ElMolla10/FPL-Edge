@@ -43,6 +43,14 @@ declare module "cloudflare:workers" {
     FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST?: string;
     FPL_EDGE_PERSONAL_FPL_ENTRY_ID?: string;
     FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN?: string;
+    FPL_EDGE_BOT_MODE?: string;
+    FPL_EDGE_BOT_FPL_ENTRY_ID?: string;
+    FPL_EDGE_BOT_FPL_REFRESH_TOKEN?: string;
+    FPL_EDGE_BOT_TOKEN_KEY?: string;
+    FPL_EDGE_BOT_OWNER_EMAILS?: string;
+    FPL_EDGE_BOT_TEAM_NAME?: string;
+    FPL_EDGE_BOT_HIT_POLICY?: string;
+    FPL_EDGE_BOT_CHIP_POLICY?: string;
     NODE_ENV?: string;
   };
 }

@@ -13,6 +13,14 @@ const ENV_KEYS = [
   "FPL_EDGE_PERSONAL_TRANSFER_ALLOWLIST",
   "FPL_EDGE_PERSONAL_FPL_ENTRY_ID",
   "FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN",
+  // Autonomous bot (app/lib/fpl-bot). The refresh-token seed is deliberately NOT exposed to routes.
+  "FPL_EDGE_BOT_MODE",
+  "FPL_EDGE_BOT_FPL_ENTRY_ID",
+  "FPL_EDGE_BOT_TOKEN_KEY",
+  "FPL_EDGE_BOT_OWNER_EMAILS",
+  "FPL_EDGE_BOT_TEAM_NAME",
+  "FPL_EDGE_BOT_HIT_POLICY",
+  "FPL_EDGE_BOT_CHIP_POLICY",
 ] as const;
 
 export async function readRuntimeEnv(): Promise<Record<string, string | undefined>> {

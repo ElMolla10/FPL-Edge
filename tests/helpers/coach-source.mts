@@ -13,5 +13,8 @@ export function readCoachSource(): string {
   for (const name of readdirSync(dir).filter((file) => file.endsWith(".tsx")).sort()) {
     parts.push(readFileSync(new URL(name, dir), "utf8"));
   }
+  // The shared BEST DECISION pipeline (analysis, withModelUtilityChange, rankTransfersForBestDecision) moved to a pure
+  // lib module so the email-alert cron runs identical code; scans for it must still see it.
+  parts.push(readFileSync(new URL("../../app/lib/best-decision.ts", import.meta.url), "utf8"));
   return parts.join("\n");
 }

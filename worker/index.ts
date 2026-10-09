@@ -4,6 +4,8 @@ import handler from "vinext/server/app-router-entry";
 import { keepAlivePersonalFplAuth } from "../app/lib/personal-fpl-transfer/keep-alive";
 import { pruneExpiredData } from "../app/lib/maintenance";
 import { prepareSecurity } from "../app/lib/security-headers";
+import { runBotTick } from "../app/lib/fpl-bot/runner";
+import type { FplData } from "../app/lib/fpl";
 
 interface Env {
   ASSETS: Fetcher;
@@ -21,6 +23,15 @@ interface Env {
   FPL_EDGE_PERSONAL_FPL_REFRESH_TOKEN?: string;
   /** Optional runtime kill switch: "report-only" downgrades the enforcing CSP to Content-Security-Policy-Report-Only. */
   FPL_EDGE_CSP_MODE?: string;
+  /** Autonomous bot (app/lib/fpl-bot, docs/FPL-BOT.md). Worker SECRETS/vars; never committed. Inert without an entry id. */
+  FPL_EDGE_BOT_MODE?: string;
+  FPL_EDGE_BOT_FPL_ENTRY_ID?: string;
+  FPL_EDGE_BOT_FPL_REFRESH_TOKEN?: string;
+  FPL_EDGE_BOT_TOKEN_KEY?: string;
+  FPL_EDGE_BOT_OWNER_EMAILS?: string;
+  FPL_EDGE_BOT_TEAM_NAME?: string;
+  FPL_EDGE_BOT_HIT_POLICY?: string;
+  FPL_EDGE_BOT_CHIP_POLICY?: string;
 }
 
 interface ExecutionContext {
@@ -70,15 +81,16 @@ const worker = {
   },
 
   /**
-   * Cron entry (hourly, wrangler.jsonc triggers.crons). Two independent jobs, each in its own
-   * waitUntil so one failing never blocks the other:
+   * Cron entry (hourly, wrangler.jsonc triggers.crons "0 * * * *"). Independent jobs, each in its own
+   * waitUntil so one failing never blocks the others:
    *   1. personal FPL refresh-token keep-alive (unchanged, below)
    *   2. prune expired sessions + stale rate-limit rows (app/lib/maintenance.ts)
+   *   3. autonomous bot tick (app/lib/fpl-bot/runner.ts): its OWN token store + team only; the only place the bot
+   *      can ever write to FPL (no HTTP route can trigger a submission). Mode off|shadow|live, default shadow.
    *
    * Keep the personal FPL refresh token alive even when nobody opens Transfers.
    * Uses the same CAS/access-token cache as live overlay — never race-rotates.
    * On token-expired: leave overlay unavailable (no invented bank).
-   * Schedule: every 4 hours (see wrangler.jsonc triggers.crons).
    */
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
@@ -98,6 +110,30 @@ const worker = {
           console.warn(`[prune] sessions=${pruned.sessionsDeleted} rateLimits=${pruned.rateLimitsDeleted} cron=${controller.cron}`);
         } catch (error) {
           console.warn(`[prune] failed ${error instanceof Error ? error.message : "error"} cron=${controller.cron}`);
+        }
+      })(),
+    );
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const summary = await runBotTick({
+            env,
+            db: env.DB,
+            // Same official snapshot the site serves, via the app's own /api/fpl route in-process (no parallel data path).
+            loadData: async () => {
+              const response = await handler.fetch(new Request("https://fpl-edge.internal/api/fpl", { headers: { Accept: "application/json" } }), env, ctx);
+              if (!response.ok) throw new Error(`api/fpl ${response.status}`);
+              return (await response.json()) as FplData;
+            },
+            fetchPublicJson: async (target) => {
+              const response = await fetch(target, { headers: { Accept: "application/json", "User-Agent": "FPL-Edge-Bot/1.0 (automated, owner-operated)" }, cache: "no-store" });
+              if (!response.ok) throw new Error(`public ${response.status}`);
+              return response.json();
+            },
+          });
+          console.warn(`[fpl-bot] tick ran=${summary.ran} mode=${summary.mode?.effective ?? "-"} window=${summary.window ?? "-"} gw=${summary.gw ?? "-"} auth=${summary.auth} actions=${summary.actions.length} errors=${summary.errors.join(",") || "none"} cron=${controller.cron}`);
+        } catch (error) {
+          console.warn(`[fpl-bot] failed ${error instanceof Error ? error.name : "error"} cron=${controller.cron}`);
         }
       })(),
     );
