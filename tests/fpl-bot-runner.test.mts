@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { botD1 } from "./helpers/bot-d1.mts";
-import { runBotTick, type TickDeps } from "../app/lib/fpl-bot/runner.ts";
+import { detectPreFirstDeadline, observedHitPoints, runBotTick, type TickDeps } from "../app/lib/fpl-bot/runner.ts";
 import { importBotKey } from "../app/lib/fpl-bot/crypto.ts";
 import { BotFplClient, BotHttpError } from "../app/lib/fpl-bot/fpl-client.ts";
 import { canonicalSquad, hashString } from "../app/lib/fpl-bot/hash.ts";
@@ -204,4 +204,35 @@ test("BotFplClient: POST refused unless armed; transfer payload for another entr
   assert.equal((await client.me()).entry, BOT);
   assert.equal(posts(f).length, 0);
   assert.throws(() => new BotFplClient({ entryId: "abc", tokens, fetchImpl: f.impl }));
+});
+
+test("pre-first-deadline detection needs limit null + no pending chip + public started_event == next event", async () => {
+  const pub = (started: number) => ({ fetchPublicJson: async () => ({ id: Number(BOT), started_event: started }) });
+  const t = (limit: number | null, pending = false) => ({ ...myTeam(), transfers: { bank: 0, limit, made: 0 }, chips: pending ? [{ name: "wildcard", is_pending: true }] : [] });
+  assert.equal(await detectPreFirstDeadline(pub(6), BOT, t(null), 6), true);
+  assert.equal(await detectPreFirstDeadline(pub(5), BOT, t(null), 6), false, "already past its first deadline (WC/FH window)");
+  assert.equal(await detectPreFirstDeadline(pub(6), BOT, t(1), 6), false);
+  assert.equal(await detectPreFirstDeadline(pub(6), BOT, t(null, true), 6), false, "pending chip");
+  assert.equal(await detectPreFirstDeadline({ fetchPublicJson: async () => { throw new Error("down"); } }, BOT, t(null), 6), false);
+  assert.equal(await detectPreFirstDeadline({ fetchPublicJson: async () => ({ id: 1, started_event: 6 }) }, BOT, t(null), 6), false, "wrong entry");
+});
+
+test("observedHitPoints: spent_points wins; unlimited => 0; else (made - limit) x 4; unknown => null", () => {
+  const t = (limit: number | null, made: number) => ({ ...myTeam(), transfers: { bank: 0, limit, made } });
+  assert.equal(observedHitPoints(t(1, 3), { spent_points: 0 }), 0);
+  assert.equal(observedHitPoints(t(null, 9), null), 0);
+  assert.equal(observedHitPoints(t(1, 2), null), 4);
+  assert.equal(observedHitPoints(t(2, 1), {}), 0);
+  assert.equal(observedHitPoints({ ...myTeam(), transfers: { bank: 0, limit: undefined as unknown as number, made: 0 } }, null), null);
+});
+
+test("never reads the public picks endpoint: unverified session => no action, no public team fallback", async () => {
+  const { db } = botD1();
+  const f = fakeFetch();
+  const urls: string[] = [];
+  const d = deps(db, f, { env: { ...ENV, FPL_EDGE_BOT_TOKEN_KEY: undefined }, fetchPublicJson: async (u) => { urls.push(u); return null; } });
+  const s = await runBotTick(d);
+  assert.equal(s.mode?.effective, "shadow");
+  assert.ok(!urls.some((u) => u.includes("/picks/")));
+  assert.match((await readBotState(db)).last_tick_summary ?? "", /not connected/);
 });

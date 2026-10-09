@@ -51,6 +51,7 @@ declare module "cloudflare:workers" {
     FPL_EDGE_BOT_TEAM_NAME?: string;
     FPL_EDGE_BOT_HIT_POLICY?: string;
     FPL_EDGE_BOT_CHIP_POLICY?: string;
+    FPL_EDGE_BOT_TRIGGER_SECRET?: string;
     NODE_ENV?: string;
   };
 }

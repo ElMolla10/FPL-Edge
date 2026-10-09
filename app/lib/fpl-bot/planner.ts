@@ -62,6 +62,11 @@ export type PlanInput = {
   allowTransfers: boolean;
   /** May newly activate Bench Boost / Triple Captain (false in the "final" window: late news can only cancel). */
   allowNewTeamChip?: boolean;
+  /**
+   * New team before its first deadline: unlimited free transfers, so the bot rebuilds the best 15 on its real budget
+   * from fully available players only (status a, chance >= 75) and never plays a chip.
+   */
+  preFirstDeadline?: boolean;
 };
 
 export type BotPlan = {
@@ -178,7 +183,9 @@ export function planGameweek(input: PlanInput): BotPlan {
   const pending = pendingChip(myTeam.chips);
   const transferChipActive = pending === "wildcard" || pending === "freehit";
 
+  const pre = input.preFirstDeadline === true;
   const allowedChips: OfficialChip[] = (["wildcard", "freehit", "bboost", "3xc"] as OfficialChip[]).filter((c) => {
+    if (pre) return false;
     if (input.chipPolicy === "none") return false;
     if (input.chipPolicy === "cancellable" && (c === "wildcard" || c === "freehit")) return false;
     return chipAvailable(myTeam.chips, c, event.id) && !(c === "freehit" && event.id === 1);
@@ -192,7 +199,16 @@ export function planGameweek(input: PlanInput): BotPlan {
   // ---- transfer chip (WC / FH) or an already-active one ------------------------------------------------------
   let transferChip: TransferChip = null;
   let target = null as FplPlayer[] | null;
-  if (input.allowTransfers && (transferChipActive || (!pending && (allowedChips.includes("wildcard") || allowedChips.includes("freehit"))))) {
+  if (pre && input.allowTransfers) {
+    if (pending) throw new PlanError("pre-first-deadline-chip", "a chip is pending on a team before its first deadline");
+    const eligible = { ...data, players: data.players.filter(isAvailableIn) };
+    const rebuilt = rebuildSquad(eligible, squad, bank, selling, "Balanced 5 GWs");
+    if (rebuilt.length !== 15) throw new PlanError("rebuild-failed", "pre-first-deadline rebuild did not return 15 players");
+    const evaluate5 = createOptimizer(data, "Balanced 5 GWs", "Balanced", "Maximum xPts").evaluate;
+    const gain = evaluate5(rebuilt).fiveWeekPoints - evaluate5(squad).fiveWeekPoints;
+    reasons.push(`pre-first-deadline: unlimited free transfers, rebuilt best 15 on the real budget (+${gain.toFixed(1)} pts over 5 GWs vs current)`);
+    target = rebuilt;
+  } else if (input.allowTransfers && (transferChipActive || (!pending && (allowedChips.includes("wildcard") || allowedChips.includes("freehit"))))) {
     const evaluate5 = createOptimizer(data, "Balanced 5 GWs", "Balanced", "Maximum xPts").evaluate;
     const flagged = squad.filter(isFlagged).length;
     const tryChip = (chip: "wildcard" | "freehit", force: boolean): boolean => {
@@ -235,7 +251,7 @@ export function planGameweek(input: PlanInput): BotPlan {
     legs = legsBetween(squad, target);
     if (!legs.length) {
       transferChip = null;
-      reasons.push("rebuilt squad equals the current squad - chip not played");
+      reasons.push(pre ? "rebuilt squad equals the current squad - no transfers needed" : "rebuilt squad equals the current squad - chip not played");
     }
   } else if (input.allowTransfers && !transferChipActive) {
     const ft = freeTransfers ?? 1;
@@ -286,7 +302,8 @@ export function planGameweek(input: PlanInput): BotPlan {
   // ---- team chip (BB / TC), only when no transfer chip is played/active this GW ----------------------------
   const lineup = buildLineup(finalSquad, data, event.id);
   let lineupChip: PickChip = pending === "bboost" || pending === "3xc" ? pending : null;
-  if (!transferChip && !transferChipActive && input.chipPolicy !== "none") {
+  if (pre) lineupChip = null;
+  else if (!transferChip && !transferChipActive && input.chipPolicy !== "none") {
     const bbOk = lineup.benchStartProbs.every((p) => p >= CHIP_GUARDS.benchBoostMinStartProb) && lineup.benchXpts >= CHIP_GUARDS.benchBoostMinBenchXpts;
     const tcOk = lineup.captainXpts >= CHIP_GUARDS.tripleCaptainMinXpts;
     const canBB = allowedChips.includes("bboost") || pending === "bboost";

@@ -155,3 +155,27 @@ test("elementsFromBootstrap maps the official shape and ignores junk", () => {
   assert.deepEqual(map.get(7), { id: 7, positionId: 3, teamId: 4, status: "d", chance: 75, nowCost: 81 });
   assert.equal(elementsFromBootstrap(null).size, 0);
 });
+
+test("pre-first-deadline: many free legs, no hit, no chip; doubtful players refused", () => {
+  const unlimited = team({ transfers: { bank: 100, limit: null, made: 0, status: "unlimited" } as BotMyTeam["transfers"], chips: [chip("wildcard"), chip("freehit")] });
+  const three = tp([[3, 101], [8, 102], [13, 103]]);
+  const v = validateTransfersPayload(three, ctx({ myTeam: unlimited, freeTransfers: null, preFirstDeadline: true }));
+  assert.deepEqual(v.errors, []);
+  assert.equal(v.hitCost, 0);
+  // the same legs WITHOUT the pre-first-deadline flag are refused (unknown FT, no chip)
+  assert.ok(validateTransfersPayload(three, ctx({ myTeam: unlimited, freeTransfers: null })).errors.length > 0);
+  assert.ok(validateTransfersPayload(tp([[3, 101]], { chip: "wildcard" }), ctx({ myTeam: unlimited, freeTransfers: null, preFirstDeadline: true })).errors.some((e) => e.includes("first deadline")));
+  assert.ok(validateTransfersPayload(tp([[3, 101]]), ctx({ myTeam: team(), freeTransfers: null, preFirstDeadline: true })).errors.some((e) => e.includes("finite transfer limit")));
+  const doubtful = new Map(elements);
+  doubtful.set(4, { ...elements.get(4)!, status: "d", chance: 50 });
+  assert.ok(validateTransfersPayload(tp([[3, 101]]), ctx({ myTeam: unlimited, freeTransfers: null, preFirstDeadline: true, elements: doubtful })).errors.some((e) => e.includes("not fully available")));
+  assert.ok(validatePicksPayload(picks(LEGAL, 13, 11, "bboost"), pctx({ preFirstDeadline: true })).some((e) => e.includes("first deadline")));
+});
+
+test("incoming players must be fully available (status a, chance >= 75)", () => {
+  const map = new Map(elements);
+  map.set(101, { ...elements.get(101)!, status: "d", chance: 50 });
+  assert.ok(validateTransfersPayload(tp([[3, 101]]), ctx({ elements: map })).errors.some((e) => e.includes("not fully available")));
+  map.set(101, { ...elements.get(101)!, status: "a", chance: 75 });
+  assert.deepEqual(validateTransfersPayload(tp([[3, 101]]), ctx({ elements: map })).errors, []);
+});
