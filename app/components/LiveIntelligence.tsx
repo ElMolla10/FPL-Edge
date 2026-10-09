@@ -35,28 +35,11 @@ export function LiveNews(){
   return <div className="live-builder"><Source data={data} loading={loading} onRefresh={load}/><section className="news-command"><div><span>AVAILABILITY COMMAND CENTRE</span><h2>{news.length} official player updates require attention.</h2><p>Player flags and availability notes come directly from FPL. We never invent quotes or pretend an unsourced rumour is confirmed.</p></div><div><b>{data.players.filter(p=>p.status!=="a").length}</b><small>flagged players</small></div></section><div className="news-controls"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search player, club or update…"/>{[["ALL","All updates"],["SQUAD","My squad"],["DOUBT","Doubts"],["UNAVAILABLE","Unavailable"]].map(([id,label])=><button className={filter===id?"active":""} onClick={()=>setFilter(id)} key={id}>{label}</button>)}</div><section className="official-news-list">{news.length?news.map(player=><article key={player.id}><div className={`news-status status-${player.status}`}>{player.chance!==null?`${player.chance}%`:player.status==="a"?"OK":"!"}</div><div><span>{owned.has(player.id)?"YOUR SQUAD · ":""}{player.teamShort} · {player.positionShort}</span><h3>{player.name}</h3><p>{player.news||"Flagged by the official FPL player feed. No additional note has been published."}</p><small>{player.newsAdded?`Updated ${new Date(player.newsAdded).toLocaleString()}`:"Official status currently has no timestamp"}</small></div><aside><b>£{player.price.toFixed(1)}m</b><span>{player.selectedBy.toFixed(1)}% owned</span><small>{player.transfersOut.toLocaleString()} transfers out</small></aside></article>):<div className="empty-news">No official updates match this filter.</div>}</section><section className="market-watch"><header><span>TRANSFER MARKET SIGNAL</span><h2>Most-bought players right now.</h2></header><div>{movers.map(p=><article key={p.id}><b>{p.name}<small>{p.teamShort} · {p.positionShort}</small></b><span>+{Math.max(0,p.transfersIn-p.transfersOut).toLocaleString()}</span><small>net transfers</small></article>)}</div></section></div>
 }
 
-export type Chip="Wildcard"|"Free Hit"|"Bench Boost"|"Triple Captain";
-export type ChipScore={score:number;detail:string};
-export type ChipScores={wildcard:ChipScore;freeHit:ChipScore;benchBoost:ChipScore;tripleCaptain:ChipScore};
-// Shared by LiveChips (the full Chips tab, scored across an 8-GW horizon) and Final Check's
-// single-gameweek summary -- one scoring formula, not a second implementation that could drift.
-export function chipScoresForEvent(data:FplData,baseline:FplPlayer[],event:{id:number},window:number[],hasSquad:boolean):ChipScores{
-  const clamp=(n:number)=>Math.max(1,Math.min(10,Math.round(n)));
-  const oneBest=optimizeSquad(data,[event.id]);const oneXi=bestXi(oneBest,event.id,data.fixtures,event.id);const currentXi=bestXi(baseline,event.id,data.fixtures,event.id);
-  const wc=optimizeSquad(data,window);const uplift=eventTotals(wc,window,data.fixtures).reduce((a,b)=>a+b,0)-eventTotals(baseline,window,data.fixtures).reduce((a,b)=>a+b,0);
-  const xiBase=currentXi.players.reduce((s,p)=>s+playerProjection(p,event.id,data.fixtures,event.id),0);const squadAll=baseline.reduce((s,p)=>s+playerProjection(p,event.id,data.fixtures,event.id),0);const bench=Math.max(0,squadAll-xiBase);
-  const freeHit=Math.max(0,oneXi.total-currentXi.total);const tc=oneXi.captain?playerProjection(oneXi.captain,event.id,data.fixtures,event.id):0;
-  // Informational only -- haul probability supplements the detail text, it does not change the
-  // score itself, matching how every prior distribution-engine addition in this app has stayed
-  // additive to existing recommendations rather than altering what they recommend.
-  const tcHaul=oneXi.captain?haulProbability(playerPointsDistribution(projectionMetrics(oneXi.captain,event.id,data.fixtures,event.id),oneXi.captain.positionShort))*100:0;
-  return{
-    wildcard:{score:clamp(2+uplift/3),detail:hasSquad?`+${Math.max(0,uplift).toFixed(1)} projected pts vs your squad over 5 GWs`:"Build your squad to calculate personal uplift"},
-    freeHit:{score:clamp(1+freeHit*1.1),detail:`+${freeHit.toFixed(1)} one-week pts vs current XI`},
-    benchBoost:{score:clamp(bench/1.25),detail:`${bench.toFixed(1)} projected bench pts`},
-    tripleCaptain:{score:clamp(2+tc/1.25),detail:`${oneXi.captain?.name??"—"} · ${tc.toFixed(1)} xPts · ${Math.round(tcHaul)}% haul chance`},
-  };
-}
+// Chip types + chipScoresForEvent live in app/lib/chip-scores.ts (pure; the bot cron runs the same formula).
+export type { Chip, ChipScore, ChipScores } from "../lib/chip-scores";
+export { chipScoresForEvent } from "../lib/chip-scores";
+import type { Chip, ChipScore } from "../lib/chip-scores";
+import { chipScoresForEvent } from "../lib/chip-scores";
 export function LiveChips(){
   const{data,error,loading,load}=useOfficialFpl();const[selected,setSelected]=useState<Chip>("Wildcard");
   // Memoized on [data] (never on `selected`): before this, clicking between the four chip tabs
