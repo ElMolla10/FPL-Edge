@@ -81,11 +81,11 @@ No POST is ever sent within 5 minutes of the deadline.
 ### Workers plan / cron
 
 - The cron trigger already exists (`"crons": ["0 * * * *"]`); no new trigger is needed.
-- Planning runs the optimiser in the cron (seconds of CPU). The Workers **Free** plan allows ~10 ms CPU per
-  invocation, so the bot needs **Workers Paid** before it is switched on, plus `"limits": { "cpu_ms": 120000 }` in
-  `wrangler.jsonc` (not added here because that key fails deploys on the Free plan). The bot's work runs in its own
-  `ctx.waitUntil` job, so a CPU-limit kill only affects the bot tick (the step stays claimed/retryable; no POST is
-  half-sent because intent is persisted first).
+- Planning runs the optimiser in the cron (seconds of CPU), so the bot needs **Workers Paid** (the Free plan allows
+  ~10 ms CPU per invocation). The account is on Workers Paid and `wrangler.jsonc` sets `"limits": { "cpu_ms": 120000 }`
+  (2 min, matching the planner's `BOT_PLAN_TIME_BUDGET_MS`), which the build carries into `dist/server/wrangler.json`.
+  The bot's work runs in its own `ctx.waitUntil` job, so a CPU-limit kill only affects the bot tick (the step stays
+  claimed/retryable; no POST is half-sent because intent is persisted first).
 - Apply migration `0012_fpl_bot.sql` (`wrangler d1 migrations apply`) before deploying.
 
 ## Connecting the bot account (owner)

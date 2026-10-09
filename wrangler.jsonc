@@ -22,6 +22,10 @@
   "images": {
     "binding": "IMAGES"
   },
+  // Workers Paid: the autonomous bot runs the optimiser inside the hourly cron (docs/FPL-BOT.md).
+  "limits": {
+    "cpu_ms": 120000
+  },
   "triggers": {
     "crons": [
       "0 * * * *"
