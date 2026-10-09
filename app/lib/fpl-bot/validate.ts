@@ -29,6 +29,12 @@ export const SQUAD_RULES = Object.freeze({
 });
 
 const UNPLAYABLE = new Set(["i", "s", "u", "n"]);
+/** Minimum chance_of_playing for any player the bot BUYS (and, before the first deadline, for every squad player). */
+export const MIN_INCOMING_CHANCE = 75;
+/** Fully available: status "a" and no flag below MIN_INCOMING_CHANCE. */
+export function isFullyAvailable(element: ElementInfo | undefined): boolean {
+  return Boolean(element) && element!.status === "a" && (element!.chance === null || element!.chance >= MIN_INCOMING_CHANCE);
+}
 
 export function validateSquadIds(ids: readonly number[], elements: ReadonlyMap<number, ElementInfo>): string[] {
   const errors: string[] = [];
@@ -80,6 +86,11 @@ export type TransferValidationContext = {
   hitPolicy: HitPolicy;
   /** Hit points already taken in the previous 3 GWs (rolling-4 cap). */
   recentHitPoints: number;
+  /**
+   * New team before its first deadline (my-team limit null + started_event == this event, no chip pending): FPL lets
+   * the manager change the squad freely. Transfers are unlimited and free, and no chip may be sent.
+   */
+  preFirstDeadline?: boolean;
 };
 
 export type TransferValidation = { errors: string[]; hitCost: number; bankAfter: number; finalSquad: number[] };
@@ -101,8 +112,14 @@ export function validateTransfersPayload(payload: TransfersPayload, ctx: Transfe
     if (!chipAvailable(ctx.myTeam.chips, chip, ctx.event)) errors.push(`${chip} is not available for GW${ctx.event}`);
     if (chip === "freehit" && ctx.event === 1) errors.push("Free Hit cannot be played in GW1");
   }
-  const unlimited = chip !== null || pending === "wildcard" || pending === "freehit" || ctx.freeTransfers === null;
-  if (ctx.freeTransfers === null && pending !== "wildcard" && pending !== "freehit" && chip === null) {
+  const pre = ctx.preFirstDeadline === true;
+  if (pre) {
+    if (chip !== null) errors.push("no chip may be played before the team's first deadline");
+    if (pending) errors.push(`a chip (${pending}) is pending on a team that has not passed its first deadline`);
+    if (ctx.myTeam.transfers.limit !== null) errors.push("pre-first-deadline mode but my-team reports a finite transfer limit");
+  }
+  const unlimited = pre || chip !== null || pending === "wildcard" || pending === "freehit" || ctx.freeTransfers === null;
+  if (!pre && ctx.freeTransfers === null && pending !== "wildcard" && pending !== "freehit" && chip === null) {
     errors.push("free transfers unknown (unlimited window without an active WC/FH)");
   }
   const maxLegs = unlimited ? SQUAD_RULES.squadSize : (ctx.freeTransfers ?? 0) + ctx.hitPolicy.maxHitsPerGw;
@@ -125,6 +142,7 @@ export function validateTransfersPayload(payload: TransfersPayload, ctx: Transfe
     }
     if (incoming.status === "u" || incoming.status === "n") errors.push(`incoming ${leg.element_in} is unavailable`);
     if (incoming.chance === 0) errors.push(`incoming ${leg.element_in} has 0% chance of playing`);
+    else if (!isFullyAvailable(incoming)) errors.push(`incoming ${leg.element_in} is not fully available (status ${incoming.status}, chance ${incoming.chance ?? "-"})`);
     if (outgoing && outgoing.positionId !== incoming.positionId) errors.push(`leg ${leg.element_out}->${leg.element_in} changes position`);
     if (outPick && leg.selling_price !== outPick.selling_price) errors.push(`selling price for ${leg.element_out} does not match my-team`);
     if (leg.purchase_price !== incoming.nowCost) errors.push(`purchase price for ${leg.element_in} is stale (now ${incoming.nowCost})`);
@@ -136,6 +154,10 @@ export function validateTransfersPayload(payload: TransfersPayload, ctx: Transfe
     return leg ? leg.element_in : id;
   });
   errors.push(...validateSquadIds(finalSquad, ctx.elements));
+  if (pre) {
+    const doubtful = finalSquad.filter((id) => !isFullyAvailable(ctx.elements.get(id)));
+    if (doubtful.length) errors.push(`pre-first-deadline squad keeps players who are not fully available: ${doubtful.join(", ")}`);
+  }
 
   const ft = ctx.freeTransfers ?? 0;
   const hitCost = unlimited ? 0 : Math.max(0, legs.length - ft) * SQUAD_RULES.hitPoints;
@@ -155,6 +177,8 @@ export type PicksValidationContext = {
   deadlineGuardMs: number;
   /** A transfer chip (WC/FH) is being played / is active this GW: no team chip may be added. */
   transferChipThisGw: boolean;
+  /** No chips at all before the team's first deadline. */
+  preFirstDeadline?: boolean;
 };
 
 export function validatePicksPayload(payload: PicksPayload, ctx: PicksValidationContext): string[] {
@@ -197,6 +221,7 @@ export function validatePicksPayload(payload: PicksPayload, ctx: PicksValidation
   }
   const chip = payload.chip;
   if (chip !== null && chip !== "bboost" && chip !== "3xc") errors.push(`chip ${String(chip)} is not a team chip`);
+  if (chip && ctx.preFirstDeadline) errors.push("no chip may be played before the team's first deadline");
   if (chip) {
     const pending = pendingChip(ctx.myTeam.chips);
     if (ctx.transferChipThisGw) errors.push("only one chip per gameweek (WC/FH already played)");

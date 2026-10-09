@@ -14,7 +14,7 @@ import { keepAliveBotTokens, sessionAgeDays, sessionHealth, type AuthFailure } f
 import { BotFplClient, BotHttpError, FPL_API } from "./fpl-client";
 import { canonicalLineup, canonicalLineupFromTeam, canonicalSquad, canonicalTeamState, decisionHash, hashString } from "./hash";
 import { buildPicksPayload, buildTransfersPayload, type PicksPayload, type TransfersPayload } from "./payloads";
-import { elementsFromData, planGameweek, PlanError, type BotPlan } from "./planner";
+import { planGameweek, PlanError, type BotPlan } from "./planner";
 import { nextDeadlineEvent, windowFor, type ScheduleWindow } from "./schedule";
 import {
   claimRun,
@@ -177,15 +177,17 @@ export async function runBotTick(deps: TickDeps): Promise<TickSummary> {
       return summary;
     }
 
-    // ---- live team (authoritative) --------------------------------------------------------------------------
+    // ---- live team (authoritative, authenticated my-team ONLY) -----------------------------------------------
+    // Never the public picks endpoint: a new team has none before its first deadline (404), and a stale public
+    // squad must never drive a plan.
+    if (!client || !identityVerified) {
+      await recordTick(db, `GW${event.id} ${window}: bot FPL session not connected/verified - no action`, now());
+      return summary;
+    }
     let team: BotMyTeam | null = null;
-    let teamSource: "my-team" | "public" = "my-team";
+    const teamSource = "my-team" as const;
     try {
-      if (client && identityVerified) team = await client.myTeam();
-      else {
-        team = await publicTeam(deps, entry, data);
-        teamSource = "public";
-      }
+      team = await client.myTeam();
     } catch (error) {
       await fail(error instanceof BotHttpError ? `team-${error.code}` : "team-unavailable", error instanceof Error ? error.message : undefined);
     }
@@ -193,26 +195,30 @@ export async function runBotTick(deps: TickDeps): Promise<TickSummary> {
       await recordTick(db, `GW${event.id} ${window}: bot team unavailable - no action`, now());
       return summary;
     }
+    const preFirstDeadline = await detectPreFirstDeadline(deps, entry, team, event.id);
+    if (preFirstDeadline) summary.actions.push("pre-first-deadline: unlimited free transfers");
 
     const hitPolicy = parseHitPolicy(env[BOT_ENV.hitPolicy]);
     const chipPolicy = parseChipPolicy(env[BOT_ENV.chipPolicy]);
     const recentHitPoints = await recentHits(db, entry, event.id);
-    const ctx: StepContext = { deps, db, env, entry, event, deadlineMs, now, log, summary, fail, hitPolicy, chipPolicy, recentHitPoints, client, teamSource };
+    const ctx: StepContext = { deps, db, env, entry, event, deadlineMs, now, log, summary, fail, hitPolicy, chipPolicy, recentHitPoints, client, teamSource, preFirstDeadline };
 
     // ---- dry run (read-only rehearsal of the full submit path) ----------------------------------------------
-    if (needDryRun && teamSource === "my-team") {
+    if (needDryRun) {
       const row = await claimRun(db, entry, event.id, "dryrun", "shadow", now(), BOT_LIMITS.stepLeaseMs);
       if (row) await dryRun(ctx, row, team, data);
     }
 
-    const liveAllowed = mode.effective === "live" && teamSource === "my-team" && state.gw_kill_event !== event.id;
+    const liveAllowed = mode.effective === "live" && state.gw_kill_event !== event.id;
     const stepMode: BotMode = liveAllowed ? "live" : "shadow";
+    // Before the team's first deadline the squad can be (re)built any time: submit as soon as the plan window opens.
+    const liveNow = liveAllowed && (window === "submit" || window === "final" || (window === "plan" && preFirstDeadline));
 
-    if (window === "plan") {
+    if (window === "plan" && !liveNow) {
       const row = await claimRun(db, entry, event.id, "plan", stepMode, now(), BOT_LIMITS.stepLeaseMs);
       if (row) await shadowStep(ctx, row, team, data, "plan");
     }
-    if (window === "submit" || window === "final") {
+    if (window === "submit" || window === "final" || liveNow) {
       if (!liveAllowed) {
         const step: BotStep = window === "final" ? "final" : "transfers";
         const row = await claimRun(db, entry, event.id, step, "shadow", now(), BOT_LIMITS.stepLeaseMs);
@@ -249,7 +255,8 @@ type StepContext = {
   chipPolicy: ReturnType<typeof parseChipPolicy>;
   recentHitPoints: number;
   client: BotFplClient | null;
-  teamSource: "my-team" | "public";
+  teamSource: "my-team";
+  preFirstDeadline: boolean;
 };
 
 // ------------------------------------------------------------------ helpers ------------------------------------
@@ -288,21 +295,20 @@ async function recentHits(db: BotDb, entry: string, gw: number): Promise<number>
   return total;
 }
 
-/** Public fallback for shadow before the token is connected: last deadline's picks (selling price unknown => now_cost). */
-async function publicTeam(deps: TickDeps, entry: string, data: FplData): Promise<BotMyTeam | null> {
-  const current = data.events.find((e) => e.current) ?? [...data.events].filter((e) => e.finished).sort((a, b) => b.id - a.id)[0];
-  if (!current) return null;
-  const raw = (await deps.fetchPublicJson(`${FPL_API}/entry/${entry}/event/${current.id}/picks/`)) as {
-    picks?: Array<{ element: number; position: number; is_captain: boolean; is_vice_captain: boolean; multiplier: number }>;
-    entry_history?: { bank?: number };
-  } | null;
-  if (!raw?.picks || raw.picks.length !== 15) return null;
-  const price = new Map(data.players.map((p) => [p.id, Math.round(p.price * 10)]));
-  return {
-    picks: raw.picks.map((p) => ({ ...p, selling_price: price.get(p.element) ?? 0, purchase_price: price.get(p.element) ?? 0 })),
-    transfers: { bank: raw.entry_history?.bank ?? 0, limit: 1, made: 0 },
-    chips: [],
-  };
+/**
+ * A new team before its first deadline: my-team reports no transfer limit (unlimited), no chip is pending, and the
+ * public entry says the team starts THIS event (so no deadline has passed for it). All three must hold; any doubt
+ * (e.g. the public entry is unavailable) => false, and normal rules apply (which then refuse to plan blindly).
+ */
+export async function detectPreFirstDeadline(deps: Pick<TickDeps, "fetchPublicJson">, entry: string, team: BotMyTeam, eventId: number): Promise<boolean> {
+  if (team.transfers.limit !== null) return false;
+  if (pendingChip(team.chips)) return false;
+  try {
+    const raw = (await deps.fetchPublicJson(`${FPL_API}/entry/${entry}/`)) as { id?: unknown; started_event?: unknown } | null;
+    return Number(raw?.id) === Number(entry) && Number(raw?.started_event) === eventId;
+  } catch {
+    return false;
+  }
 }
 
 async function freshElements(ctx: StepContext): Promise<Map<number, ElementInfo>> {
@@ -323,6 +329,7 @@ async function buildAndValidate(ctx: StepContext, team: BotMyTeam, data: FplData
     recentHitPoints: ctx.recentHitPoints,
     allowTransfers: phase === "full",
     allowNewTeamChip: phase !== "final",
+    preFirstDeadline: ctx.preFirstDeadline,
   });
   const nowMs = ctx.now();
   const deadlineMs = ignoreDeadlineGuard ? Number.MAX_SAFE_INTEGER : ctx.deadlineMs;
@@ -343,6 +350,7 @@ async function buildAndValidate(ctx: StepContext, team: BotMyTeam, data: FplData
       freeTransfers: plan.freeTransfers,
       hitPolicy: ctx.hitPolicy,
       recentHitPoints: ctx.recentHitPoints,
+      preFirstDeadline: ctx.preFirstDeadline,
     });
     transferErrors = v.errors;
     hitCost = v.hitCost;
@@ -360,6 +368,7 @@ async function buildAndValidate(ctx: StepContext, team: BotMyTeam, data: FplData
     deadlineMs,
     deadlineGuardMs: BOT_LIMITS.deadlineGuardMs,
     transferChipThisGw: Boolean(plan.transferChip) || pending === "wildcard" || pending === "freehit",
+    preFirstDeadline: ctx.preFirstDeadline,
   });
   const hash = await decisionHash({ gw: ctx.event.id, transfers, picks, modelVersion: plan.modelVersion });
   return { plan, transfers, picks, transferErrors, picksErrors, hash, hitCost, finalSquad };
@@ -404,7 +413,7 @@ async function dryRun(ctx: StepContext, row: BotRunRow, team: BotMyTeam, data: F
 
 async function shadowStep(ctx: StepContext, row: BotRunRow, team: BotMyTeam, data: FplData, step: BotStep): Promise<void> {
   try {
-    const elements = ctx.teamSource === "my-team" ? await freshElements(ctx) : elementsFromData(data);
+    const elements = await freshElements(ctx);
     const built = await buildAndValidate(ctx, team, data, elements, step === "final" ? "final" : "full");
     const sum = decisionSummary(built, data);
     await insertDecision(ctx.db, { entry: ctx.entry, gw: ctx.event.id, step, mode: "shadow", decisionHash: built.hash, summary: { ...sum, teamSource: ctx.teamSource } }, ctx.now());
@@ -449,6 +458,18 @@ async function mayPost(ctx: StepContext): Promise<string | null> {
 }
 
 const squadOf = (team: BotMyTeam) => team.picks.map((p) => p.element);
+
+/**
+ * Points FPL will deduct for this GW's transfers, read back after the POST: the response's spent_points when present,
+ * else my-team (unlimited limit => 0; otherwise (made - limit) x 4). null = cannot tell (treated as a mismatch).
+ */
+export function observedHitPoints(after: BotMyTeam, responseBody: unknown): number | null {
+  const spent = (responseBody as { spent_points?: unknown } | null)?.spent_points;
+  if (typeof spent === "number" && Number.isFinite(spent)) return spent;
+  if (after.transfers.limit === null) return 0;
+  if (typeof after.transfers.limit !== "number" || typeof after.transfers.made !== "number") return null;
+  return Math.max(0, after.transfers.made - after.transfers.limit) * 4;
+}
 
 async function liveTransfers(ctx: StepContext, team: BotMyTeam, data: FplData): Promise<BotMyTeam | null> {
   const client = ctx.client!;
@@ -521,8 +542,10 @@ async function liveTransfers(ctx: StepContext, team: BotMyTeam, data: FplData): 
     await updateRun(ctx.db, row.id, { response_status: response.status, response_excerpt: response.excerpt }, ctx.now());
     const after = await client.myTeam();
     const actual = await hashString(canonicalSquad(squadOf(after)));
-    const chipOk = !built.plan.transferChip || pendingChip(after.chips) === built.plan.transferChip;
-    const costOk = built.plan.transferChip || typeof after.transfers.cost !== "number" || after.transfers.cost <= built.hitCost;
+    const chipOk = built.plan.transferChip ? pendingChip(after.chips) === built.plan.transferChip : !pendingChip(after.chips) || pendingChip(after.chips) === pendingChip(team.chips);
+    const pointsHit = observedHitPoints(after, response.body);
+    const costOk = pointsHit !== null && pointsHit <= built.hitCost;
+    await updateRun(ctx.db, row.id, { summary: JSON.stringify({ hitCost: built.hitCost, observedHitPoints: pointsHit, chip: built.plan.transferChip, preFirstDeadline: ctx.preFirstDeadline, reasons: built.plan.reasons }) }, ctx.now());
     if (actual === target && chipOk && costOk) {
       await updateRun(ctx.db, row.id, { status: "verified", verified_at: new Date(ctx.now()).toISOString(), lease_until: null }, ctx.now());
       ctx.summary.actions.push(`transfers verified (${built.plan.legs.length}${built.plan.transferChip ? ` +${built.plan.transferChip}` : ""})`);
@@ -613,4 +636,129 @@ async function liveLineup(ctx: StepContext, team: BotMyTeam, data: FplData, step
     await ctx.fail(`${step}-failed`, error instanceof Error ? error.message : undefined);
     return null;
   }
+}
+
+// ------------------------------------------------------------------ read-only inspection (owner trigger) -------
+
+export type BotInspection = {
+  ok: boolean;
+  reason?: string;
+  identityMatches?: boolean;
+  gw?: number | null;
+  window?: ScheduleWindow | null;
+  preFirstDeadline?: boolean;
+  transfers?: BotMyTeam["transfers"];
+  chips?: Array<{ name: string | null | undefined; status: string | null | undefined; pending: boolean; start: number | null | undefined; stop: number | null | undefined }>;
+  picks?: BotMyTeam["picks"];
+  topLevelKeys?: string[];
+  publicEntry?: { started_event: unknown; current_event: unknown } | null;
+};
+
+async function openReadOnly(deps: TickDeps): Promise<{ ok: false; reason: string } | { ok: true; client: BotFplClient; entry: string }> {
+  const now = deps.now ?? (() => Date.now());
+  const entry = botEntryId(deps.env);
+  if (!entry) return { ok: false, reason: "no-bot-entry" };
+  const alive = await keepAliveBotTokens(deps.env, deps.db, now(), deps.fetchImpl);
+  if (!alive.ok) return { ok: false, reason: `auth-${alive.reason}` };
+  // allowPost is never set: this client cannot write.
+  const client = new BotFplClient({ entryId: assertBotEntry(deps.env, entry), tokens: alive.tokens, fetchImpl: deps.fetchImpl, sleep: deps.sleep });
+  const me = await client.me();
+  if (me.entry !== entry) return { ok: false, reason: me.entry ? "identity-mismatch" : "identity-unknown" };
+  return { ok: true, client, entry };
+}
+
+/** Shape of the bot's authenticated my-team (no tokens, no personal data) + pre-first-deadline detection. Never POSTs. */
+export async function inspectBot(deps: TickDeps): Promise<BotInspection> {
+  const now = deps.now ?? (() => Date.now());
+  const opened = await openReadOnly(deps);
+  if (!opened.ok) return { ok: false, reason: opened.reason };
+  const raw = (await opened.client.myTeam()) as BotMyTeam & Record<string, unknown>;
+  let publicEntry: BotInspection["publicEntry"] = null;
+  try {
+    const e = (await deps.fetchPublicJson(`${FPL_API}/entry/${opened.entry}/`)) as { started_event?: unknown; current_event?: unknown };
+    publicEntry = { started_event: e?.started_event, current_event: e?.current_event };
+  } catch {
+    publicEntry = null;
+  }
+  let gw: number | null = null;
+  let window: ScheduleWindow | null = null;
+  let pre = false;
+  try {
+    const data = await deps.loadData();
+    const event = nextDeadlineEvent(data.events, now());
+    if (event) {
+      gw = event.id;
+      window = windowFor(Date.parse(event.deadline), now());
+      pre = await detectPreFirstDeadline(deps, opened.entry, raw, event.id);
+    }
+  } catch {
+    // data unavailable: report what we have
+  }
+  return {
+    ok: true,
+    identityMatches: true,
+    gw,
+    window,
+    preFirstDeadline: pre,
+    transfers: raw.transfers,
+    chips: (raw.chips ?? []).map((c) => ({ name: c.name, status: c.status_for_entry, pending: c.is_pending === true, start: c.start_event, stop: c.stop_event })),
+    picks: raw.picks,
+    topLevelKeys: Object.keys(raw),
+    publicEntry,
+  };
+}
+
+/** Full plan + payloads + validation against live data, exactly as the submit step would build them. Never POSTs. */
+export async function rehearseBot(deps: TickDeps) {
+  const now = deps.now ?? (() => Date.now());
+  const log = deps.log ?? (() => {});
+  const opened = await openReadOnly(deps);
+  if (!opened.ok) return { ok: false as const, reason: opened.reason };
+  const data = await deps.loadData();
+  const event = nextDeadlineEvent(data.events, now());
+  if (!event) return { ok: false as const, reason: "no-upcoming-deadline" };
+  const team = await opened.client.myTeam();
+  const preFirstDeadline = await detectPreFirstDeadline(deps, opened.entry, team, event.id);
+  const summary: TickSummary = { ran: true, mode: null, window: null, gw: event.id, auth: "ok", actions: [], errors: [] };
+  const errorsLogged: string[] = [];
+  const ctx: StepContext = {
+    deps, db: deps.db, env: deps.env, entry: opened.entry, event, deadlineMs: Date.parse(event.deadline), now, log, summary,
+    fail: async (code) => void errorsLogged.push(code),
+    hitPolicy: parseHitPolicy(deps.env[BOT_ENV.hitPolicy]), chipPolicy: parseChipPolicy(deps.env[BOT_ENV.chipPolicy]),
+    recentHitPoints: await recentHits(deps.db, opened.entry, event.id), client: null, teamSource: "my-team", preFirstDeadline,
+  };
+  const elements = await freshElements(ctx);
+  const built = await buildAndValidate(ctx, team, data, elements, "full");
+  const byId = new Map(data.players.map((p) => [p.id, p]));
+  const describe = (id: number) => {
+    const p = byId.get(id);
+    const e = elements.get(id);
+    return { id, name: p?.name ?? null, team: p?.teamShort ?? null, pos: p?.positionShort ?? null, nowCost: e?.nowCost ?? null, status: e?.status ?? null, chance: e?.chance ?? null };
+  };
+  const sell = new Map(team.picks.map((p) => [p.element, p.selling_price]));
+  const oldIds = team.picks.map((p) => p.element);
+  const squadValueOld = oldIds.reduce((s, id) => s + (sell.get(id) ?? 0), 0);
+  const newCost = built.finalSquad.reduce((s, id) => s + (oldIds.includes(id) ? sell.get(id) ?? 0 : elements.get(id)?.nowCost ?? 0), 0);
+  return {
+    ok: true as const,
+    gw: event.id,
+    window: windowFor(Date.parse(event.deadline), now()),
+    preFirstDeadline,
+    transfersState: team.transfers,
+    old: { squad: oldIds.map(describe), value: squadValueOld, bank: team.transfers.bank },
+    next: { squad: built.finalSquad.map(describe), cost: newCost, bankAfter: team.transfers.bank + squadValueOld - newCost },
+    legs: built.plan.legs.map((l) => ({ out: describe(l.outId), in: describe(l.inId) })),
+    transferChip: built.plan.transferChip,
+    lineupChip: built.plan.lineupChip,
+    hitCost: built.hitCost,
+    xi: built.plan.lineup.starters.map(describe),
+    bench: built.plan.lineup.bench.map(describe),
+    captain: describe(built.plan.lineup.captainId),
+    vice: describe(built.plan.lineup.viceId),
+    transferErrors: built.transferErrors,
+    picksErrors: built.picksErrors,
+    reasons: built.plan.reasons,
+    transfersPayload: built.transfers,
+    picksPayload: built.picks,
+  };
 }

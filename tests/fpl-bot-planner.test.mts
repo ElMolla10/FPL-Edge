@@ -89,3 +89,24 @@ test("planner: chip policy 'none' never plays a chip even when all are available
   assert.equal(plan.transferChip, null);
   assert.equal(plan.lineupChip, null);
 });
+
+test("planner pre-first-deadline: rebuilds a legal, fully available 15 on the real budget, no chip, no hit", () => {
+  const chips = (["wildcard", "freehit", "bboost", "3xc"] as const).map((name) => ({ name, status_for_entry: "available", played_by_entry: [], start_event: 2, stop_event: 19, is_pending: false }));
+  // one squad player flagged doubtful: it must be sold
+  const flaggedData = { ...data, players: data.players.map((p) => (p.id === SQUAD[2] ? { ...p, status: "d", chance: 50 } : p)) } as FplData;
+  const pre = team({ chips, transfers: { bank: 15, limit: null, made: 0, status: "unlimited" } } as Partial<BotMyTeam>);
+  const plan = planGameweek({ data: flaggedData, myTeam: pre, event, hitPolicy: DEFAULT_HIT_POLICY, chipPolicy: "all", recentHitPoints: 0, allowTransfers: true, preFirstDeadline: true });
+  const els = elementsFromData(flaggedData);
+  assert.equal(plan.transferChip, null);
+  assert.equal(plan.lineupChip, null);
+  assert.equal(plan.hitCost, 0);
+  assert.ok(plan.legs.length >= 1);
+  assert.ok(!plan.finalSquad.includes(SQUAD[2]), "doubtful player sold");
+  assert.deepEqual(validateSquadIds(plan.finalSquad, els), []);
+  const byIdF = new Map(flaggedData.players.map((p) => [p.id, p]));
+  assert.ok(plan.finalSquad.every((id) => byIdF.get(id)!.status === "a"));
+  const budget = 15 + SQUAD.reduce((s, id) => s + tenths(id), 0);
+  const cost = plan.finalSquad.reduce((s, id) => s + tenths(id), 0);
+  assert.ok(cost <= budget, `cost ${cost} <= budget ${budget}`);
+  assert.ok(plan.reasons.some((r) => r.includes("pre-first-deadline")));
+});

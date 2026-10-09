@@ -88,6 +88,25 @@ No POST is ever sent within 5 minutes of the deadline.
   claimed/retryable; no POST is half-sent because intent is persisted first).
 - Apply migration `0012_fpl_bot.sql` (`wrangler d1 migrations apply`) before deploying.
 
+## New team before its first deadline
+
+A team created mid-season has unlimited free transfers until its first deadline. The bot detects this from
+authenticated data only: `my-team` reports `transfers.limit === null`, no chip is pending, and the public entry's
+`started_event` equals the next event. In that state the bot rebuilds the best 15 on its real budget (Draft Lab / Wildcard
+optimiser over fully available players only: status `a`, chance >= 75), sends the needed legs in one transfers POST
+with `chip: null` and no hit, then sets the XI, captain and vice. It may submit as soon as the plan window opens
+(26 h before the deadline) instead of waiting for the submit window. Post-submit verification requires 0 points
+deducted (`spent_points` in the response when present, else `my-team`). From the next gameweek, normal rules apply.
+
+The bot reads its team only from the authenticated `my-team` endpoint, never the public picks endpoint (a new team has
+none before its first deadline).
+
+## Operator trigger
+
+`POST /__bot/run` with `Authorization: Bearer <FPL_EDGE_BOT_TRIGGER_SECRET>` and `{"action": "inspect" | "rehearse" |
+"tick"}`. `inspect` and `rehearse` are read-only (my-team shape, full plan, payloads and validation). `tick` runs exactly
+the hourly cron tick with all its rails. The path returns 404 unless the secret (>= 32 chars) is set.
+
 ## Connecting the bot account (owner)
 
 1. Create the bot FPL account and team. FPL has **no API for creating a team's first squad**; `/bot` ->

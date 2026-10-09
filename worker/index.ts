@@ -4,7 +4,7 @@ import handler from "vinext/server/app-router-entry";
 import { keepAlivePersonalFplAuth } from "../app/lib/personal-fpl-transfer/keep-alive";
 import { pruneExpiredData } from "../app/lib/maintenance";
 import { prepareSecurity } from "../app/lib/security-headers";
-import { runBotTick } from "../app/lib/fpl-bot/runner";
+import { inspectBot, rehearseBot, runBotTick, type TickDeps } from "../app/lib/fpl-bot/runner";
 import type { FplData } from "../app/lib/fpl";
 
 interface Env {
@@ -32,6 +32,8 @@ interface Env {
   FPL_EDGE_BOT_TEAM_NAME?: string;
   FPL_EDGE_BOT_HIT_POLICY?: string;
   FPL_EDGE_BOT_CHIP_POLICY?: string;
+  /** Optional: enables POST /__bot/run (operator trigger). Unset => the path 404s. */
+  FPL_EDGE_BOT_TRIGGER_SECRET?: string;
 }
 
 interface ExecutionContext {
@@ -49,6 +51,64 @@ interface ScheduledController {
 // To route SVGs through the optimizer (with security headers), set
 // dangerouslyAllowSVG: true in next.config.js and uncomment below:
 // const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
+
+/** Same dependencies the cron uses: official data via the app's own /api/fpl route in-process, public GETs direct. */
+function botDeps(env: Env, ctx: ExecutionContext): TickDeps {
+  return {
+    env,
+    db: env.DB,
+    loadData: async () => {
+      const response = await handler.fetch(new Request("https://fpl-edge.internal/api/fpl", { headers: { Accept: "application/json" } }), env, ctx);
+      if (!response.ok) throw new Error(`api/fpl ${response.status}`);
+      return (await response.json()) as FplData;
+    },
+    fetchPublicJson: async (target) => {
+      const response = await fetch(target, { headers: { Accept: "application/json", "User-Agent": "FPL-Edge-Bot/1.0 (automated, owner-operated)" }, cache: "no-store" });
+      if (!response.ok) throw new Error(`public ${response.status}`);
+      return response.json();
+    },
+  };
+}
+
+async function sameSecret(provided: string, expected: string): Promise<boolean> {
+  const digest = async (v: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(v)));
+  const [a, b] = await Promise.all([digest(provided), digest(expected)]);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+/**
+ * Operator trigger for the bot (POST /__bot/run, Authorization: Bearer <FPL_EDGE_BOT_TRIGGER_SECRET>):
+ *   inspect  - read-only my-team shape + pre-first-deadline detection
+ *   rehearse - read-only full plan + payloads + validation against live data
+ *   tick     - exactly the hourly cron tick (same lock, mode resolution, kill switch, caps, validation, verification)
+ * Disabled (404) unless the secret is set (>= 32 chars). Nothing here bypasses a cron safety rail.
+ */
+async function botTrigger(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const secret = env.FPL_EDGE_BOT_TRIGGER_SECRET ?? "";
+  const notFound = () => new Response("Not found", { status: 404 });
+  if (secret.length < 32 || request.method !== "POST") return notFound();
+  const auth = request.headers.get("authorization") ?? "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!provided || !(await sameSecret(provided, secret))) return notFound();
+  let action = "";
+  try {
+    action = String(((await request.json()) as { action?: unknown })?.action ?? "");
+  } catch {
+    action = "";
+  }
+  const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+  try {
+    const deps = botDeps(env, ctx);
+    if (action === "inspect") return json(await inspectBot(deps));
+    if (action === "rehearse") return json(await rehearseBot(deps));
+    if (action === "tick") return json(await runBotTick(deps));
+    return json({ ok: false, error: "unknown-action" }, 400);
+  } catch (error) {
+    return json({ ok: false, error: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 300) : "error" }, 500);
+  }
+}
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -70,6 +130,8 @@ const worker = {
       }, allowedWidths));
     }
 
+    if (url.pathname === "/__bot/run") return security.finalize(await botTrigger(request, env, ctx));
+
     // Defense in depth: never trust client-supplied oai-* identity headers on Workers.
     // On OpenAI Sites these were platform-injected; here any client can spoof them.
     const clean = new Headers(request.headers);
@@ -86,7 +148,8 @@ const worker = {
    *   1. personal FPL refresh-token keep-alive (unchanged, below)
    *   2. prune expired sessions + stale rate-limit rows (app/lib/maintenance.ts)
    *   3. autonomous bot tick (app/lib/fpl-bot/runner.ts): its OWN token store + team only; the only place the bot
-   *      can ever write to FPL (no HTTP route can trigger a submission). Mode off|shadow|live, default shadow.
+   *      can ever write to FPL (plus the secret-gated operator trigger /__bot/run, which runs this SAME tick). Mode
+   *      off|shadow|live, default shadow.
    *
    * Keep the personal FPL refresh token alive even when nobody opens Transfers.
    * Uses the same CAS/access-token cache as live overlay — never race-rotates.
@@ -116,21 +179,7 @@ const worker = {
     ctx.waitUntil(
       (async () => {
         try {
-          const summary = await runBotTick({
-            env,
-            db: env.DB,
-            // Same official snapshot the site serves, via the app's own /api/fpl route in-process (no parallel data path).
-            loadData: async () => {
-              const response = await handler.fetch(new Request("https://fpl-edge.internal/api/fpl", { headers: { Accept: "application/json" } }), env, ctx);
-              if (!response.ok) throw new Error(`api/fpl ${response.status}`);
-              return (await response.json()) as FplData;
-            },
-            fetchPublicJson: async (target) => {
-              const response = await fetch(target, { headers: { Accept: "application/json", "User-Agent": "FPL-Edge-Bot/1.0 (automated, owner-operated)" }, cache: "no-store" });
-              if (!response.ok) throw new Error(`public ${response.status}`);
-              return response.json();
-            },
-          });
+          const summary = await runBotTick(botDeps(env, ctx));
           console.warn(`[fpl-bot] tick ran=${summary.ran} mode=${summary.mode?.effective ?? "-"} window=${summary.window ?? "-"} gw=${summary.gw ?? "-"} auth=${summary.auth} actions=${summary.actions.length} errors=${summary.errors.join(",") || "none"} cron=${controller.cron}`);
         } catch (error) {
           console.warn(`[fpl-bot] failed ${error instanceof Error ? error.name : "error"} cron=${controller.cron}`);
