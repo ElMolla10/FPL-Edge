@@ -50,7 +50,8 @@ export class BotFplClient {
     if (!/^\d{1,12}$/.test(options.entryId)) throw new Error("bot client needs a numeric entry id");
     this.entryId = options.entryId;
     this.tokens = options.tokens;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    // Never store the global fetch as a method: calling it as this.fetchImpl(...) throws "Illegal invocation" on Workers.
+    this.fetchImpl = options.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.random = options.random ?? Math.random;
     this.allowPost = options.allowPost === true;

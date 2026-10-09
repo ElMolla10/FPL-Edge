@@ -236,3 +236,22 @@ test("never reads the public picks endpoint: unverified session => no action, no
   assert.ok(!urls.some((u) => u.includes("/picks/")));
   assert.match((await readBotState(db)).last_tick_summary ?? "", /not connected/);
 });
+
+test("BotFplClient default fetch is not invoked as a method (Workers 'Illegal invocation')", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = function (this: unknown, input: RequestInfo | URL) {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+    calls++;
+    void input;
+    return Promise.resolve(new Response(JSON.stringify({ player: { entry: Number(BOT) } }), { status: 200 }));
+  } as typeof fetch;
+  try {
+    const tokens = { getAccessToken: async () => "at" } as unknown as ConstructorParameters<typeof BotFplClient>[0]["tokens"];
+    const client = new BotFplClient({ entryId: BOT, tokens, sleep: async () => {} });
+    assert.equal((await client.me()).entry, BOT);
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
