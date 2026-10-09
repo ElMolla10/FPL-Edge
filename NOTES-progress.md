@@ -15,3 +15,6 @@ Design source: /workspace/notes/FPL-EDGE-AUTONOMOUS-BOT-FEASIBILITY.md (Option A
 - [ ] draft PR
 
 ## Log
+- best-decision.ts + chip-scores.ts extraction committed
+- migration 0012_fpl_bot.sql + journal; app/lib/fpl-bot/{config,crypto,store,types,fpl-client,payloads,validate,hash,schedule,planner,auth,runner}.ts written, tsc clean
+- NEXT: worker scheduled() hook, runtime-env keys, routes (/api/bot/status, /api/bot/control, /api/bot/fpl-auth/reconnect), /bot page, tests, docs
