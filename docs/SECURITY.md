@@ -99,6 +99,19 @@ not blocked (window = the longest namespace window, 1 h). Pruning a stale row is
 Migration `0010_prune_indexes.sql` adds idempotent indexes on both filter columns. It runs in its own `waitUntil` next to
 the FPL token keep-alive; neither can block the other.
 
+## Autonomous bot (separate FPL account)
+
+- Owner-only: `/bot`, `/api/bot/status` (GET), `/api/bot/control` and `/api/bot/fpl-auth/reconnect` (POST) require a
+  signed-in session whose email is in `FPL_EDGE_BOT_OWNER_EMAILS` (separate from the personal allowlist; empty = nobody).
+  POSTs go through `rejectCrossSite` and `readJsonBody`. `/bot` is `noindex` and disallowed in robots.
+- Bot FPL tokens are AES-GCM encrypted at rest in `bot_fpl_auth` with their own key; only hashes / redacted excerpts are
+  logged. The bookmarklet's token travels in the URL **fragment** (never sent to any server in a request line) and the
+  page removes it from history before POSTing it same-origin.
+- Reconnect verifies `/api/me` belongs to the bot entry before storing; the cron re-verifies daily and trips the kill
+  switch on mismatch. Bot code cannot import the personal token store (`tests/fpl-bot-separation.test.mts`).
+- FPL writes only happen in the cron runner, after validation, with POST explicitly armed per request. See
+  `docs/FPL-BOT.md`.
+
 ## Not done
 
 Password reset and email verification: see `docs/PROPOSAL-password-reset-email-verification.md`.
