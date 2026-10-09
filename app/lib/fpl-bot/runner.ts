@@ -94,6 +94,7 @@ export async function runBotTick(deps: TickDeps): Promise<TickSummary> {
     // ---- auth + identity ------------------------------------------------------------------------------------
     let client: BotFplClient | null = null;
     let identityVerified = false;
+    let killedThisTick = false;
     const hasAuthConfig = Boolean(env[BOT_ENV.tokenKey]) && (Boolean(await readBotAuthRow(db)) || Boolean(env[BOT_ENV.refreshSeed]));
     if (hasAuthConfig) {
       const alive = await keepAliveBotTokens(env, db, now(), deps.fetchImpl);
@@ -116,6 +117,7 @@ export async function runBotTick(deps: TickDeps): Promise<TickSummary> {
             } else {
               await setBotIdentity(db, null, now());
               await setBotKill(db, true, me.entry ? "identity-mismatch: token belongs to another team" : "identity-unknown", now());
+              killedThisTick = true;
               await fail(me.entry ? "identity-mismatch" : "identity-unknown");
               await alertOnce(db, "identity", now(), log, "bot token does not belong to the bot team - kill switch set");
               client = null;
@@ -133,7 +135,7 @@ export async function runBotTick(deps: TickDeps): Promise<TickSummary> {
     }
 
     const dryRunPassed = Boolean(entry && state.dry_run_entry === entry && state.dry_run_passed_at);
-    const mode = resolveMode({ env, storedMode: state.mode, kill: state.kill === 1, identityVerified, dryRunPassed });
+    const mode = resolveMode({ env, storedMode: state.mode, kill: state.kill === 1 || killedThisTick, identityVerified, dryRunPassed });
     summary.mode = mode;
     if (mode.effective === "off") {
       await recordTick(db, `off (${mode.reasons.join(",") || "requested off"})`, now());

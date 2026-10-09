@@ -1,6 +1,6 @@
 /**
  * D1 access for the bot (bot_* tables only, migration 0012_fpl_bot.sql). Takes any D1-shaped handle so it unit-tests
- * against node:sqlite. Never touches personal_fpl_auth or any other app table.
+ * against node:sqlite. Never touches the personal FPL auth table or any other app table.
  */
 import { decryptToken, encryptToken, redact, sha256Hex } from "./crypto";
 
@@ -296,10 +296,12 @@ export async function claimRun(db: BotDb, entry: string, gw: number, step: BotSt
   const result = await db
     .prepare(
       `UPDATE bot_runs SET status = 'claimed', mode = ?, lease_until = ?, attempt = attempt + 1, updated_at = ?
-        WHERE entry = ? AND gw = ? AND step = ? AND status IN ('pending', 'failed_retryable')
-          AND (lease_until IS NULL OR lease_until < ?)`,
+        WHERE entry = ? AND gw = ? AND step = ?
+          AND ((status IN ('pending', 'failed_retryable') AND (lease_until IS NULL OR lease_until < ?))
+               -- a tick that died after claiming but BEFORE marking 'posted' never sent anything: safe to take over
+               OR (status = 'claimed' AND lease_until < ?))`,
     )
-    .bind(mode, nowMs + leaseMs, iso(nowMs), entry, gw, step, nowMs)
+    .bind(mode, nowMs + leaseMs, iso(nowMs), entry, gw, step, nowMs, nowMs)
     .run();
   if (changes(result) === 0) return null;
   return getRun(db, entry, gw, step);

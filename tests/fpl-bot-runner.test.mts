@@ -1,0 +1,207 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { botD1 } from "./helpers/bot-d1.mts";
+import { runBotTick, type TickDeps } from "../app/lib/fpl-bot/runner.ts";
+import { importBotKey } from "../app/lib/fpl-bot/crypto.ts";
+import { BotFplClient, BotHttpError } from "../app/lib/fpl-bot/fpl-client.ts";
+import { canonicalSquad, hashString } from "../app/lib/fpl-bot/hash.ts";
+import {
+  claimRun, getRun, readBotAuthRow, readBotState, recentErrors, setBotKill, setBotMode, setDryRunPassed, storeBotBootstrap, setBotIdentity, updateRun, recordPost, countPosts,
+} from "../app/lib/fpl-bot/store.ts";
+import type { FplData } from "../app/lib/fpl.ts";
+import type { BotEnv } from "../app/lib/fpl-bot/config.ts";
+
+// No test in this file can reach FPL: every request goes through `fakeFetch`, which records it and THROWS on any POST.
+const BOT = "4242";
+const KEY = Buffer.alloc(32, 9).toString("base64");
+const ENV: BotEnv = { FPL_EDGE_BOT_FPL_ENTRY_ID: BOT, FPL_EDGE_BOT_TOKEN_KEY: KEY, FPL_EDGE_PERSONAL_FPL_ENTRY_ID: "1111" };
+const NOW = Date.parse("2026-10-10T08:00:00Z");
+const SQUAD = Array.from({ length: 15 }, (_, i) => i + 1);
+const myTeam = (squad = SQUAD) => ({
+  picks: squad.map((element, i) => ({ element, position: i + 1, multiplier: i < 11 ? 1 : 0, is_captain: i === 0, is_vice_captain: i === 1, selling_price: 50, purchase_price: 50 })),
+  transfers: { bank: 0, limit: 1, made: 0, cost: 0 },
+  chips: [],
+});
+
+type Call = { method: string; url: string };
+function fakeFetch(opts: { meEntry?: string | null; team?: unknown } = {}) {
+  const calls: Call[] = [];
+  const impl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+    calls.push({ method, url });
+    if (method === "POST") throw new Error(`TEST VIOLATION: POST to ${url}`);
+    if (url.endsWith("/api/me/")) return new Response(JSON.stringify({ player: opts.meEntry === undefined ? { entry: Number(BOT) } : opts.meEntry === null ? null : { entry: Number(opts.meEntry) } }), { status: 200 });
+    if (url.includes("/api/my-team/")) return new Response(JSON.stringify(opts.team ?? myTeam()), { status: 200 });
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+  return { calls, impl };
+}
+
+async function connectedDb(identity: string | null = BOT) {
+  const { db } = botD1();
+  const key = await importBotKey(KEY);
+  // Access token valid for hours => keep-alive never needs PingOne (no network).
+  await storeBotBootstrap(db, key, { refreshToken: "rt-test", accessToken: "at-test", accessExpiresAtMs: Date.now() + 6 * 3_600_000 }, identity ?? BOT, NOW - 86_400_000);
+  if (identity === null) await setBotIdentity(db, null, NOW);
+  return db;
+}
+
+const data = (deadline: number) => ({ events: [{ id: 8, name: "Gameweek 8", deadline: new Date(deadline).toISOString(), finished: false, current: false, next: true }], players: [], fixtures: [], teams: [] }) as unknown as FplData;
+
+function deps(db: TickDeps["db"], f: ReturnType<typeof fakeFetch>, over: Partial<TickDeps> = {}): TickDeps & { loads: number[] } {
+  const loads: number[] = [];
+  return {
+    env: ENV,
+    db,
+    loadData: async () => {
+      loads.push(1);
+      return data(NOW + 120 * 60_000);
+    },
+    fetchPublicJson: async (url) => {
+      if (url.includes("bootstrap-static")) throw new Error("no bootstrap in tests");
+      return null;
+    },
+    fetchImpl: f.impl,
+    now: () => NOW,
+    sleep: async () => {},
+    log: () => {},
+    loads,
+    ...over,
+  };
+}
+
+const posts = (f: ReturnType<typeof fakeFetch>) => f.calls.filter((c) => c.method === "POST");
+
+test("unconfigured bot: shadow, no network, no POST", async () => {
+  const { db } = botD1();
+  const f = fakeFetch();
+  const s = await runBotTick(deps(db, f, { env: {} }));
+  assert.equal(s.ran, true);
+  assert.equal(s.mode?.effective, "shadow");
+  assert.equal(f.calls.length, 0);
+  assert.match((await readBotState(db)).last_tick_summary ?? "", /no bot entry/);
+});
+
+test("wrong-account rejection: /api/me reports another entry => kill switch set, no data, no POST", async () => {
+  const db = await connectedDb(null);
+  const f = fakeFetch({ meEntry: "1111" });
+  const d = deps(db, f);
+  const s = await runBotTick(d);
+  assert.equal(s.mode?.effective, "off");
+  assert.ok(s.errors.includes("identity-mismatch"));
+  const state = await readBotState(db);
+  assert.equal(state.kill, 1);
+  assert.match(state.kill_reason ?? "", /identity-mismatch/);
+  assert.equal((await readBotAuthRow(db))?.identity_entry, null);
+  assert.equal(d.loads.length, 0);
+  assert.equal(posts(f).length, 0);
+  assert.ok(!f.calls.some((c) => c.url.includes("/my-team/")), "never reads a team the token is not proven to own");
+});
+
+test("unknown identity (no player) is treated like a mismatch", async () => {
+  const db = await connectedDb(null);
+  const f = fakeFetch({ meEntry: null });
+  const s = await runBotTick(deps(db, f));
+  assert.ok(s.errors.includes("identity-unknown"));
+  assert.equal((await readBotState(db)).kill, 1);
+});
+
+test("kill switch: mode off, no plan, no POST even when live was requested", async () => {
+  const db = await connectedDb();
+  await setBotMode(db, "live", NOW);
+  await setDryRunPassed(db, BOT, NOW);
+  await setBotKill(db, true, "owner", NOW);
+  const f = fakeFetch();
+  const d = deps(db, f);
+  const s = await runBotTick(d);
+  assert.equal(s.mode?.effective, "off");
+  assert.deepEqual(s.mode?.reasons, ["kill-switch"]);
+  assert.equal(d.loads.length, 0);
+  assert.equal(posts(f).length, 0);
+});
+
+test("do-nothing fallback: official data unavailable while live => error logged, no POST", async () => {
+  const db = await connectedDb();
+  await setBotMode(db, "live", NOW);
+  await setDryRunPassed(db, BOT, NOW);
+  const f = fakeFetch();
+  const s = await runBotTick(deps(db, f, { loadData: async () => { throw new Error("upstream down"); } }));
+  assert.equal(s.mode?.effective, "live");
+  assert.ok(s.errors.includes("data-unavailable"));
+  assert.equal(posts(f).length, 0);
+  assert.ok((await recentErrors(db)).some((e) => e.code === "data-unavailable"));
+});
+
+test("do-nothing fallback: fresh bootstrap unavailable in the submit window => lineup step fails safely, no POST", async () => {
+  const db = await connectedDb();
+  await setBotMode(db, "live", NOW);
+  await setDryRunPassed(db, BOT, NOW);
+  const f = fakeFetch();
+  const s = await runBotTick(deps(db, f));
+  assert.equal(s.window, "submit");
+  assert.equal(posts(f).length, 0);
+  const transfers = await getRun(db, BOT, 8, "transfers");
+  assert.equal(transfers?.status, "failed_retryable");
+  assert.match(transfers?.error ?? "", /bootstrap/);
+});
+
+test("idempotency: an earlier 'posted' transfer whose target matches my-team is verified WITHOUT re-posting", async () => {
+  const db = await connectedDb();
+  await setBotMode(db, "live", NOW);
+  await setDryRunPassed(db, BOT, NOW);
+  const row = await claimRun(db, BOT, 8, "transfers", "live", NOW - 3_600_000, 60_000);
+  assert.ok(row);
+  await updateRun(db, row.id, { status: "posted", target_state_hash: await hashString(canonicalSquad(SQUAD)) }, NOW - 3_600_000);
+  const f = fakeFetch();
+  await runBotTick(deps(db, f));
+  assert.equal((await getRun(db, BOT, 8, "transfers"))?.status, "verified");
+  assert.equal(posts(f).length, 0);
+});
+
+test("idempotency: an ambiguous earlier transfer (squad != target) stops the gameweek, never re-posts", async () => {
+  const db = await connectedDb();
+  await setBotMode(db, "live", NOW);
+  await setDryRunPassed(db, BOT, NOW);
+  const row = await claimRun(db, BOT, 8, "transfers", "live", NOW - 3_600_000, 60_000);
+  await updateRun(db, row!.id, { status: "posted", target_state_hash: await hashString(canonicalSquad([...SQUAD.slice(0, 14), 99])) }, NOW - 3_600_000);
+  const f = fakeFetch();
+  const s = await runBotTick(deps(db, f));
+  assert.equal((await getRun(db, BOT, 8, "transfers"))?.status, "failed_ambiguous");
+  assert.equal((await readBotState(db)).gw_kill_event, 8);
+  assert.ok(s.errors.includes("transfers-ambiguous"));
+  assert.equal(posts(f).length, 0);
+  assert.equal(await getRun(db, BOT, 8, "lineup"), null, "no lineup step after an ambiguous transfer");
+});
+
+test("claimRun: exactly once per (entry, gw, step); leased rows are not stolen; finished rows never re-run", async () => {
+  const { db } = botD1();
+  const a = await claimRun(db, BOT, 8, "lineup", "live", NOW, 60_000);
+  assert.equal(a?.attempt, 1);
+  assert.equal(await claimRun(db, BOT, 8, "lineup", "live", NOW + 1_000, 60_000), null, "still leased");
+  const stale = await claimRun(db, BOT, 8, "lineup", "live", NOW + 120_000, 60_000);
+  assert.equal(stale?.attempt, 2, "a dead tick's claim (never posted) can be taken over after the lease");
+  await updateRun(db, stale!.id, { status: "verified", lease_until: null }, NOW);
+  assert.equal(await claimRun(db, BOT, 8, "lineup", "live", NOW + 10 * 3_600_000, 60_000), null);
+  await updateRun(db, stale!.id, { status: "posted", lease_until: null }, NOW);
+  assert.equal(await claimRun(db, BOT, 8, "lineup", "live", NOW + 10 * 3_600_000, 60_000), null, "'posted' is resolved from my-team, never re-claimed");
+});
+
+test("POST accounting feeds the per-GW / per-day caps", async () => {
+  const { db } = botD1();
+  for (let i = 0; i < 3; i++) await recordPost(db, BOT, 8, "lineup", 200, NOW);
+  assert.deepEqual(await countPosts(db, BOT, 8, NOW), { gw: 3, day: 3 });
+});
+
+test("BotFplClient: POST refused unless armed; transfer payload for another entry refused; GETs work", async () => {
+  const f = fakeFetch();
+  const tokens = { getAccessToken: async () => "at" } as unknown as ConstructorParameters<typeof BotFplClient>[0]["tokens"];
+  const client = new BotFplClient({ entryId: BOT, tokens, fetchImpl: f.impl, sleep: async () => {} });
+  await assert.rejects(() => client.postPicks({ picks: [], chip: null }), (e: unknown) => e instanceof BotHttpError && e.code === "post-disabled");
+  client.armPosts(true);
+  await assert.rejects(() => client.postTransfers({ entry: 1111, event: 8, chip: null, confirmed: true, transfers: [] } as never), /not the bot entry/);
+  client.armPosts(false);
+  assert.equal((await client.me()).entry, BOT);
+  assert.equal(posts(f).length, 0);
+  assert.throws(() => new BotFplClient({ entryId: "abc", tokens, fetchImpl: f.impl }));
+});
