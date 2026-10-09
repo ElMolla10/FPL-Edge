@@ -152,3 +152,31 @@ export class BotFplClient {
     return this.post(`/my-team/${this.entryId}/`, payload, "https://fantasy.premierleague.com/my-team");
   }
 }
+
+/** Identity probe with a bare access token (reconnect route, BEFORE storing anything). Read-only GET /api/me/. */
+export async function fetchMeEntryWithAccessToken(accessToken: string, fetchImpl: typeof fetch = fetch): Promise<{ status: number; entry: string | null }> {
+  const response = await fetchImpl(`${FPL_API}/me/`, {
+    method: "GET",
+    headers: { "X-API-Authorization": `Bearer ${accessToken}`, Accept: "application/json", "User-Agent": BOT_USER_AGENT },
+  });
+  if (!response.ok) return { status: response.status, entry: null };
+  try {
+    const body = (await response.json()) as { player?: { entry?: unknown } | null };
+    const raw = body?.player?.entry;
+    return { status: response.status, entry: typeof raw === "number" || (typeof raw === "string" && /^\d+$/.test(raw)) ? String(raw) : null };
+  } catch {
+    return { status: response.status, entry: null };
+  }
+}
+
+/** Public team name (optional cross-check against FPL_EDGE_BOT_TEAM_NAME). */
+export async function fetchPublicTeamName(entryId: string, fetchImpl: typeof fetch = fetch): Promise<string | null> {
+  try {
+    const response = await fetchImpl(`${FPL_API}/entry/${entryId}/`, { headers: { Accept: "application/json", "User-Agent": BOT_USER_AGENT } });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { name?: unknown };
+    return typeof body.name === "string" ? body.name : null;
+  } catch {
+    return null;
+  }
+}

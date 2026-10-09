@@ -196,3 +196,14 @@ export const BOT_LIMITS = Object.freeze({
   /** Re-verify /api/me at least this often. */
   identityMaxAgeMs: 24 * 3_600_000,
 });
+
+// ------------------------------------------------------------------ owner gate (routes) -------------------------
+
+export type BotOwnerGate = { ok: true } | { ok: false; reason: "unauthenticated" | "not-owner" };
+
+/** Owner-only: a signed-in session whose email is in FPL_EDGE_BOT_OWNER_EMAILS (separate from the personal allowlist). */
+export function evaluateBotOwnerGate(env: BotEnv, email: string | null | undefined): BotOwnerGate {
+  if (!email) return { ok: false, reason: "unauthenticated" };
+  if (!isBotOwner(env, email)) return { ok: false, reason: "not-owner" };
+  return { ok: true };
+}
