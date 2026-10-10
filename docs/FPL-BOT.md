@@ -49,6 +49,25 @@ sent within 5 minutes of the deadline.
 - **Hits**: default at most **one -4 per GW**, only when the engine's risk-adjusted 5-GW net vs HOLD clears the hit
   MAKE threshold **+1.0**; max 8 hit points over 4 GWs. `FPL_EDGE_BOT_HIT_POLICY=none|max1|max2`.
 - **Chips**: `FPL_EDGE_BOT_CHIP_POLICY=all` (default) | `cancellable` (BB/TC only) | `none`.
+  - **Expiry rule** (`expiryState` / `pickExpiryChip` in `planner.ts`): from authenticated `my-team.chips[]` only
+    (available / pending, `start_event` / `stop_event`). A window is tight when unused chips expiring by its last GW E
+    exceed the GWs left minus `CHIP_GUARDS.expiryBufferGws` (2); then one chip is spent per reserved GW and GW E stays
+    spare (4 chips: GW E-4..E-1; 1 chip: GW E-1). Pick order: chip whose window ends this GW, then estimated value
+    (rough), then 3xc > bboost > freehit > wildcard. A chip valued <= `expiryMinValue` (1 xPt) is never forced and may
+    expire (neutral for TC/BB); WC/FH are forced only above their positive expiry bars (+4 over 5 GWs / +3 this GW).
+    Safety guards are never bypassed (armband-eligible captain, legal squad, pre-first-deadline, chip policy, one chip/GW).
+  - **TC/BB cancellation** uses the same rule as activation: normal GW = normal guard; reserved expiry GW = kept unless
+    late news makes it worthless (no armband-eligible captain / value <= 1 xPt).
+  - **Bench Boost guard**: the ordinary guard = the three outfield bench players need start probability >= 0.7, the
+    bench GK must be available with a fixture (its own start probability is not gated), and the bench's NET value
+    (bench xPts minus expected autosub points) must be >= 8. Until P2, a normal-week BB additionally needs an
+    exceptional week: confirmed doubles (official fixture list) for >= 3 of the 4 bench players, or net bench >= 16
+    (~2x the ordinary bar; this squad's single-GW bench nets ~7-12). Otherwise BB waits for the expiry rule. The
+    ordinary guard is still computed and logged (`bench boost check (shadow)` reason) for shadow analysis.
+  - **Wildcard in an expiry GW** (`wildcardExpiryValue`): the WC squad is the better (raw 5-GW points) of the annealer
+    (`optimize()`, real budget = bank + selling prices) and a search seeded from the real squad (up to 4 changes); it
+    is judged against the regular path (same seeded search limited to the free transfers, max 4), not against holding.
+    Forced only when that net is > 1 xPt. Normal-week WC rules are unchanged.
 - **Rate caps**: <= 12 authenticated FPL calls per tick, 1.5 s + jitter spacing, <= 4 POSTs per GW, <= 6 per UTC day,
   429 / 5xx => stop for this tick.
 - **Kill switches**: global (page or `FPL_EDGE_BOT_MODE=off`), per-GW (set automatically on mismatch / ambiguity).
