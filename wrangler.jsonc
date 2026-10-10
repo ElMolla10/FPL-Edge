@@ -26,6 +26,10 @@
   "limits": {
     "cpu_ms": 120000
   },
+  // Workers Logs: lets bot/token incidents be investigated afterwards (console lines never contain tokens).
+  "observability": {
+    "enabled": true
+  },
   "triggers": {
     "crons": [
       "0 * * * *"

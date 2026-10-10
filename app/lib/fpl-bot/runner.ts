@@ -100,7 +100,7 @@ export async function runBotTick(deps: TickDeps): Promise<TickSummary> {
       const alive = await keepAliveBotTokens(env, db, now(), deps.fetchImpl);
       summary.auth = alive.ok ? "ok" : alive.reason;
       if (!alive.ok) {
-        await fail(`auth-${alive.reason}`);
+        await fail(`auth-${alive.reason}`, alive.detail);
         await alertOnce(db, `auth-${alive.reason}`, now(), log, `bot FPL session unusable (${alive.reason}) - reconnect with the bookmarklet`);
       } else if (entry) {
         client = new BotFplClient({ entryId: assertBotEntry(env, entry), tokens: alive.tokens, fetchImpl: deps.fetchImpl, sleep: deps.sleep });

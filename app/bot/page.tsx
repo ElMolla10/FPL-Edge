@@ -76,7 +76,7 @@ export default function BotPage() {
   // Only rendered after the client-side status fetch resolves, so window is always defined when this is used.
   const bookmarklet = useMemo(() => {
     const base = `${typeof window === "undefined" ? "" : window.location.origin}/bot`;
-    const js = `(()=>{try{var k=Object.keys(localStorage).find(function(x){return x.indexOf("oidc.user:")===0});if(!k){alert("Sign in to FPL (as the BOT) first");return;}var j=JSON.parse(localStorage.getItem(k)||"{}");if(!j.refresh_token){alert("No refresh_token in this FPL session");return;}location=${JSON.stringify(base)}+"#bot_rt="+encodeURIComponent(j.refresh_token)+"&bot_at="+encodeURIComponent(j.access_token||"");}catch(e){alert("Could not read the FPL session");}})();`;
+    const js = `(()=>{try{var k=Object.keys(localStorage).find(function(x){return x.indexOf("oidc.user:")===0});if(!k){alert("Sign in to FPL (as the BOT) first");return;}var j=JSON.parse(localStorage.getItem(k)||"{}");if(!j.refresh_token){alert("No refresh_token in this FPL session");return;}var rt=j.refresh_token,at=j.access_token||"";localStorage.removeItem(k);Object.keys(sessionStorage).forEach(function(x){if(x.indexOf("oidc.")===0)sessionStorage.removeItem(x)});location=${JSON.stringify(base)}+"#bot_rt="+encodeURIComponent(rt)+"&bot_at="+encodeURIComponent(at);}catch(e){alert("Could not read the FPL session");}})();`;
     return `javascript:${js}`;
   }, []);
 
@@ -138,7 +138,8 @@ export default function BotPage() {
         </p>
         <ol>
           <li>Open a <strong>separate browser profile / private window</strong> and sign in to fantasy.premierleague.com <strong>as the bot account</strong> (never your personal one).</li>
-          <li>Copy the bookmarklet, save it as a bookmark URL in that profile, then click it on the FPL site.</li>
+          <li>Close every other FPL tab in that profile, copy the bookmarklet, save it as a bookmark URL there, then click it on the FPL site.</li>
+          <li>The bookmarklet hands the session to Edge and removes it from that browser, so the browser can never reuse the same refresh token (PingOne treats reuse as theft and revokes the whole session). Do not click Sign out on FPL and do not open FPL in that profile again; just close the window.</li>
           <li>You land back here signed in to Edge as the owner; the session is checked against the bot entry before anything is stored.</li>
         </ol>
         <p className="paper-note">PingOne sessions end ~30 days after the last FPL sign-in. Repeat this about every 3 weeks (status warns from day 20).</p>

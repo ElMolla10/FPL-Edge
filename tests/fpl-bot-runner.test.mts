@@ -291,3 +291,41 @@ test("submit window but under D-2h (e.g. D-100min): transfers skipped, lineup at
   assert.ok((await getRun(db, BOT, 8, "lineup")) !== null, "lineup step ran (and failed safely without bootstrap)");
   assert.equal(posts(f).length, 0);
 });
+
+test("revoked refresh family: ONE token exchange, classified token-expired, token-free OIDC detail stored", async () => {
+  const { db } = botD1();
+  const key = await importBotKey(KEY);
+  // Access expired => keep-alive must refresh exactly once with the stored (rotated) refresh token.
+  await storeBotBootstrap(db, key, { refreshToken: "rt-stored-rotated", accessToken: "at-old", accessExpiresAtMs: Date.now() - 60_000 }, BOT, NOW - 3_600_000);
+  const tokenBodies: string[] = [];
+  const impl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "https://account.premierleague.com/as/token") {
+      tokenBodies.push(String(init?.body ?? ""));
+      return new Response(JSON.stringify({ error: "invalid_grant", error_description: "Refresh token reused; family revoked eyJabc.def.ghi" }), { status: 400 });
+    }
+    if ((init?.method ?? "GET").toUpperCase() === "POST") throw new Error(`TEST VIOLATION: POST to ${url}`);
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+  const summary = await runBotTick(deps(db, { calls: [], impl }));
+  assert.equal(summary.auth, "token-expired");
+  assert.equal(tokenBodies.length, 1, "exactly one PingOne exchange - no retry loop that could look like reuse");
+  assert.match(tokenBodies[0], /refresh_token=rt-stored-rotated/);
+  const err = (await recentErrors(db)).find((e) => e.code === "auth-token-expired");
+  assert.ok(err?.detail, "detail recorded");
+  assert.match(err!.detail!, /oidc 400 invalid_grant/);
+  assert.match(err!.detail!, /family revoked/);
+  assert.doesNotMatch(err!.detail!, /rt-stored-rotated|eyJabc/);
+  assert.equal((await readBotAuthRow(db))?.last_error, "token-expired");
+});
+
+test("bookmarklet removes the FPL browser's copy of the session after reading it (no browser reuse of a spent token)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../app/bot/page.tsx", import.meta.url), "utf8");
+  const js = src.slice(src.indexOf("const js = `"), src.indexOf("return `javascript:${js}`"));
+  const read = js.indexOf("localStorage.getItem(k)");
+  const removed = js.indexOf("localStorage.removeItem(k)");
+  const leave = js.indexOf("location=");
+  assert.ok(read > 0 && removed > read && leave > removed, "read, then delete, then navigate away");
+  assert.match(js, /sessionStorage\.removeItem/);
+});
