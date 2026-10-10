@@ -255,3 +255,39 @@ test("BotFplClient default fetch is not invoked as a method (Workers 'Illegal in
     globalThis.fetch = original;
   }
 });
+
+test("normal GW (not a new team): live in the plan window never claims transfers", async () => {
+  const db = await connectedDb();
+  await setBotMode(db, "live", NOW);
+  await setDryRunPassed(db, BOT, NOW);
+  const f = fakeFetch();
+  const d = deps(db, f, { loadData: async () => data(NOW + 10 * 3_600_000), fetchPublicJson: async (u) => { if (u.includes("bootstrap")) throw new Error("no bootstrap"); return { id: Number(BOT), started_event: 1 }; } });
+  const s = await runBotTick(d);
+  assert.equal(s.window, "plan");
+  assert.equal(await getRun(db, BOT, 8, "transfers"), null);
+  assert.equal(posts(f).length, 0);
+});
+
+test("final window: no transfers (outside D-2h), lineup only", async () => {
+  const db = await connectedDb();
+  await setBotMode(db, "live", NOW);
+  await setDryRunPassed(db, BOT, NOW);
+  const f = fakeFetch();
+  const s = await runBotTick(deps(db, f, { loadData: async () => data(NOW + 60 * 60_000) }));
+  assert.equal(s.window, "final");
+  assert.ok(s.actions.some((a) => a.includes("lineup only")));
+  assert.equal(await getRun(db, BOT, 8, "transfers"), null);
+  assert.equal(posts(f).length, 0);
+});
+
+test("submit window but under D-2h (e.g. D-100min): transfers skipped, lineup attempted", async () => {
+  const db = await connectedDb();
+  await setBotMode(db, "live", NOW);
+  await setDryRunPassed(db, BOT, NOW);
+  const f = fakeFetch();
+  const s = await runBotTick(deps(db, f, { loadData: async () => data(NOW + 100 * 60_000) }));
+  assert.equal(s.window, "submit");
+  assert.equal(await getRun(db, BOT, 8, "transfers"), null);
+  assert.ok((await getRun(db, BOT, 8, "lineup")) !== null, "lineup step ran (and failed safely without bootstrap)");
+  assert.equal(posts(f).length, 0);
+});

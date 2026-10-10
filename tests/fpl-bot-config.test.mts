@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { assertBotEntry, evaluateBotOwnerGate, parseChipPolicy, parseMode, resolveMode, WrongEntryError, type BotEnv } from "../app/lib/fpl-bot/config.ts";
-import { nextActionTick, nextDeadlineEvent, windowFor } from "../app/lib/fpl-bot/schedule.ts";
+import { nextActionTick, nextDeadlineEvent, transferPostAllowed, windowFor } from "../app/lib/fpl-bot/schedule.ts";
 import { sessionHealth } from "../app/lib/fpl-bot/auth.ts";
 import { decryptToken, encryptToken, importBotKey, redact } from "../app/lib/fpl-bot/crypto.ts";
 import type { FplEvent } from "../app/lib/fpl.ts";
@@ -79,4 +79,45 @@ test("token crypto round-trips, refuses short keys, and redact strips tokens", a
   await assert.rejects(() => importBotKey("short"));
   const r = redact('{"access_token":"eyJabc.def.ghi","x":1}');
   assert.ok(!r.includes("eyJabc.def.ghi"));
+});
+
+test("window boundaries: plan opens at D-24h, submit at D-4h, final is the last hour before the 25-min lock", () => {
+  const d = Date.parse("2026-10-17T10:00:00Z");
+  const at = (minutes: number) => d - minutes * 60_000;
+  assert.equal(windowFor(d, at(24 * 60 + 1)), "idle");
+  assert.equal(windowFor(d, at(24 * 60)), "plan");
+  assert.equal(windowFor(d, at(241)), "plan");
+  assert.equal(windowFor(d, at(240)), "submit");
+  assert.equal(windowFor(d, at(85)), "submit");
+  assert.equal(windowFor(d, at(84.9)), "final");
+  assert.equal(windowFor(d, at(25)), "final");
+  assert.equal(windowFor(d, at(24.9)), "locked");
+});
+
+test("transfer POSTs only between deadline-24h and deadline-2h (never in the final hour or the freeze)", () => {
+  const d = Date.parse("2026-10-17T10:00:00Z");
+  const at = (minutes: number) => d - minutes * 60_000;
+  assert.equal(transferPostAllowed(d, at(24 * 60 + 1)), false, "not before D-24h");
+  assert.equal(transferPostAllowed(d, at(24 * 60)), true);
+  assert.equal(transferPostAllowed(d, at(240)), true);
+  assert.equal(transferPostAllowed(d, at(120)), true);
+  assert.equal(transferPostAllowed(d, at(119)), false, "not after D-2h");
+  assert.equal(transferPostAllowed(d, at(5)), false);
+  assert.equal(transferPostAllowed(d, at(-1)), false);
+});
+
+test("hourly ticks: :00 deadlines submit at D-4h with D-3h/D-2h retries; :30 deadlines at D-3.5h/D-2.5h; exactly one final tick", () => {
+  const hour = 3_600_000;
+  for (const [deadline, transferTicks] of [["2026-10-17T10:00:00Z", 3], ["2026-10-23T17:30:00Z", 2], ["2026-10-30T19:15:00Z", 2], ["2026-11-06T11:45:00Z", 2]] as const) {
+    const d = Date.parse(deadline);
+    const ticks: number[] = [];
+    for (let t = Math.ceil((d - 30 * hour) / hour) * hour; t < d; t += hour) ticks.push(t);
+    const submitTransfer = ticks.filter((t) => windowFor(d, t) === "submit" && transferPostAllowed(d, t));
+    const finals = ticks.filter((t) => windowFor(d, t) === "final");
+    const early = ticks.filter((t) => transferPostAllowed(d, t) && windowFor(d, t) === "plan");
+    assert.equal(submitTransfer.length, transferTicks, `${deadline} transfer ticks`);
+    assert.equal(finals.length, 1, `${deadline} exactly one final re-pick tick`);
+    assert.ok(submitTransfer.every((t) => d - t >= 2 * hour && d - t <= 4 * hour));
+    assert.ok(early.length > 0, "plan window ticks exist inside the 24 h window (plan / refresh)");
+  }
 });

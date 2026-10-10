@@ -93,8 +93,10 @@ async function botTrigger(request: Request, env: Env, ctx: ExecutionContext): Pr
   const provided = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!provided || !(await sameSecret(provided, secret))) return notFound();
   let action = "";
+  let body: { action?: unknown; event?: unknown; simulateFreeTransfers?: unknown } = {};
   try {
-    action = String(((await request.json()) as { action?: unknown })?.action ?? "");
+    body = ((await request.json()) as typeof body) ?? {};
+    action = String(body.action ?? "");
   } catch {
     action = "";
   }
@@ -102,7 +104,10 @@ async function botTrigger(request: Request, env: Env, ctx: ExecutionContext): Pr
   try {
     const deps = botDeps(env, ctx);
     if (action === "inspect") return json(await inspectBot(deps));
-    if (action === "rehearse") return json(await rehearseBot(deps));
+    if (action === "rehearse") {
+      const num = (v: unknown) => (typeof v === "number" && Number.isInteger(v) ? v : undefined);
+      return json(await rehearseBot(deps, { event: num(body.event), simulateFreeTransfers: num(body.simulateFreeTransfers) }));
+    }
     if (action === "tick") return json(await runBotTick(deps));
     return json({ ok: false, error: "unknown-action" }, 400);
   } catch (error) {

@@ -25,13 +25,17 @@ passed for that entry. Anything missing silently drops to `shadow`; the kill swi
 
 | minutes to deadline | window | action |
 |---|---|---|
-| > 26 h | idle | heartbeat, token keep-alive, dry run if pending |
-| 26 h - 3 h | plan | shadow plan logged (what it intends to do) |
-| 3 h - 70 min | submit | live: transfers (+WC/FH) then lineup / captain (+BB/TC) |
-| 70 - 25 min | final | live: re-check lineup / captain with the latest flags; late news may only cancel BB/TC |
+| > 24 h | idle | heartbeat, token keep-alive, dry run if pending |
+| 24 h - 4 h | plan | shadow plan logged (what it intends to do); no transfer POST |
+| 4 h - 85 min | submit | live: transfers (+WC/FH) ONCE while >= 2 h remain, rebuilt from fresh availability; then lineup / captain (+BB/TC) |
+| 85 - 25 min | final | live: the last tick before lock re-picks lineup / captain with the latest flags; late news may only cancel BB/TC |
 | < 25 min | locked | nothing; unfinished steps marked missed (FPL keeps the saved team) |
 
-No POST is ever sent within 5 minutes of the deadline.
+**Transfer timing (hard rule):** a transfers POST is only allowed between deadline-24h and deadline-2h
+(`transferPostAllowed`, checked when choosing the step AND again right before the POST). With :00 deadlines the bot
+submits at D-4h (retries D-3h, D-2h); with :30 deadlines at D-3.5h (retry D-2.5h). Lineup / captain may still change
+later, and the final window (60 min wide) guarantees one re-pick at the last hourly tick before lock. No POST is ever
+sent within 5 minutes of the deadline.
 
 ## Safety rails
 
@@ -95,7 +99,7 @@ authenticated data only: `my-team` reports `transfers.limit === null`, no chip i
 `started_event` equals the next event. In that state the bot rebuilds the best 15 on its real budget (Draft Lab / Wildcard
 optimiser over fully available players only: status `a`, chance >= 75), sends the needed legs in one transfers POST
 with `chip: null` and no hit, then sets the XI, captain and vice. It may submit as soon as the plan window opens
-(26 h before the deadline) instead of waiting for the submit window. Post-submit verification requires 0 points
+(24 h before the deadline) instead of waiting for the submit window. Post-submit verification requires 0 points
 deducted (`spent_points` in the response when present, else `my-team`). From the next gameweek, normal rules apply.
 
 The bot reads its team only from the authenticated `my-team` endpoint, never the public picks endpoint (a new team has
@@ -104,7 +108,9 @@ none before its first deadline).
 ## Operator trigger
 
 `POST /__bot/run` with `Authorization: Bearer <FPL_EDGE_BOT_TRIGGER_SECRET>` and `{"action": "inspect" | "rehearse" |
-"tick"}`. `inspect` and `rehearse` are read-only (my-team shape, full plan, payloads and validation). `tick` runs exactly
+"tick"}`. `rehearse` also accepts `"event": <id>` and `"simulateFreeTransfers": <n>` to rehearse a later gameweek
+(earlier events are treated as finished; the my-team transfer limit is replaced by the simulated one, clearly marked
+`simulated` in the response). `inspect` and `rehearse` are read-only (my-team shape, full plan, payloads and validation). `tick` runs exactly
 the hourly cron tick with all its rails. The path returns 404 unless the secret (>= 32 chars) is set.
 
 ## Connecting the bot account (owner)
