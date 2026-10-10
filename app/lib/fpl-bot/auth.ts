@@ -7,7 +7,7 @@ import { createRotatingTokenProvider, type TokenProvider } from "../personal-fpl
 import { FplOidcError } from "../personal-fpl-transfer/oidc";
 import { extractRefreshToken } from "../personal-fpl-transfer/config";
 import { BOT_ENV, BOT_LIMITS, type BotEnv } from "./config";
-import { importBotKey } from "./crypto";
+import { importBotKey, redact } from "./crypto";
 import {
   casPersistBotSession,
   claimBotRefreshLease,
@@ -24,6 +24,17 @@ import {
 export type AuthFailure = "missing-key" | "missing-token" | "token-expired" | "oidc-failed" | "unknown";
 
 export type BotTokens = { ok: true; tokens: TokenProvider; row: BotAuthRow } | { ok: false; reason: AuthFailure };
+
+/**
+ * Token-free description of an auth failure for bot_errors.detail, so a revoked family ("invalid_grant" + PingOne's
+ * description), an internal single-flight give-up and a network failure can be told apart afterwards. Never contains
+ * a token: only the OIDC status/code/description or the error class, passed through redact().
+ */
+export function describeAuthError(error: unknown): string {
+  if (error instanceof FplOidcError) return redact(`oidc ${error.status} ${error.code}: ${error.message.replace(/^FPL OIDC refresh failed \(\d+\): /, "")}`, 200);
+  if (error instanceof Error) return redact(`${error.name}: ${error.message}`, 200);
+  return "non-error thrown";
+}
 
 export function classifyAuthError(error: unknown): AuthFailure {
   if (error instanceof FplOidcError) return error.isInvalidGrant ? "token-expired" : "oidc-failed";
@@ -73,7 +84,7 @@ export function sessionHealth(ageDays: number | null): SessionHealth {
 }
 
 /** Hourly keep-alive: refresh only when the cached access token expired (fewer rotations = fewer chances to lose the chain). */
-export async function keepAliveBotTokens(env: BotEnv, db: BotDb, nowMs: number, fetchImpl: typeof fetch = fetch): Promise<{ ok: true; tokens: TokenProvider; row: BotAuthRow } | { ok: false; reason: AuthFailure }> {
+export async function keepAliveBotTokens(env: BotEnv, db: BotDb, nowMs: number, fetchImpl: typeof fetch = fetch): Promise<{ ok: true; tokens: TokenProvider; row: BotAuthRow } | { ok: false; reason: AuthFailure; detail?: string }> {
   const opened = await openBotTokens(env, db, nowMs, fetchImpl);
   if (!opened.ok) return opened;
   try {
@@ -83,6 +94,6 @@ export async function keepAliveBotTokens(env: BotEnv, db: BotDb, nowMs: number, 
   } catch (error) {
     const reason = classifyAuthError(error);
     await markBotAuth(db, nowMs, reason);
-    return { ok: false, reason };
+    return { ok: false, reason, detail: describeAuthError(error) };
   }
 }

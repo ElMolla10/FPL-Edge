@@ -122,9 +122,20 @@ the hourly cron tick with all its rails. The path returns 404 unless the secret 
 3. In a **separate browser profile**, sign in to fantasy.premierleague.com **as the bot**, then click the bookmarklet
    copied from `/bot`. It hands the session to `/bot#bot_rt=...`, the page strips it from the URL and POSTs it to
    `/api/bot/fpl-auth/reconnect`, which verifies `/api/me` == bot entry before storing anything.
+
+   **One session, one holder.** PingOne rotates the refresh token on every use and treats reuse of a spent one as
+   theft: it revokes the whole token family. The reconnect exchanges the browser's refresh token once (rotation), so
+   the copy still in the FPL tab is spent. If that browser later renews with it (any FPL tab or a later visit to FPL in
+   that profile), the bot's session dies within the hour. The bookmarklet therefore deletes the `oidc.user:*` entry from
+   that browser after reading it. Close all other FPL tabs in that profile before clicking it, do **not** press Sign out
+   afterwards (logout ends the PingOne session and its tokens), and do not open FPL in that profile again; just close
+   the window. To look at the bot's team, use the public pages or Edge `/bot`.
 4. The next hourly tick verifies identity and runs the dry run (read-only rehearsal of the full submit path).
 5. Watch a shadow gameweek on `/bot`, then press "Go live" (or set `FPL_EDGE_BOT_MODE=live`).
 6. Repeat step 3 about every three weeks (status + alert from day 20).
+
+Auth failures store a token-free detail (OIDC status, code and PingOne's description) in `bot_errors.detail`, so a
+revoked family can be told apart from a network failure. Workers Logs are enabled (`observability` in `wrangler.jsonc`).
 
 Alerts are written to `bot_errors` (shown on `/bot`) and logged with the `[fpl-bot] ALERT` prefix for Workers Logs;
 there is no e-mail channel on `main` yet.
