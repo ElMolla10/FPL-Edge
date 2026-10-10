@@ -15,7 +15,7 @@ import { BotFplClient, BotHttpError, FPL_API } from "./fpl-client";
 import { canonicalLineup, canonicalLineupFromTeam, canonicalSquad, canonicalTeamState, decisionHash, hashString } from "./hash";
 import { buildPicksPayload, buildTransfersPayload, type PicksPayload, type TransfersPayload } from "./payloads";
 import { planGameweek, PlanError, type BotPlan } from "./planner";
-import { nextDeadlineEvent, windowFor, type ScheduleWindow } from "./schedule";
+import { nextDeadlineEvent, transferPostAllowed, windowFor, type ScheduleWindow } from "./schedule";
 import {
   claimRun,
   countPosts,
@@ -224,7 +224,11 @@ export async function runBotTick(deps: TickDeps): Promise<TickSummary> {
         const row = await claimRun(db, entry, event.id, step, "shadow", now(), BOT_LIMITS.stepLeaseMs);
         if (row) await shadowStep(ctx, row, team, data, step);
       } else {
-        team = await liveTransfers(ctx, team, data);
+        if (transferPostAllowed(deadlineMs, now()) || (await getRun(db, entry, event.id, "transfers"))?.status === "posted") {
+          team = await liveTransfers(ctx, team, data);
+        } else {
+          summary.actions.push("transfers: outside the deadline-24h..deadline-2h window - lineup only");
+        }
         if (team) team = await liveLineup(ctx, team, data, "lineup");
         if (team && window === "final") await liveLineup(ctx, team, data, "final");
       }
@@ -438,7 +442,8 @@ async function shadowStep(ctx: StepContext, row: BotRunRow, team: BotMyTeam, dat
 }
 
 /** Re-checks kill switch / mode / caps immediately before a POST (D1 + env re-read). */
-async function mayPost(ctx: StepContext): Promise<string | null> {
+async function mayPost(ctx: StepContext, kind: "transfers" | "lineup" = "lineup"): Promise<string | null> {
+  if (kind === "transfers" && !transferPostAllowed(ctx.deadlineMs, ctx.now())) return "transfers only between deadline-24h and deadline-2h";
   const state = await readBotState(ctx.db);
   const auth = await readBotAuthRow(ctx.db);
   const mode = resolveMode({
@@ -511,7 +516,7 @@ async function liveTransfers(ctx: StepContext, team: BotMyTeam, data: FplData): 
       await ctx.fail("transfers-invalid", built.transferErrors.join("; "));
       return team;
     }
-    const blocked = await mayPost(ctx);
+    const blocked = await mayPost(ctx, "transfers");
     if (blocked) {
       await updateRun(ctx.db, row.id, { status: "skipped", decision_hash: built.hash, error: blocked, lease_until: null }, ctx.now());
       return team;
@@ -709,16 +714,27 @@ export async function inspectBot(deps: TickDeps): Promise<BotInspection> {
 }
 
 /** Full plan + payloads + validation against live data, exactly as the submit step would build them. Never POSTs. */
-export async function rehearseBot(deps: TickDeps) {
+export type RehearseOptions = { event?: number; simulateFreeTransfers?: number };
+
+export async function rehearseBot(deps: TickDeps, options: RehearseOptions = {}) {
   const now = deps.now ?? (() => Date.now());
   const log = deps.log ?? (() => {});
   const opened = await openReadOnly(deps);
   if (!opened.ok) return { ok: false as const, reason: opened.reason };
-  const data = await deps.loadData();
-  const event = nextDeadlineEvent(data.events, now());
-  if (!event) return { ok: false as const, reason: "no-upcoming-deadline" };
-  const team = await opened.client.myTeam();
-  const preFirstDeadline = await detectPreFirstDeadline(deps, opened.entry, team, event.id);
+  let data = await deps.loadData();
+  const next = nextDeadlineEvent(data.events, now());
+  if (!next) return { ok: false as const, reason: "no-upcoming-deadline" };
+  const simulatedEvent = Number.isInteger(options.event) && options.event! > next.id ? options.event! : null;
+  if (simulatedEvent) {
+    // Rehearse a later GW: treat earlier events as finished so the engine's horizon starts at that GW.
+    data = { ...data, events: data.events.map((e) => (e.id < simulatedEvent ? { ...e, finished: true, current: e.id === simulatedEvent - 1, next: false } : e.id === simulatedEvent ? { ...e, next: true } : e)) };
+  }
+  const event = simulatedEvent ? data.events.find((e) => e.id === simulatedEvent) : next;
+  if (!event) return { ok: false as const, reason: "unknown-event" };
+  let team = await opened.client.myTeam();
+  const simulateFt = Number.isInteger(options.simulateFreeTransfers) && options.simulateFreeTransfers! >= 0 && options.simulateFreeTransfers! <= 5 ? options.simulateFreeTransfers! : null;
+  if (simulateFt !== null) team = { ...team, transfers: { ...team.transfers, limit: simulateFt, made: 0, status: "cost" } };
+  const preFirstDeadline = simulatedEvent ? false : await detectPreFirstDeadline(deps, opened.entry, team, event.id);
   const summary: TickSummary = { ran: true, mode: null, window: null, gw: event.id, auth: "ok", actions: [], errors: [] };
   const errorsLogged: string[] = [];
   const ctx: StepContext = {
@@ -742,7 +758,12 @@ export async function rehearseBot(deps: TickDeps) {
   return {
     ok: true as const,
     gw: event.id,
+    simulated: simulatedEvent !== null || simulateFt !== null ? { event: simulatedEvent, freeTransfers: simulateFt } : null,
     window: windowFor(Date.parse(event.deadline), now()),
+    transferPostAllowedNow: transferPostAllowed(Date.parse(event.deadline), now()),
+    hitPolicy: ctx.hitPolicy,
+    freeTransfers: built.plan.freeTransfers,
+    engine: built.plan.engine,
     preFirstDeadline,
     transfersState: team.transfers,
     old: { squad: oldIds.map(describe), value: squadValueOld, bank: team.transfers.bank },

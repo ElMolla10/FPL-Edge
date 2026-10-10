@@ -3,20 +3,24 @@
  * heavy ranking keeps the >= 1 h cron CPU class). Deadlines always come from the live events list, never hard-coded.
  *
  *   m = minutes until the next deadline at this tick
- *   m > 26 h            idle
- *   180 < m <= 26 h     plan        (full ranking, logged; no writes)
- *   70 < m <= 180       submit      (chip + transfers, then lineup; verify)
- *   25 <= m <= 70       final       (submit if still pending/retryable, then lineup/captain re-check from late news)
+ *   m > 24 h            idle
+ *   240 < m <= 24 h     plan        (full ranking, logged; no transfer POST - except a new team before its first
+ *                                    deadline, which may be built here)
+ *   85 <= m <= 240      submit      (transfers + chip ONCE while m >= 120, then lineup/captain; verify)
+ *   25 <= m < 85        final       (the last hourly tick before lock: lineup/captain re-pick from late news)
  *   m < 25              locked      (read-only; unsent steps are marked missed; FPL keeps the saved team)
  *
- * With :00 deadlines the ticks are D-3h / D-2h (submit, one retry) and D-1h (final). With :30 deadlines: D-2.5h,
- * D-1.5h (submit) and D-30m (final).
+ * Transfer POSTs are only ever allowed with 120 <= m <= 24 h (transferPostAllowed), and never inside the 5-minute
+ * freeze. With :00 deadlines the transfer ticks are D-4h / D-3h / D-2h (first one submits, the others are retries);
+ * with :30 deadlines D-3.5h / D-2.5h. The final window is 60 min wide so exactly one hourly tick always lands in it.
  */
 import type { FplEvent } from "../fpl";
 
 export type ScheduleWindow = "idle" | "plan" | "submit" | "final" | "locked" | "no-event";
 
-export const WINDOW_MINUTES = Object.freeze({ plan: 26 * 60, submit: 180, final: 70, lock: 25 });
+export const WINDOW_MINUTES = Object.freeze({ plan: 24 * 60, submit: 240, final: 85, lock: 25 });
+/** Transfer POSTs: never earlier than deadline-24h, never later than deadline-2h. */
+export const TRANSFER_WINDOW_MINUTES = Object.freeze({ earliest: 24 * 60, latest: 120 });
 
 export function nextDeadlineEvent(events: readonly FplEvent[], nowMs: number): FplEvent | null {
   return (
@@ -29,7 +33,7 @@ export function nextDeadlineEvent(events: readonly FplEvent[], nowMs: number): F
 export function windowFor(deadlineMs: number, nowMs: number): ScheduleWindow {
   const m = (deadlineMs - nowMs) / 60_000;
   if (m < WINDOW_MINUTES.lock) return "locked";
-  if (m <= WINDOW_MINUTES.final) return "final";
+  if (m < WINDOW_MINUTES.final) return "final";
   if (m <= WINDOW_MINUTES.submit) return "submit";
   if (m <= WINDOW_MINUTES.plan) return "plan";
   return "idle";
@@ -45,4 +49,10 @@ export function nextActionTick(deadlineMs: number, nowMs: number): { atMs: numbe
     if (window !== "idle") return { atMs: tick, window };
   }
   return null;
+}
+
+/** Hard gate for any transfers POST (normal gameweeks and a new team's first build alike). */
+export function transferPostAllowed(deadlineMs: number, nowMs: number): boolean {
+  const m = (deadlineMs - nowMs) / 60_000;
+  return m <= TRANSFER_WINDOW_MINUTES.earliest && m >= TRANSFER_WINDOW_MINUTES.latest;
 }
