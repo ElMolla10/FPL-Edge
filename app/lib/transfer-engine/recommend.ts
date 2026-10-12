@@ -67,7 +67,7 @@ export function createTeamState(
   };
 }
 
-function riskMultiplier(_startProbability: number, confidence: number): number {
+export function riskMultiplier(_startProbability: number, confidence: number): number {
   // H4: start/minutes already shrink xPts — do NOT re-multiply positive NET by start risk.
   // Confidence (evidence strength) may gently damp ranking uncertainty only.
   return clamp(0.88 + confidence * 0.12, 0.88, 1);
@@ -127,7 +127,7 @@ function buildRiskDrivers(
   return drivers;
 }
 
-function scoreCandidatePool(
+export function scoreCandidatePool(
   data: FplData,
   events: { id: number }[],
   first: number,

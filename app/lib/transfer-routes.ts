@@ -92,6 +92,47 @@ function firstActionOf(weeks:RouteWeek[]):string{
   return active===weeks[0]?moves:`Roll to ${active.eventName}, then ${moves}`;
 }
 
+/** Bot opt-in opening menu. Funding legs are shortlisted separately from gains.
+ * Uses the route solver's simultaneous final-squad checks, not sequential swaps.
+ * The existing route solver and browser callers are unchanged.
+ */
+export function generateRouteOpeningActions(
+  data:FplData, squad:FplPlayer[], bank:number, selling:Map<number,number>,
+  score:(player:FplPlayer)=>number, eligible:(player:FplPlayer)=>boolean,
+  chargeWork:()=>void=()=>{},
+):RouteTransfer[][] {
+  if (!legalSquadShape(squad,data)) return [];
+  const owned=new Set(squad.map(p=>p.id));
+  const proposals:RouteTransfer[]=[];
+  const funding:RouteTransfer[]=[];
+  for (const out of [...squad].sort((a,b)=>a.id-b.id)) {
+    const sale=selling.get(out.id)??salePriceFallback(out);
+    const pool=data.players.filter(p=>{chargeWork();return p.positionId===out.positionId&&!owned.has(p.id)&&eligible(p)});
+    const leg=(incoming:FplPlayer):RouteTransfer=>({out,incoming,sellingPrice:sale,buyingPrice:incoming.price,
+      bankChange:money(sale-incoming.price),horizonGain:score(incoming)-score(out)});
+    proposals.push(...pool.map(leg));
+    // Keep cheapest secure replacements even when their projection delta is negative.
+    funding.push(...pool.filter(p=>p.price<sale).sort((a,b)=>a.price-b.price||score(b)-score(a)||a.id-b.id).slice(0,2).map(leg));
+  }
+  const order=(a:RouteTransfer,b:RouteTransfer)=>b.horizonGain-a.horizonGain||a.out.id-b.out.id||a.incoming.id-b.incoming.id;
+  const upgrades=proposals.sort(order).slice(0,12);
+  const menu=[...new Map([...upgrades,...funding].map(l=>[`${l.out.id}:${l.incoming.id}`,l])).values()];
+  const legal=(legs:RouteTransfer[])=>{
+    chargeWork();
+    const outs=new Set(legs.map(l=>l.out.id)),ins=new Set(legs.map(l=>l.incoming.id));
+    if(outs.size!==legs.length||ins.size!==legs.length)return false;
+    if(money(bank+legs.reduce((s,l)=>s+l.sellingPrice-l.buyingPrice,0))<0)return false;
+    const replacements=new Map(legs.map(l=>[l.out.id,l.incoming]));
+    return legalSquadShape(squad.map(p=>replacements.get(p.id)??p),data);
+  };
+  const actions:RouteTransfer[][]=menu.filter(l=>legal([l])).map(l=>[l]);
+  for(let i=0;i<menu.length;i++)for(let j=i+1;j<menu.length;j++){
+    const pair=[menu[i],menu[j]].sort((a,b)=>a.out.id-b.out.id);
+    if(legal(pair))actions.push(pair);
+  }
+  return actions;
+}
+
 export function solveTransferRoutes(data:FplData,initialSquad:FplPlayer[],initialBank:number,options:TransferRouteOptions={}):TransferRoute[]{
   const horizon=options.horizon??5;
   const events=futureEvents(data,horizon);
