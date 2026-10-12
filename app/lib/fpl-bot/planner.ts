@@ -21,6 +21,7 @@ import type { ChipPolicy, HitPolicy } from "./config";
 import type { PickChip, PlannedLeg, PlannedLineup, TransferChip } from "./payloads";
 import { chipAvailable, pendingChip, type ElementInfo } from "./validate";
 import type { BotMyTeam, OfficialChip } from "./types";
+import { compareFreeTransferBundles } from "./two-transfers";
 
 /** Server budget: the deterministic node cap (6000) decides, not the browser's 180 ms wall clock. */
 export const BOT_PLAN_TIME_BUDGET_MS = 120_000;
@@ -91,6 +92,8 @@ export type PlanInput = {
   recentHitPoints: number;
   /** false for the lineup step and the "final" window: no transfers, no WC/FH. */
   allowTransfers: boolean;
+  /** Experimental normal free-transfer bundles; default off. Never applies to chips. */
+  enableTwoTransfers?: boolean;
   /** May newly activate Bench Boost / Triple Captain (false in the "final" window: late news can only cancel). */
   allowNewTeamChip?: boolean;
   /**
@@ -110,7 +113,7 @@ export type BotPlan = {
   finalSquad: number[];
   freeTransfers: number | null;
   reasons: string[];
-  engine: { classification: string | null; riskAdjustedNet5: number | null; outId: number | null; inId: number | null } | null;
+  engine: { classification: string | null; riskAdjustedNet5: number | null; outId: number | null; inId: number | null; legs?: PlannedLeg[] } | null;
   modelVersion: string;
 };
 
@@ -476,7 +479,7 @@ export function planGameweek(input: PlanInput): BotPlan {
     }
   }
 
-  // ---- normal transfers (engine BEST DECISION, one move; hit only when it clearly beats HOLD) ---------------
+  // ---- normal transfers (legacy decision first; opt-in free bundles below) ---------------------------------
   let legs: PlannedLeg[] = [];
   let hitCost = 0;
   let engine: BotPlan["engine"] = null;
@@ -520,6 +523,28 @@ export function planGameweek(input: PlanInput): BotPlan {
         reasons.push(`-4 hit ${best.out.name} -> ${best.incoming.name}: net ${net.toFixed(1)} >= ${bar.toFixed(1)} vs hold`);
       } else {
         reasons.push(`hit move ${best.out.name} -> ${best.incoming.name} declined (net ${Number.isFinite(net) ? net.toFixed(1) : "?"} < ${bar.toFixed(1)} or policy/caps)`);
+      }
+    }
+    if (input.enableTwoTransfers === true && freeTransfers !== null && freeTransfers >= 2 && !pre) {
+      const fallback = legs.map(l => ({ out: squad.find(p => p.id === l.outId)!,
+        incoming: data.players.find(p => p.id === l.inId)!, sellingPrice: selling.get(l.outId)!,
+        buyingPrice: data.players.find(p => p.id === l.inId)!.price }));
+      try {
+        const comparison = compareFreeTransferBundles(data, squad, bank, freeTransfers, selling, fallback);
+        const pair = comparison.bestPair;
+        if (pair) {
+          const fallbackReason = reasons.pop();
+          if (fallbackReason) reasons.push(`single-transfer fallback: ${fallbackReason}`);
+          legs = pair.legs.map(l => ({ outId: l.out.id, inId: l.incoming.id }));
+          hitCost = 0;
+          engine = { classification: pair.classification, riskAdjustedNet5: pair.riskAdjustedNet,
+            outId: null, inId: null, legs };
+          reasons.push(`two free transfers: ${pair.legs.map(l=>`${l.out.name} -> ${l.incoming.name}`).join(" + ")} (${pair.classification}, risk-adjusted net ${pair.riskAdjustedNet.toFixed(1)} vs type-B hold; beats compared singles)`);
+        } else {
+          reasons.push(comparison.complete ? "two-transfer comparison: existing single/HOLD decision retained" : "two-transfer comparison incomplete: existing single/HOLD decision retained");
+        }
+      } catch {
+        reasons.push("two-transfer comparison failed: existing single/HOLD decision retained");
       }
     }
   } else if (!input.allowTransfers) {

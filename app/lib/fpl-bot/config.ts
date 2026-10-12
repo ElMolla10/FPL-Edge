@@ -15,7 +15,13 @@ export const BOT_ENV = {
   teamName: "FPL_EDGE_BOT_TEAM_NAME",
   hitPolicy: "FPL_EDGE_BOT_HIT_POLICY",
   chipPolicy: "FPL_EDGE_BOT_CHIP_POLICY",
+  twoTransfers: "FPL_EDGE_BOT_TWO_TRANSFERS",
 } as const;
+
+/** Default off. No UI or stored-mode override can enable this experiment. */
+export function twoTransfersEnabled(env: BotEnv): boolean {
+  return env[BOT_ENV.twoTransfers] === "true";
+}
 
 /** Read-only, used solely for the bot-entry != personal-entry assertion. */
 export const PERSONAL_ENTRY_ENV_FOR_ASSERTION = "FPL_EDGE_PERSONAL_FPL_ENTRY_ID";

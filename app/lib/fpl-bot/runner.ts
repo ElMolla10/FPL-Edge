@@ -9,7 +9,7 @@
  * previously saved team. Never blind-retries a transfer or chip: an ambiguous outcome is resolved from my-team.
  */
 import type { FplData, FplEvent } from "../fpl";
-import { BOT_ENV, BOT_LIMITS, assertBotEntry, botEntryId, parseChipPolicy, parseHitPolicy, resolveMode, type BotEnv, type BotMode, type ModeResolution } from "./config";
+import { BOT_ENV, BOT_LIMITS, assertBotEntry, botEntryId, parseChipPolicy, parseHitPolicy, resolveMode, twoTransfersEnabled, type BotEnv, type BotMode, type ModeResolution } from "./config";
 import { keepAliveBotTokens, sessionAgeDays, sessionHealth, type AuthFailure } from "./auth";
 import { BotFplClient, BotHttpError, FPL_API } from "./fpl-client";
 import { canonicalLineup, canonicalLineupFromTeam, canonicalSquad, canonicalTeamState, decisionHash, hashString } from "./hash";
@@ -334,6 +334,7 @@ async function buildAndValidate(ctx: StepContext, team: BotMyTeam, data: FplData
     allowTransfers: phase === "full",
     allowNewTeamChip: phase !== "final",
     preFirstDeadline: ctx.preFirstDeadline,
+    enableTwoTransfers: twoTransfersEnabled(ctx.env),
   });
   const nowMs = ctx.now();
   const deadlineMs = ignoreDeadlineGuard ? Number.MAX_SAFE_INTEGER : ctx.deadlineMs;
