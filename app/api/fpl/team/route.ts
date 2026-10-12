@@ -6,8 +6,11 @@ import { getCurrentUser } from "../../../lib/auth";
 import {
   evaluatePersonalAuthManageGate,
   resolveManagerActiveChip,
+  resolveTransferWindowChip,
+  selectOpenTransferEventId,
   resolveTransferBankMillions,
   tryFetchLiveTeamFinance,
+  type HistoryChipPlay,
 } from "../../../lib/personal-fpl-transfer";
 import { readRuntimeEnv } from "../../../lib/runtime-env";
 
@@ -18,14 +21,32 @@ export async function GET(request: Request) {
   if (!entry || !/^\d+$/.test(entry)) return Response.json({ error: "Enter a valid numeric FPL Team ID." }, { status: 400 });
   try {
     const headers = { Accept: "application/json", "User-Agent": "FPL-Edge/1.0" };
-    const [managerResponse, bootstrapResponse, transfersResponse, env] = await Promise.all([
+    const [managerResponse, bootstrapResponse, transfersResponse, historyResponse, env] = await Promise.all([
       fetch(`${FPL}/entry/${entry}/`, { headers, next: { revalidate: 300 } }),
       fetch(`${FPL}/bootstrap-static/`, { headers, next: { revalidate: 300 } }),
       fetch(`${FPL}/entry/${entry}/transfers/`, { headers, next: { revalidate: 300 } }),
+      // Public chip history records the gameweek a chip was confirmed. The open
+      // transfer window must not treat a previous gameweek's play as active.
+      fetch(`${FPL}/entry/${entry}/history/`, { headers, next: { revalidate: 300 } }),
       readRuntimeEnv(),
     ]);
     if (!managerResponse.ok || !bootstrapResponse.ok) throw new Error("That FPL Team ID was not found.");
     const [manager, bootstrap] = await Promise.all([managerResponse.json(), bootstrapResponse.json()]);
+    const chipHistory: HistoryChipPlay[] = [];
+    if (historyResponse.ok) {
+      try {
+        const historyJson = await historyResponse.json();
+        const rows = Array.isArray(historyJson?.chips) ? historyJson.chips : [];
+        for (const row of rows) {
+          chipHistory.push({
+            name: typeof row?.name === "string" ? row.name : null,
+            event: Number(row?.event),
+          });
+        }
+      } catch {
+        chipHistory.length = 0;
+      }
+    }
     const transfersJson = transfersResponse.ok ? await transfersResponse.json() : [];
     const transfers: FplTransferLeg[] = Array.isArray(transfersJson)
       ? transfersJson.map((row: Record<string, unknown>) => ({
@@ -53,6 +74,17 @@ export async function GET(request: Request) {
           event.finished || event.is_current || (event.is_next && Date.parse(event.deadline_time) <= Date.now()),
       )
       .sort((a: { id: number }, b: { id: number }) => b.id - a.id);
+
+    // The in-play gameweek stays `is_current` after its deadline. Transfers are
+    // for the next deadline that has not passed. A chip on the published picks
+    // of the in-play gameweek has already locked.
+    const openTransferEvent = selectOpenTransferEventId(
+      (bootstrap.events ?? []).map((event: { id: number; finished?: boolean; deadline_time?: string }) => ({
+        id: Number(event.id),
+        finished: Boolean(event.finished),
+        deadlineTime: event.deadline_time,
+      })),
+    );
 
     // Live my-team (pending next-GW transfers) — personal entry only, and only when the
     // caller is signed in + allowlisted (same gate as reconnect/health). Unauthenticated
@@ -184,12 +216,24 @@ export async function GET(request: Request) {
             freeTransferLimit: liveFinance ? liveFinance.freeTransferLimit : null,
             captainId: liveCaptain ?? captain?.element ?? null,
             viceCaptainId: liveVice ?? viceCaptain?.element ?? null,
-            // Prefer live my-team chip (is_pending / legacy active); else public picks.active_chip.
-            // Public active_chip is OK without overlay — already public. Pending WC before
-            // deadline only appears on authenticated my-team (activation is on official FPL).
+            // Published-event chip for live scoring (Bench Boost / Triple Captain).
+            // Stays set after that gameweek's deadline. Not the transfer window.
             chip: resolveManagerActiveChip({
               liveActiveChip: liveFinance?.activeChip,
               publicActiveChip: typeof picks.active_chip === "string" ? picks.active_chip : null,
+            }),
+            // Chip armed for the open deadline. A wildcard played in a previous
+            // gameweek (history.event or picks.active_chip on that event) is null.
+            // Authenticated my-team is_pending wins; otherwise history for the
+            // open gameweek. Activation stays on fantasy.premierleague.com.
+            transferWindowChip: resolveTransferWindowChip({
+              liveChips: liveFinance?.chips ?? null,
+              liveChipsKnown: Boolean(liveFinance),
+              liveActiveChip: liveFinance?.activeChip ?? null,
+              chipHistory,
+              publicActiveChip: typeof picks.active_chip === "string" ? picks.active_chip : null,
+              publicChipEvent: event.id,
+              currentEvent: openTransferEvent,
             }),
             event: event.id,
             picks: responsePicks,
