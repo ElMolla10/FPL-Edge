@@ -49,9 +49,15 @@ export {
   activeChipFromMyTeamChips,
   normalizeOfficialChip,
   resolveManagerActiveChip,
+  selectOpenTransferEventId,
+  chipPlayedForEvent,
+  resolveTransferWindowChip,
   type MyTeamChip,
   type WildcardDetectionInput,
   type OfficialChipName,
+  type HistoryChipPlay,
+  type TransferWindowEvent,
+  type TransferWindowChipInput,
 } from "./chip-state";
 export {
   liveTeamFinanceFromMyTeam,

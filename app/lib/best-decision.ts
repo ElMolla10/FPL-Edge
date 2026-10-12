@@ -76,9 +76,14 @@ export function resolveFreeTransfersFromMeta(meta:ManagerMeta|null|undefined,fal
 }
 
 export function managerWildcardActive(meta:ManagerMeta|null|undefined):boolean{
+  // `chip` is the published gameweek's active_chip and stays "wildcard" after
+  // that deadline. Wildcard mode follows transferWindowChip — the chip armed
+  // for the open deadline. A legacy cache without the field must not inherit
+  // a wildcard that was used in a previous gameweek.
+  if(!meta || !Object.prototype.hasOwnProperty.call(meta,"transferWindowChip")) return false;
   return isWildcardActive({
-    activeChip:meta?.chip,
-    freeTransferLimit:meta?.freeTransferLimit,
-    bankSource:meta?.bankSource,
+    activeChip:meta.transferWindowChip,
+    freeTransferLimit:meta.freeTransferLimit,
+    bankSource:meta.bankSource,
   });
 }

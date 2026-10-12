@@ -349,8 +349,8 @@ test("resolveManagerActiveChip: live wins; public active_chip works without live
   assert.equal(resolveManagerActiveChip({ liveActiveChip: "wildcard", publicActiveChip: "freehit" }), "wildcard");
   assert.equal(resolveManagerActiveChip({ liveActiveChip: null, publicActiveChip: "wildcard" }), "wildcard");
   assert.equal(resolveManagerActiveChip({ liveActiveChip: null, publicActiveChip: null }), null);
-  // Public-only path: when official entry event picks expose active_chip (post-deadline),
-  // WC mode still engages without personal my-team overlay / allowlist.
+  // Published-event chip only (live scoring). A previous GW's active_chip must not
+  // be passed to Transfers as the open-window chip — see resolveTransferWindowChip.
   assert.equal(isWildcardActive({ activeChip: resolveManagerActiveChip({ publicActiveChip: "wildcard" }) }), true);
 });
 

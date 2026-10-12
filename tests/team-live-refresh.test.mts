@@ -411,6 +411,35 @@ test("cachedTeamDiffersFromApi: chip change alone refreshes cache (pending WC / 
   assert.equal(cachedTeamDiffersFromApi(liveIds, base), false);
 });
 
+test("cachedTeamDiffersFromApi: clearing transferWindowChip refreshes even when the published chip stays wildcard", () => {
+  (globalThis.localStorage as { clear: () => void }).clear();
+  const cached = {
+    ...managerSnapshot(0.8, "live-my-team", liveIds),
+    chip: "wildcard",
+    event: 6,
+  };
+  localStorage.setItem("fpl-edge-squad", JSON.stringify(liveIds));
+  localStorage.setItem("fpl-edge-manager", JSON.stringify(cached));
+  // Previous GW wildcard remains on published picks for scoring, but the open
+  // window chip is now null. Cache must not keep Wildcard mode.
+  assert.equal(
+    cachedTeamDiffersFromApi(liveIds, { ...cached, transferWindowChip: null }),
+    true,
+  );
+  assert.equal(
+    cachedTeamDiffersFromApi(liveIds, { ...cached, transferWindowChip: "wildcard" }),
+    true,
+  );
+  localStorage.setItem(
+    "fpl-edge-manager",
+    JSON.stringify({ ...cached, transferWindowChip: null }),
+  );
+  assert.equal(
+    cachedTeamDiffersFromApi(liveIds, { ...cached, transferWindowChip: null }),
+    false,
+  );
+});
+
 test("refreshConnectedTeamFromApi: writes chip when only chip differs on live overlay", async () => {
   (globalThis.localStorage as { clear: () => void }).clear();
   resetTeamLiveRefreshCooldown();

@@ -69,6 +69,18 @@ export function writeLocalTeamCache(options: {
   localStorage.setItem("fpl-edge-manager", JSON.stringify(options.manager));
 }
 
+function sameTransferWindowChip(
+  cached: TeamApiManagerSnapshot,
+  manager: TeamApiManagerSnapshot,
+): boolean {
+  const key = "transferWindowChip";
+  const cachedHas = Object.prototype.hasOwnProperty.call(cached, key);
+  const managerHas = Object.prototype.hasOwnProperty.call(manager, key);
+  if (!cachedHas && !managerHas) return true;
+  if (cachedHas !== managerHas) return false;
+  return (cached[key] ?? null) === (manager[key] ?? null);
+}
+
 /** True when cached squad/manager diverge from a fresh `/api/fpl/team` payload. */
 export function cachedTeamDiffersFromApi(playerIds: number[], manager: TeamApiManagerSnapshot): boolean {
   const cachedIds = safeParse<number[]>(localStorage.getItem("fpl-edge-squad"), []);
@@ -85,6 +97,11 @@ export function cachedTeamDiffersFromApi(playerIds: number[], manager: TeamApiMa
   // (e.g. after #81 shipped while WC was already active) — otherwise localStorage never
   // picks up manager.chip and Transfers stays out of Wildcard Optimization.
   if ((cached.chip ?? null) !== (manager.chip ?? null)) return true;
+  // transferWindowChip is separate from the published-event chip. A cache written
+  // while Wildcard was active (or that only stored the previous GW's active_chip)
+  // must refresh when the open window no longer has the chip — including when the
+  // field is newly present and null.
+  if (!sameTransferWindowChip(cached, manager)) return true;
   if ((cached.rankingFinance ?? null) !== (manager.rankingFinance ?? null)) return true;
   if ((cached.liveOverlayError ?? null) !== (manager.liveOverlayError ?? null)) return true;
 
