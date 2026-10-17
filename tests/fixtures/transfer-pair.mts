@@ -22,9 +22,12 @@ export function squad():FplPlayer[]{
   ];
 }
 
+/** Start of the current UTC day: GW deadlines stay in the future so this fixture does not age out (was fixed 2026-10-12). */
+export const FIXTURE_BASE_MS=Math.floor(Date.now()/86400000)*86400000;
+
 export function dataFor(players:FplPlayer[],count:number=3):FplData{
-  const events=Array.from({length:count},(_,index)=>({id:index+1,name:`Gameweek ${index+1}`,deadline:new Date(Date.parse("2026-10-12T00:00:00Z")+(index+1)*86400000).toISOString(),current:false,next:index===0,finished:false,dataChecked:false}));
+  const events=Array.from({length:count},(_,index)=>({id:index+1,name:`Gameweek ${index+1}`,deadline:new Date(FIXTURE_BASE_MS+(index+1)*86400000).toISOString(),current:false,next:index===0,finished:false,dataChecked:false}));
   const clubIds=[...new Set(players.map(player=>player.teamId))];
   const fixtures=events.flatMap(event=>clubIds.map((teamId,index)=>({id:event.id*1000+index,event:event.id,teamH:teamId,teamA:1000+teamId,teamHDifficulty:3,teamADifficulty:3,finished:false,kickoff:null,started:false,teamHScore:null,teamAScore:null})));
-  return{updatedAt:"2026-10-12T00:00:00Z",source:"test",seasonStatsThrough:0,players,fixtures,events,teams:clubIds.map(id=>({id,name:`Team ${id}`,short:`T${id}`})),rules};
+  return{updatedAt:new Date(FIXTURE_BASE_MS).toISOString(),source:"test",seasonStatsThrough:0,players,fixtures,events,teams:clubIds.map(id=>({id,name:`Team ${id}`,short:`T${id}`})),rules};
 }

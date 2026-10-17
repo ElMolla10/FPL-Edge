@@ -8,7 +8,7 @@ import { validateTransfersPayload } from "../app/lib/fpl-bot/validate.ts";
 import { compareFreeTransferBundles } from "../app/lib/fpl-bot/two-transfers.ts";
 import type { BotMyTeam } from "../app/lib/fpl-bot/types.ts";
 import { generateRouteOpeningActions } from "../app/lib/transfer-routes.ts";
-import { dataFor } from "./fixtures/transfer-pair.mts";
+import { FIXTURE_BASE_MS, dataFor } from "./fixtures/transfer-pair.mts";
 import { botD1 } from "./helpers/bot-d1.mts";
 import { importBotKey } from "../app/lib/fpl-bot/crypto.ts";
 import { storeBotBootstrap } from "../app/lib/fpl-bot/store.ts";
@@ -220,7 +220,7 @@ test("mocked runner honors env flag, builds one two-leg payload, and makes no wr
   const { input } = fixture();
   const { db } = botD1();
   const tokenKey = Buffer.alloc(32,9).toString("base64");
-  const now = Date.parse("2026-10-12T00:00:00Z");
+  const now = FIXTURE_BASE_MS;
   await storeBotBootstrap(db,await importBotKey(tokenKey), { refreshToken:"fake-refresh",accessToken:"fake-access",accessExpiresAtMs:Date.now()+3_600_000 }, "4242",now);
   const calls: string[]=[];
   const elements = input.data.players.map(p=>({ id:p.id,element_type:p.positionId,team:p.teamId,status:p.status,

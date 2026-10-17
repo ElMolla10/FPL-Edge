@@ -161,6 +161,17 @@ export type WildcardExpiryValue = {
   horizon: number[];
 };
 
+/** Every-GW Triple Captain log line: the projection, the bar and the outcome (logged for shadow analysis too). */
+function tcCheckReason(lineup: { captainXpts: number; captainEligible: boolean }, tcOk: boolean, canTC: boolean, chip: PickChip, pending: string | null, newChipStep: boolean): string {
+  const head = `triple captain check: captain ${lineup.captainXpts.toFixed(1)} xPts vs bar ${CHIP_GUARDS.tripleCaptainMinXpts}${lineup.captainEligible ? "" : " (captain not armband-eligible)"}`;
+  if (chip === "3xc") return `${head} - TC plays`;
+  if (!canTC) return `${head} - not available (TC already used / outside its window)`;
+  if (chip === "bboost") return `${head} - not played (bboost is this GW's chip)`;
+  if (!tcOk) return `${head} - below the bar, not played`;
+  if (pending && pending !== "3xc") return `${head} - not played (${pending} is pending this GW)`;
+  return `${head} - clears the bar but not played${newChipStep ? "" : " (final window never starts a new chip)"}`;
+}
+
 /**
  * Wildcard value for the expiry rule (P1). The annealer (optimize(), Draft Lab "Build best squad") maximises the
  * risk-adjusted objective from cheapest() restarts, so its squad can score FEWER raw points than the current squad;
@@ -607,13 +618,24 @@ export function planGameweek(input: PlanInput): BotPlan {
           }
         }
       }
+      // Any-week TC: when no other chip was chosen above (scheduled / pending / expiry), play TC in any GW whose chosen
+      // captain clears the normal bar. Same tcOk test as the scheduled path, so activation and cancellation agree.
+      // A pending non-TC chip (even one just cancelled above) blocks it this tick: one chip per GW, and the validator
+      // rejects a payload that swaps chips; a later tick re-checks once FPL no longer shows that chip pending.
+      if (!lineupChip && !pending && canTC && tcOk) {
+        lineupChip = "3xc";
+        reasons.push(`any-week TC: captain clears the ${CHIP_GUARDS.tripleCaptainMinXpts}-xPts bar in GW${event.id}${scheduled === "3xc" ? "" : " (not scheduled by the chip portfolio)"}`);
+      }
     } else if ((lineupChip === "bboost" || lineupChip === "3xc") && !keepPending(lineupChip)) {
       reasons.push(cancelReason(lineupChip));
       lineupChip = null;
     } else if ((lineupChip === "bboost" && urgent("bboost") && !bbOk) || (lineupChip === "3xc" && urgent("3xc") && !tcOk)) {
       reasons.push(`expiry rule: keeping ${lineupChip} (below the normal threshold, no late news against it)`);
     }
+    reasons.push(tcCheckReason(lineup, tcOk, canTC, lineupChip, pending, allowNewTeamChip));
     if (lineupChip) reasons.push(`${lineupChip === "bboost" ? "bench boost" : "triple captain"} (${lineupChip === "bboost" ? `bench ${lineup.benchXpts.toFixed(1)} xPts, net ${lineup.benchNetXpts.toFixed(1)} after autosubs` : `captain ${lineup.captainXpts.toFixed(1)} xPts`})`);
+  } else if (!pre) {
+    reasons.push(`triple captain check: captain ${lineup.captainXpts.toFixed(1)} xPts vs bar ${CHIP_GUARDS.tripleCaptainMinXpts} - not considered (${transferChip || transferChipActive ? `${transferChip ?? pending} is this GW's chip` : "chip policy none"})`);
   }
   const captain = byId.get(lineup.captainId);
   const vice = byId.get(lineup.viceId);
